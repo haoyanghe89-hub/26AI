@@ -31,7 +31,8 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
   background:
     radial-gradient(circle at top left, rgba(77, 119, 93, 0.16), transparent 34rem),
     linear-gradient(145deg, #f7f8f4 0%, #e8eee7 48%, #dfe8e8 100%);
@@ -43,8 +44,10 @@ button {
   gap: 18px;
   padding: 22px;
   border-right: 1px solid rgba(23, 32, 26, 0.1);
-  background: rgba(246, 248, 244, 0.82);
+  background: rgba(246, 248, 244, 0.95);
   backdrop-filter: blur(24px);
+  height: 100vh;
+  overflow-y: auto;
 }
 
 .brand {
@@ -245,7 +248,8 @@ button {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   min-width: 0;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .topbar {
@@ -295,9 +299,11 @@ button {
 .messages {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   padding: 32px clamp(18px, 8vw, 96px);
   overflow-y: auto;
+  flex: 1;
+  background: transparent;
 }
 
 .empty-state {
@@ -335,6 +341,7 @@ button {
   grid-template-columns: 36px minmax(0, 760px);
   gap: 12px;
   width: 100%;
+  margin-bottom: 4px;
 }
 
 .message-row.user {
@@ -367,22 +374,159 @@ button {
   font-weight: 800;
 }
 
+/* --- Markdown 消息排版及内容美化紧凑样式 --- */
 .message-bubble {
   min-width: 0;
   border: 1px solid rgba(52, 96, 78, 0.12);
   border-radius: 8px;
-  padding: 15px 17px;
+  padding: 12px 16px; /* 更紧凑的内边距 */
   background: rgba(255, 255, 255, 0.58);
   box-shadow: 0 12px 28px rgba(23, 32, 26, 0.06);
 }
 
-.message-bubble p {
-  margin: 0;
-  overflow-wrap: anywhere;
+.message-content {
+  line-height: 1.65;
   white-space: pre-wrap;
-  line-height: 1.75;
+  word-break: break-word;
+  margin: 0;
+  color: #17201a;
 }
 
+.message-content p {
+  margin: 0.65em 0; /* 减小段落间距 */
+}
+
+.message-content h1, 
+.message-content h2, 
+.message-content h3 {
+  margin: 1.2em 0 0.6em;
+  font-weight: 700;
+  color: #17201a;
+}
+
+.message-content ul, 
+.message-content ol {
+  padding-left: 1.5em;
+  margin: 0.6em 0;
+}
+
+.message-content li {
+  margin: 0.25em 0;
+}
+
+/* 内联代码优化 */
+.message-content code {
+  background: rgba(23, 32, 26, 0.06);
+  padding: 0.15em 0.35em;
+  border-radius: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  font-size: 0.85em;
+  color: #2d5848;
+}
+
+/* 代码块更紧凑且应用暗色系风格 */
+.code-block-wrapper {
+  margin: 12px 0;
+  border: 1px solid rgba(23, 32, 26, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e2621; /* 统一暗色背景以突出代码块 */
+}
+
+.code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.06); /* 稍微提亮头部 */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 12px;
+  font-weight: 600;
+  color: #a3b5a8;
+}
+
+.language {
+  font-family: ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.code-header .el-button {
+  color: #a3b5a8;
+}
+
+.code-header .el-button:hover,
+.code-header .el-button:focus {
+  color: #fff;
+  background: transparent;
+}
+
+.code-block-wrapper pre {
+  margin: 0;
+  padding: 12px 16px;
+  background: transparent;
+  color: #e8f0e8;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.5;
+  border-radius: 0 0 8px 8px;
+}
+
+.code-block-wrapper code {
+  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  white-space: pre;
+}
+
+/* 消息操作按钮 */
+.message-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(23, 32, 26, 0.08);
+  text-align: right;
+}
+
+.message-actions .el-button {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* 附件相关样式 */
+.file-input {
+  display: none;
+}
+
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 900px;
+  margin: 0 auto 10px;
+}
+
+.attachment-list button,
+.attachment-list span {
+  min-height: 30px;
+  border: 1px solid rgba(52, 96, 78, 0.16);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: #275141;
+  background: #edf6ef;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.attachment-list button span {
+  min-height: auto;
+  border: 0;
+  padding: 0 0 0 8px;
+  background: transparent;
+}
+
+.attachment-list.compact {
+  margin: 0 0 10px;
+}
+
+/* 输入区域 */
 .composer-wrap {
   padding: 14px clamp(18px, 8vw, 96px) 24px;
   border-top: 1px solid rgba(23, 32, 26, 0.08);
@@ -491,41 +635,6 @@ button {
   background: #f8faf7;
   outline: none;
   line-height: 1.45;
-}
-
-.file-input {
-  display: none;
-}
-
-.attachment-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: 900px;
-  margin: 0 auto 10px;
-}
-
-.attachment-list button,
-.attachment-list span {
-  min-height: 30px;
-  border: 1px solid rgba(52, 96, 78, 0.16);
-  border-radius: 999px;
-  padding: 6px 10px;
-  color: #275141;
-  background: #edf6ef;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.attachment-list button span {
-  min-height: auto;
-  border: 0;
-  padding: 0 0 0 8px;
-  background: transparent;
-}
-
-.attachment-list.compact {
-  margin: 0 0 10px;
 }
 
 .error-message {
