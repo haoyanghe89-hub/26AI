@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="t1-bg" x1="4" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#17201a" />
+      <stop offset="0.35" stop-color="#1f3328" />
+      <stop offset="0.68" stop-color="#34604e" />
+      <stop offset="1" stop-color="#8a6b38" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#t1-bg)" />
+  <rect
+    x="0.5"
+    y="0.5"
+    width="31"
+    height="31"
+    rx="7.5"
+    stroke="rgba(255,255,255,0.12)"
+    fill="none"
+  />
+  <g fill="#f8fbf7">
+    <!-- T：顶横 + 中竖，与界面 .logo-mark 一致 -->
+    <path d="M5 7.5h12.5v3H11.8v14H8.7v-14H5v-3z" />
+    <!-- 1：斜顶 + 竖画 -->
+    <path d="M19.8 7l3.8 2.4v15.1h-3.2V11.5l-1.6-.9L19.8 7z" />
+  </g>
+</svg>

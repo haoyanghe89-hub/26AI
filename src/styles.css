@@ -138,7 +138,7 @@ button {
     0 12px 40px rgba(23, 32, 26, 0.22),
     0 2px 0 rgba(255, 255, 255, 0.06) inset;
   font-weight: 800;
-  letter-spacing: -0.04em;
+  letter-spacing: 0.1em;
   transition:
     box-shadow var(--t1-duration) var(--t1-ease),
     transform var(--t1-duration) var(--t1-ease);
