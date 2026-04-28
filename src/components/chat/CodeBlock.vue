@@ -33,6 +33,8 @@ function handleCopy() {
 
 <style scoped>
 .code-block-wrapper {
+  max-width: 100%;
+  min-width: 0;
   margin: 8px 0;
   border: 1px solid rgba(23, 32, 26, 0.16);
   border-radius: 12px;
@@ -47,6 +49,8 @@ function handleCopy() {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
   padding: 6px 12px;
   background: rgba(255, 255, 255, 0.06);
   border-bottom: 1px solid rgba(255, 255, 255, 0.1);
@@ -56,9 +60,47 @@ function handleCopy() {
 }
 
 .language {
+  min-width: 0;
+  overflow: hidden;
   font-family: ui-monospace, monospace;
+  text-overflow: ellipsis;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.code-block-wrapper pre {
+  max-width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: transparent;
+  color: #e8f0e8;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.code-block-wrapper code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  font-variant-ligatures: none;
+  white-space: pre;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar {
+  height: 10px;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-thumb {
+  background: rgba(163, 181, 168, 0.35);
+  border-radius: 999px;
+}
+
+.code-block-wrapper pre::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
 }
 
 :deep(.code-header .el-button) {

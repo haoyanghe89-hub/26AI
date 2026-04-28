@@ -66,12 +66,12 @@ const activeProjectObjectLabel = computed(() =>
 )
 
 const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
-const highlightedActiveFileContent = computed(() =>
-  highlightCode(chat.activeFileContent || '', activeFileLanguage.value),
-)
-const activeFileLineNumbers = computed(() => {
-  const lineCount = String(chat.activeFileContent || '').split('\n').length
-  return Array.from({ length: Math.max(1, lineCount) }, (_, index) => index + 1)
+const activeFilePreviewLines = computed(() => {
+  const lines = String(chat.activeFileContent || '').split('\n')
+  return lines.map((line, index) => ({
+    number: index + 1,
+    html: highlightCode(line, activeFileLanguage.value) || '&nbsp;',
+  }))
 })
 const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
 const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath))
@@ -612,12 +612,12 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           type="textarea"
           resize="none"
         />
-        <pre v-else-if="chat.activeFilePath" class="code-preview line-numbered">
-          <span class="line-number-gutter" aria-hidden="true">
-            <span v-for="line in activeFileLineNumbers" :key="line" class="line-no">{{ line }}</span>
-          </span>
-          <code :class="`language-${activeFileLanguage}`" v-html="highlightedActiveFileContent"></code>
-        </pre>
+        <div v-else-if="chat.activeFilePath" class="code-preview line-numbered">
+          <div v-for="line in activeFilePreviewLines" :key="line.number" class="code-line-row">
+            <span class="line-number-gutter" aria-hidden="true">{{ line.number }}</span>
+            <code :class="`code-line language-${activeFileLanguage}`" v-html="line.html"></code>
+          </div>
+        </div>
         <div v-else class="code-empty">选择文件后在这里预览代码</div>
 
         <pre v-if="chat.activeFileDiff" class="diff-preview">
