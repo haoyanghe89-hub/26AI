@@ -1,0 +1,24 @@
+services:
+  twentys1x:
+    build: .
+    ports:
+      - '8787:8787'
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8787
+      SYSTEM_PROMPT: ${SYSTEM_PROMPT:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      DOUBAO_API_KEY: ${DOUBAO_API_KEY:-}
+      KIMI_API_KEY: ${KIMI_API_KEY:-}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+    volumes:
+      - twentys1x-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  twentys1x-data:

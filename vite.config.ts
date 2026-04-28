@@ -8,6 +8,7 @@ function agentBackendPlugin() {
   return {
     name: 'twentys1x-agent-backend',
     configureServer() {
+      if (process.env.VITEST) return
       if (process.env.AGENT_BACKEND === 'false') return
 
       backend = spawn('node', ['server/index.mjs'], {
@@ -38,6 +39,13 @@ function agentBackendPlugin() {
 
 export default defineConfig({
   plugins: [vue(), agentBackendPlugin()],
+  esbuild: {
+    drop: process.env.NODE_ENV === 'production' ? ['console', 'debugger'] : [],
+  },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+  },
   server: {
     proxy: {
       '/api': {
@@ -47,6 +55,7 @@ export default defineConfig({
     },
   },
   build: {
+    sourcemap: false,
     rollupOptions: {
       output: {
         manualChunks: {

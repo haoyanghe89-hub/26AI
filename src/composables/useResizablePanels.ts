@@ -1,13 +1,22 @@
 import { computed, onBeforeUnmount, onMounted, ref, type Ref } from 'vue'
+import { getStoredString, setStoredString } from '../lib/clientStorage'
 
 type PanelSide = 'left' | 'preview' | 'right'
 
 const PANEL_HANDLE_WIDTH = 8
 const MAIN_MIN_WIDTH = 560
 
-function loadStoredWidth(key: string, fallback: number) {
-  const saved = Number(localStorage.getItem(key) || '')
+function loadStoredWidth(_key: string, fallback: number) {
+  return fallback
+}
+
+async function loadStoredWidthAsync(key: string, fallback: number) {
+  const saved = Number((await getStoredString(key)) || '')
   return Number.isFinite(saved) && saved > 0 ? saved : fallback
+}
+
+function persistPanelWidth(key: string, value: number) {
+  void setStoredString(key, String(value))
 }
 
 function getPanelBounds(containerWidth: number) {
@@ -152,7 +161,7 @@ export function useResizablePanels(
             MAIN_MIN_WIDTH,
         )
         leftSidebarWidth.value = Math.round(Math.min(Math.max(offsetX, leftMin), leftAllowedMax))
-        localStorage.setItem('twentys1x:left-sidebar-width', String(leftSidebarWidth.value))
+        persistPanelWidth('twentys1x:left-sidebar-width', leftSidebarWidth.value)
         return
       }
 
@@ -171,7 +180,7 @@ export function useResizablePanels(
         previewPanelWidth.value = Math.round(
           Math.min(Math.max(previewFromPointer, previewMin), previewAllowedMax),
         )
-        localStorage.setItem('twentys1x:preview-panel-width', String(previewPanelWidth.value))
+        persistPanelWidth('twentys1x:preview-panel-width', previewPanelWidth.value)
         return
       }
 
@@ -185,7 +194,7 @@ export function useResizablePanels(
           MAIN_MIN_WIDTH,
       )
       rightWorkspaceWidth.value = Math.round(Math.min(Math.max(rightFromPointer, rightMin), rightAllowedMax))
-      localStorage.setItem('twentys1x:right-workspace-width', String(rightWorkspaceWidth.value))
+      persistPanelWidth('twentys1x:right-workspace-width', rightWorkspaceWidth.value)
     }
 
     const onUp = () => {
@@ -200,7 +209,21 @@ export function useResizablePanels(
     }
   }
 
+  async function hydrateStoredPanelWidths() {
+    const [left, preview, right] = await Promise.all([
+      loadStoredWidthAsync('twentys1x:left-sidebar-width', leftSidebarWidth.value),
+      loadStoredWidthAsync('twentys1x:preview-panel-width', previewPanelWidth.value),
+      loadStoredWidthAsync('twentys1x:right-workspace-width', rightWorkspaceWidth.value),
+    ])
+
+    leftSidebarWidth.value = left
+    previewPanelWidth.value = preview
+    rightWorkspaceWidth.value = right
+    clampPanelWidths()
+  }
+
   onMounted(() => {
+    void hydrateStoredPanelWidths()
     clampPanelWidths()
     window.addEventListener('resize', clampPanelWidths)
   })

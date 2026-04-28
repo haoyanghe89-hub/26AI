@@ -1,4 +1,8 @@
 import http from 'node:http'
+import { createReadStream } from 'node:fs'
+import { stat } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   analyzeProject,
   buildWorkspaceContext,
@@ -18,6 +22,8 @@ import {
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '127.0.0.1'
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PUBLIC_DIR = path.resolve(__dirname, '../dist')
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
@@ -94,6 +100,13 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && req.url === '/health') {
       sendJson(res, 200, { ok: true })
+      return
+    }
+
+    if (req.method === 'POST' && req.url === '/api/client-errors') {
+      const body = await readJson(req, 64 * 1024)
+      logClientError(body)
+      sendJson(res, 202, { accepted: true })
       return
     }
 
@@ -197,6 +210,11 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method !== 'POST' || req.url !== '/api/chat') {
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        await sendStaticFile(req, res)
+        return
+      }
+
       sendJson(res, 404, { error: 'Not found' })
       return
     }
@@ -449,13 +467,13 @@ async function readProviderResponse(response) {
   }
 }
 
-function readJson(req) {
+function readJson(req, maxBytes = 40 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let raw = ''
 
     req.on('data', (chunk) => {
       raw += chunk
-      if (raw.length > 40 * 1024 * 1024) {
+      if (raw.length > maxBytes) {
         reject(httpError(413, 'Request body too large'))
         req.destroy()
       }
@@ -482,6 +500,90 @@ function setCorsHeaders(res) {
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(payload))
+}
+
+function logClientError(body) {
+  const message = scrubSensitiveText(String(body?.message || 'Unknown client error')).slice(0, 800)
+  const source = String(body?.source || 'client').slice(0, 80)
+  const component = body?.component ? String(body.component).slice(0, 120) : ''
+  const info = body?.info ? String(body.info).slice(0, 200) : ''
+  const stack = body?.stack ? scrubSensitiveText(String(body.stack)).slice(0, 4000) : ''
+
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      type: 'client-error',
+      source,
+      component,
+      info,
+      message,
+      stack,
+      createdAt: new Date().toISOString(),
+    }),
+  )
+}
+
+function scrubSensitiveText(value) {
+  return value
+    .replace(/sk-[A-Za-z0-9_-]{16,}/g, '[redacted-api-key]')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted-token]')
+    .replace(/api[_-]?key["'\s:=]+[A-Za-z0-9._-]+/gi, 'apiKey=[redacted]')
+}
+
+async function sendStaticFile(req, res) {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
+  const requestPath = decodeURIComponent(url.pathname)
+  const safePath = requestPath === '/' ? '/index.html' : requestPath
+  const filePath = path.resolve(PUBLIC_DIR, `.${safePath}`)
+
+  if (!filePath.startsWith(PUBLIC_DIR)) {
+    sendJson(res, 403, { error: 'Forbidden' })
+    return
+  }
+
+  const resolvedPath = (await canReadFile(filePath)) ? filePath : path.join(PUBLIC_DIR, 'index.html')
+  const fileStats = await canReadFile(resolvedPath)
+  if (!fileStats) {
+    sendJson(res, 404, { error: 'Not found' })
+    return
+  }
+
+  res.writeHead(200, {
+    'Content-Type': contentTypeFor(resolvedPath),
+    'Content-Length': String(fileStats.size),
+    'Cache-Control': resolvedPath.includes(`${path.sep}assets${path.sep}`)
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache',
+  })
+
+  if (req.method === 'HEAD') {
+    res.end()
+    return
+  }
+
+  createReadStream(resolvedPath).pipe(res)
+}
+
+async function canReadFile(filePath) {
+  try {
+    const fileStats = await stat(filePath)
+    return fileStats.isFile() ? fileStats : null
+  } catch {
+    return null
+  }
+}
+
+function contentTypeFor(filePath) {
+  const extension = path.extname(filePath).toLowerCase()
+  if (extension === '.css') return 'text/css; charset=utf-8'
+  if (extension === '.html') return 'text/html; charset=utf-8'
+  if (extension === '.ico') return 'image/x-icon'
+  if (extension === '.js') return 'text/javascript; charset=utf-8'
+  if (extension === '.json') return 'application/json; charset=utf-8'
+  if (extension === '.png') return 'image/png'
+  if (extension === '.svg') return 'image/svg+xml'
+  if (extension === '.webp') return 'image/webp'
+  return 'application/octet-stream'
 }
 
 function httpError(status, message, details) {

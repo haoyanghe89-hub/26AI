@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import DOMPurify from 'dompurify'
 import {
   Delete,
+  Download,
   Paperclip,
   Plus,
   Promotion,
@@ -11,7 +12,9 @@ import {
   FolderAdd,
   Files,
   Close,
+  Search,
 } from '@element-plus/icons-vue'
+import { DynamicScroller, DynamicScrollerItem, type DynamicScrollerExposed } from 'vue-virtual-scroller'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
@@ -39,18 +42,26 @@ import MessageBubble from '../components/chat/MessageBubble.vue'
 import SessionItem from '../components/chat/SessionItem.vue'
 import SettingsPanel from '../components/chat/SettingsPanel.vue'
 import { useResizablePanels } from '../composables/useResizablePanels'
-import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
+import {
+  exportSessionMarkdown,
+  exportSessionsJson,
+  normalizeTags,
+  sessionMatchesQuery,
+} from '../lib/sessionManagement'
+import { messagePreviewContent, type ChatMessage, type ProviderId, useChatStore } from '../stores/chat'
 
 const chat = useChatStore()
 const input = ref('')
 const appShellEl = ref<HTMLElement | null>(null)
-const messagesEl = ref<HTMLElement | null>(null)
+const messagesEl = ref<DynamicScrollerExposed<ChatMessage> | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const projectInputEl = ref<HTMLInputElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
 const isWorkspaceCollapsed = ref(false)
 const isEditingFile = ref(false)
+const sessionSearchQuery = ref('')
+const activeSessionTag = ref('')
 
 // 气泡内联编辑状态
 const editingMessageId = ref<string | null>(null)
@@ -65,6 +76,16 @@ const activeProjectLabel = computed(() => chat.activeProject?.name || '普通对
 const activeProjectObjectLabel = computed(() =>
   chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '无项目关联',
 )
+const filteredSessions = computed(() =>
+  chat.sessions.filter((session) => {
+    const matchesTag = !activeSessionTag.value || session.tags?.includes(activeSessionTag.value)
+    return matchesTag && sessionMatchesQuery(session, sessionSearchQuery.value)
+  }),
+)
+const activeSessionTagsText = computed({
+  get: () => chat.activeSession.tags?.join(', ') || '',
+  set: (value: string) => chat.setSessionTags(chat.activeSession.id, normalizeTags(value)),
+})
 
 const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
 const activeFilePreviewLines = computed(() => {
@@ -96,8 +117,7 @@ onMounted(() => {
 
 function scrollToBottom() {
   nextTick(() => {
-    const el = messagesEl.value
-    if (el) el.scrollTop = el.scrollHeight
+    messagesEl.value?.scrollToBottom()
   })
 }
 
@@ -107,6 +127,11 @@ function pickFiles() {
 
 function pickProjectFolder() {
   projectInputEl.value?.click()
+}
+
+function clearSessionFilters() {
+  sessionSearchQuery.value = ''
+  activeSessionTag.value = ''
 }
 
 function selectSession(id: string) {
@@ -223,6 +248,34 @@ async function confirmClear() {
     },
   )
   chat.clearAllSessions()
+}
+
+function exportActiveSessionMarkdown() {
+  downloadText(
+    `${safeFileName(chat.activeSession.title)}.md`,
+    exportSessionMarkdown(chat.activeSession),
+    'text/markdown;charset=utf-8',
+  )
+}
+
+function exportFilteredSessionsJson() {
+  const sessions = filteredSessions.value.length ? filteredSessions.value : chat.sessions
+  downloadText('twentys1x-sessions.json', exportSessionsJson(sessions), 'application/json;charset=utf-8')
+}
+
+function downloadText(fileName: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+function safeFileName(value: string) {
+  const name = value.trim().replace(/[\\/:*?"<>|]+/g, '-')
+  return name || 'session'
 }
 
 function getFileExtension(name: string) {
@@ -433,15 +486,69 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
         />
       </section>
 
+      <section class="session-manager" aria-label="会话管理">
+        <div class="panel-title">
+          <span>会话</span>
+          <small>{{ filteredSessions.length }}/{{ chat.sessions.length }}</small>
+        </div>
+        <el-input
+          v-model="sessionSearchQuery"
+          class="session-search"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索标题、标签、内容"
+        />
+        <div v-if="chat.allSessionTags.length" class="session-tags">
+          <button
+            type="button"
+            class="session-tag-filter"
+            :class="{ active: !activeSessionTag }"
+            @click="activeSessionTag = ''"
+          >
+            全部
+          </button>
+          <button
+            v-for="tag in chat.allSessionTags"
+            :key="tag"
+            type="button"
+            class="session-tag-filter"
+            :class="{ active: activeSessionTag === tag }"
+            @click="activeSessionTag = tag"
+          >
+            {{ tag }}
+          </button>
+        </div>
+        <div class="session-export-actions">
+          <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
+            >导出当前</el-button
+          >
+          <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
+            >导出列表</el-button
+          >
+        </div>
+        <label class="session-tag-editor">
+          <span>当前会话标签</span>
+          <el-input v-model="activeSessionTagsText" size="small" placeholder="用逗号分隔，例如 前端, 修复" />
+        </label>
+      </section>
+
       <nav class="sessions" aria-label="历史会话">
         <SessionItem
-          v-for="session in chat.sessions"
+          v-for="session in filteredSessions"
           :key="session.id"
           :session="session"
           :active="session.id === chat.activeSessionId"
           @select="selectSession"
           @delete="chat.deleteSession"
         />
+        <button
+          v-if="chat.sessions.length && !filteredSessions.length"
+          type="button"
+          class="session-empty-filter"
+          @click="clearSessionFilters"
+        >
+          没有匹配会话，清除筛选
+        </button>
       </nav>
 
       <SettingsPanel
@@ -459,7 +566,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
     </aside>
     <div class="panel-resizer left" title="拖拽调整左侧栏宽度" @mousedown="startResize('left', $event)"></div>
 
-    <main class="chat-area">
+    <main id="main-content" class="chat-area" tabindex="-1">
       <header class="topbar">
         <div>
           <p>当前会话</p>
@@ -471,33 +578,52 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
         </el-tag>
       </header>
 
-      <section ref="messagesEl" class="messages">
-        <div v-if="!chat.visibleMessages.length" class="empty-state">
-          <div class="empty-logo">T1</div>
-          <h2>Twentys1x AI 工作台</h2>
-          <p>
-            选择 AI 供应商并粘贴对应 API Key
-            后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
-          </p>
-        </div>
+      <DynamicScroller
+        ref="messagesEl"
+        class="messages"
+        :items="chat.visibleMessages"
+        key-field="id"
+        :min-item-size="132"
+        aria-label="消息列表"
+        role="log"
+        aria-live="polite"
+      >
+        <template #empty>
+          <div class="empty-state">
+            <div class="empty-logo">T1</div>
+            <h2>Twentys1x AI 工作台</h2>
+            <p>
+              选择 AI 供应商并粘贴对应 API Key
+              后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
+            </p>
+          </div>
+        </template>
 
-        <MessageBubble
-          v-for="message in chat.visibleMessages"
-          :key="message.id"
-          :message="message"
-          :is-sending="chat.isSending"
-          :copied-message-id="copiedMessageId"
-          :copied-code-block="copiedCodeBlock"
-          :is-editing="editingMessageId === message.id"
-          :editing-content="editingContent"
-          @update:editing-content="editingContent = $event"
-          @start-inline-edit="startInlineEdit"
-          @cancel-inline-edit="cancelInlineEdit"
-          @submit-inline-edit="submitInlineEdit"
-          @copy-message="copyMessage"
-          @copy-code-block="copyCodeBlock"
-        />
-      </section>
+        <template #default="{ item: message, active, index }">
+          <DynamicScrollerItem
+            :item="message"
+            :active="active"
+            :index="index"
+            :size-dependencies="[message.content, editingMessageId === message.id, editingContent]"
+            class="message-virtual-item"
+          >
+            <MessageBubble
+              :message="message"
+              :is-sending="chat.isSending"
+              :copied-message-id="copiedMessageId"
+              :copied-code-block="copiedCodeBlock"
+              :is-editing="editingMessageId === message.id"
+              :editing-content="editingContent"
+              @update:editing-content="editingContent = $event"
+              @start-inline-edit="startInlineEdit"
+              @cancel-inline-edit="cancelInlineEdit"
+              @submit-inline-edit="submitInlineEdit"
+              @copy-message="copyMessage"
+              @copy-code-block="copyCodeBlock"
+            />
+          </DynamicScrollerItem>
+        </template>
+      </DynamicScroller>
 
       <section class="composer-wrap">
         <el-alert v-if="chat.errorMessage" class="error-message" type="error" :closable="false" show-icon>

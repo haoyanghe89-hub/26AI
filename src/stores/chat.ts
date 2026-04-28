@@ -9,6 +9,7 @@ import {
   setStoredString,
 } from '../lib/clientStorage'
 import { requestWithRetry } from '../lib/request'
+import { normalizeTags } from '../lib/sessionManagement'
 
 type Role = 'user' | 'assistant'
 export type ProviderId =
@@ -53,6 +54,7 @@ export interface ChatMessage {
 export interface ChatSession {
   id: string
   title: string
+  tags: string[]
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -289,9 +291,18 @@ function createSession(): ChatSession {
   return {
     id: crypto.randomUUID(),
     title: '新的会话',
+    tags: [],
     createdAt: now,
     updatedAt: now,
     messages: [],
+  }
+}
+
+function normalizeSession(value: ChatSession): ChatSession {
+  return {
+    ...value,
+    tags: normalizeTags(value.tags || []),
+    messages: Array.isArray(value.messages) ? value.messages : [],
   }
 }
 
@@ -299,7 +310,7 @@ function loadSessions(): ChatSession[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.sessions)
     const parsed = raw ? JSON.parse(raw) : null
-    if (Array.isArray(parsed) && parsed.length) return parsed
+    if (Array.isArray(parsed) && parsed.length) return parsed.map(normalizeSession)
   } catch {
     localStorage.removeItem(STORAGE_KEYS.sessions)
   }
@@ -329,7 +340,7 @@ async function hydrateJsonRecord(key: string, fallback: Record<string, string>) 
 
 async function hydrateSessions(fallback: ChatSession[]) {
   const stored = await getStoredJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null)
-  return Array.isArray(stored) && stored.length ? stored : fallback
+  return Array.isArray(stored) && stored.length ? stored.map(normalizeSession) : fallback
 }
 
 function readAsDataUrl(file: File) {
@@ -475,6 +486,11 @@ export const useChatStore = defineStore('chat', () => {
   })
 
   const visibleMessages = computed(() => activeSession.value?.messages || [])
+  const allSessionTags = computed(() =>
+    Array.from(new Set(sessions.value.flatMap((session) => session.tags || []))).sort((a, b) =>
+      a.localeCompare(b, 'zh-CN'),
+    ),
+  )
   const activeProject = computed(
     () => projects.value.find((project) => project.id === activeProjectId.value) || null,
   )
@@ -577,6 +593,14 @@ export const useChatStore = defineStore('chat', () => {
     pendingFiles.value = []
     errorMessage.value = ''
     persist(STORAGE_KEYS.activeSession, session.id)
+    saveSessions()
+  }
+
+  function setSessionTags(sessionId: string, tags: string[]) {
+    const session = sessions.value.find((item) => item.id === sessionId)
+    if (!session) return
+    session.tags = normalizeTags(tags)
+    session.updatedAt = new Date().toISOString()
     saveSessions()
   }
 
@@ -992,6 +1016,7 @@ export const useChatStore = defineStore('chat', () => {
     activeSessionId,
     activeSession,
     visibleMessages,
+    allSessionTags,
     pendingFiles,
     providerServerConfigured,
     isSending,
@@ -1020,6 +1045,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteSession,
     setActiveSession,
     clearAllSessions,
+    setSessionTags,
     prepareFiles,
     removePendingFile,
     sendMessage,

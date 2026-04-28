@@ -35,6 +35,9 @@ function handleDelete(event: MouseEvent) {
 <template>
   <button type="button" class="session-item" :class="{ active }" @click="handleSelect">
     <span class="session-title">{{ session.title }}</span>
+    <span v-if="session.tags?.length" class="session-tags-inline">
+      <span v-for="tag in session.tags.slice(0, 3)" :key="tag">{{ tag }}</span>
+    </span>
     <small>{{ formatSessionTime(session.updatedAt) }}</small>
     <el-icon class="delete-session" title="删除会话" @click="handleDelete">
       <Delete />

@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { Check, CopyDocument, Edit } from '@element-plus/icons-vue'
-import DOMPurify from 'dompurify'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
-import { messagePreviewContent, type ChatMessage } from '../../stores/chat'
+import { parseMessageSegments } from '../../lib/messageSegments'
+import { type ChatMessage } from '../../stores/chat'
 import CodeBlock from './CodeBlock.vue'
 
 defineProps<{
@@ -24,86 +24,6 @@ const emit = defineEmits<{
   'copy-message': [messageId: string, content: ChatMessage['content']]
   'copy-code-block': [messageId: string, code: string, blockIndex: number]
 }>()
-
-function parseMessageSegments(content: ChatMessage['content']) {
-  if (!content) return []
-  const text = typeof content === 'string' ? content : messagePreviewContent(content)
-  const segments: Array<{ type: 'text' | 'code'; content: string; language?: string; index?: number }> = []
-
-  const regex = /```([a-zA-Z0-9+#-]*)[ \t]*\n([\s\S]*?)```/g
-  let lastIndex = 0
-  let match: RegExpExecArray | null
-  let codeIndex = 0
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      const textPart = text.substring(lastIndex, match.index).trim()
-      if (textPart) {
-        segments.push({
-          type: 'text',
-          content: formatText(textPart),
-        })
-      }
-    }
-    segments.push({
-      type: 'code',
-      language: match[1] || 'text',
-      content: match[2].trimEnd(),
-      index: codeIndex++,
-    })
-    lastIndex = regex.lastIndex
-  }
-
-  if (lastIndex < text.length) {
-    const remaining = text.substring(lastIndex)
-    const unfinishedRegex = /```([a-zA-Z0-9+#-]*)[ \t]*\n([\s\S]*)$/
-    const unfinishedMatch = unfinishedRegex.exec(remaining)
-
-    if (unfinishedMatch) {
-      if (unfinishedMatch.index > 0) {
-        const textPart = remaining.substring(0, unfinishedMatch.index).trim()
-        if (textPart) {
-          segments.push({
-            type: 'text',
-            content: formatText(textPart),
-          })
-        }
-      }
-      segments.push({
-        type: 'code',
-        language: unfinishedMatch[1] || 'text',
-        content: unfinishedMatch[2],
-        index: codeIndex,
-      })
-    } else {
-      const textPart = remaining.trim()
-      if (textPart) {
-        segments.push({
-          type: 'text',
-          content: formatText(textPart),
-        })
-      }
-    }
-  }
-
-  return segments
-}
-
-function formatText(text: string) {
-  let res = text
-    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-    .replace(/^---$/gm, '<hr>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-
-  res = res.replace(/\n{3,}/g, '\n\n')
-  res = res.replace(/\n*(<h[1-6]>|<hr>)/g, '$1')
-  res = res.replace(/(<\/h[1-6]>|<hr>)\n*/g, '$1')
-  return DOMPurify.sanitize(res)
-}
 </script>
 
 <template>

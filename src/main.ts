@@ -10,9 +10,13 @@ import 'element-plus/theme-chalk/el-option.css'
 import 'element-plus/theme-chalk/el-popper.css'
 import 'element-plus/theme-chalk/el-select.css'
 import 'element-plus/theme-chalk/el-tag.css'
+import 'vue-virtual-scroller/dist/vue-virtual-scroller.css'
 import './styles.css'
 import App from './App.vue'
 import { pinia } from './stores'
 import { router } from './router'
+import { installErrorReporting } from './lib/errorReporting'
 
-createApp(App).use(pinia).use(router).mount('#app')
+const app = createApp(App)
+installErrorReporting(app)
+app.use(pinia).use(router).mount('#app')

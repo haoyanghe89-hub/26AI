@@ -15,6 +15,9 @@
     "lint-staged": "lint-staged",
     "prepare": "husky",
     "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "security:audit": "npm audit --audit-level=moderate --registry=https://registry.npmjs.org",
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
@@ -29,19 +32,23 @@
     "vite": "^7.1.12",
     "vue": "^3.5.22",
     "vue-router": "^4.6.4",
-    "vue-tsc": "^3.2.7"
+    "vue-tsc": "^3.2.7",
+    "vue-virtual-scroller": "^3.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/prismjs": "^1.26.6",
+    "@vue/test-utils": "^2.4.9",
     "eslint": "^10.2.1",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.9.0",
     "globals": "^17.5.0",
     "husky": "^9.1.7",
+    "jsdom": "^29.1.0",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.3",
     "typescript-eslint": "^8.59.1",
+    "vitest": "^4.1.5",
     "vue-eslint-parser": "^10.4.0"
   },
   "lint-staged": {

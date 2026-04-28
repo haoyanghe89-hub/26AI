@@ -1,0 +1,10 @@
+node_modules
+dist
+data/projects
+data/workspace-index.json
+.git
+.github
+.env
+.env.*.local
+*.log
+.DS_Store
