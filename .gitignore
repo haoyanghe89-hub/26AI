@@ -1,0 +1,19 @@
+# 依赖（勿提交，本地用 npm i 安装）
+node_modules
+
+# 构建输出
+dist
+
+# 环境变量
+.env
+.env.*.local
+
+# 日志与缓存
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# 本地/调试
+*.local
