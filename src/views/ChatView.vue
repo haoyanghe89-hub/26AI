@@ -16,8 +16,6 @@ const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const apiKeyInputEl = ref<InstanceType<typeof ElInput> | null>(null)
 const modelSelectEl = ref<InstanceType<typeof ElSelect> | null>(null)
-const composerInputEl = ref<InstanceType<typeof ElInput> | null>(null)
-
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
 
@@ -349,7 +347,7 @@ function formatText(text: string) {
           class="message-row"
           :class="message.role"
         >
-          <div class="avatar">{{ message.role === 'user' ? '你' : 'K' }}</div>
+          <div class="avatar">{{ message.role === 'user' ? '你' : 'T1' }}</div>
           <div class="message-bubble">
             <!-- 附件 -->
             <div v-if="message.attachments?.length" class="attachment-list compact">
@@ -467,7 +465,6 @@ function formatText(text: string) {
         <div class="composer">
           <el-button class="icon-button" :icon="Paperclip" circle title="添加附件" @click="pickFiles" />
           <el-input
-            ref="composerInputEl"
             v-model="input"
             type="textarea"
             resize="vertical"
@@ -541,11 +538,12 @@ function formatText(text: string) {
 
 :deep(.message-content code) {
   background: rgba(23, 32, 26, 0.06);
-  padding: 0.15em 0.35em;
-  border-radius: 4px;
-  font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  font-family: "JetBrains Mono", ui-monospace, "Cascadia Mono", "Segoe UI Mono", monospace;
   font-size: 0.85em;
   color: #2d5848;
+  font-variant-ligatures: none;
 }
 
 /* 降低列表的内部间距 */
@@ -563,11 +561,14 @@ function formatText(text: string) {
    2. 修复代码块外层间隙与样式
    ======================================================== */
 .code-block-wrapper {
-  margin: 8px 0; /* 让代码块完美贴合上下文，不大出间距 */
-  border: 1px solid rgba(23, 32, 26, 0.12);
-  border-radius: 8px;
+  margin: 8px 0;
+  border: 1px solid rgba(23, 32, 26, 0.16);
+  border-radius: 12px;
   overflow: hidden;
-  background: #1e2621;
+  background: linear-gradient(180deg, #222b24 0%, #1a211c 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 12px 32px rgba(0, 0, 0, 0.15);
 }
 
 .code-header {
@@ -640,15 +641,16 @@ function formatText(text: string) {
 }
 
 :deep(.inline-edit-input .el-textarea__inner) {
-  background: #f8faf7;
-  border-color: rgba(52, 96, 78, 0.2);
-  border-radius: 6px;
+  background: linear-gradient(180deg, #f8faf7 0%, #f2f6f3 100%);
+  border-color: rgba(52, 96, 78, 0.18);
+  border-radius: 10px;
   color: #17201a;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
 }
 
 :deep(.inline-edit-input .el-textarea__inner:focus) {
-  border-color: rgba(52, 96, 78, 0.5);
-  box-shadow: 0 0 0 2px rgba(52, 96, 78, 0.1);
+  border-color: rgba(52, 96, 78, 0.45);
+  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
 }
 
 .inline-cancel-btn {
