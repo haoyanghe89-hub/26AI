@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from 'vue'
-import { Delete, Paperclip, Plus, Promotion, CopyDocument, Check, Edit, CircleClose } from '@element-plus/icons-vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
+import { Delete, Paperclip, Plus, Promotion, CopyDocument, Check, Edit, CircleClose, FolderAdd, Files } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
@@ -8,16 +8,20 @@ import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
+import ElTree from 'element-plus/es/components/tree/index.mjs'
 import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
 
 const chat = useChatStore()
 const input = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
+const projectInputEl = ref<HTMLInputElement | null>(null)
 const apiKeyInputEl = ref<InstanceType<typeof ElInput> | null>(null)
 const modelSelectEl = ref<InstanceType<typeof ElSelect> | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
+const isWorkspaceCollapsed = ref(false)
+const isEditingFile = ref(false)
 
 // 气泡内联编辑状态
 const editingMessageId = ref<string | null>(null)
@@ -25,6 +29,14 @@ const editingContent = ref('')
 
 const canSend = computed(() => {
   return chat.isProviderReady && !chat.isSending && (input.value.trim() || chat.pendingFiles.length)
+})
+const activeProjectLabel = computed(() => chat.activeProject?.name || '未选择项目')
+const activeProjectObjectLabel = computed(() =>
+  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '未选择项目',
+)
+
+onMounted(() => {
+  chat.refreshProjects()
 })
 
 function formatSessionTime(value: string) {
@@ -45,6 +57,10 @@ function scrollToBottom() {
 
 function pickFiles() {
   fileInputEl.value?.click()
+}
+
+function pickProjectFolder() {
+  projectInputEl.value?.click()
 }
 
 function selectSession(id: string) {
@@ -68,6 +84,67 @@ async function handleFiles(event: Event) {
   target.value = ''
 }
 
+async function handleProjectFolder(event: Event) {
+  const target = event.target as HTMLInputElement
+  await chat.importProjectFolder(Array.from(target.files || []))
+  target.value = ''
+}
+
+async function analyzeProject() {
+  const analyzed = await chat.analyzeActiveProject()
+  if (analyzed) scrollToBottom()
+}
+
+function handleTreeNodeClick(node: any) {
+  if (node.isDirectory) return
+  isEditingFile.value = false
+  chat.loadProjectFile(node.path)
+}
+
+async function previewAndApplyFileWrite() {
+  const diff = await chat.previewActiveFileDiff()
+  if (!diff) return
+
+  await ElMessageBox.confirm(`<pre class="diff-confirm">${escapeHtml(diff)}</pre>`, '确认应用修改', {
+    confirmButtonText: '应用修改',
+    cancelButtonText: '取消',
+    dangerouslyUseHTMLString: true,
+    customClass: 'military-dialog military-dialog--diff',
+  })
+
+  const applied = await chat.applyActiveFileWrite()
+  if (applied) isEditingFile.value = false
+}
+
+function cancelFileEdit() {
+  chat.editedFileContent = chat.activeFileContent
+  chat.activeFileDiff = ''
+  isEditingFile.value = false
+}
+
+async function confirmDeleteProject(projectId: string, projectName: string) {
+  await ElMessageBox.confirm(
+    `<div class="military-dialog-content"><p>删除后会移除本地导入副本与索引。</p><p class="emphasis">当前操作对象：${escapeHtml(projectName)}（${escapeHtml(projectId)}）</p></div>`,
+    '删除项目',
+    {
+    confirmButtonText: '删除',
+    cancelButtonText: '取消',
+    dangerouslyUseHTMLString: true,
+    customClass: 'military-dialog military-dialog--danger',
+  },
+  )
+  await chat.deleteProject(projectId)
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+}
+
 async function submit() {
   const content = input.value
   input.value = '' // 点击发送后立即清空输入框
@@ -89,12 +166,38 @@ function handleEnter(event: Event | KeyboardEvent) {
 }
 
 async function confirmClear() {
-  await ElMessageBox.confirm('清空后会创建一个新的空会话，历史记录将从本地浏览器移除。', '清空历史', {
+  await ElMessageBox.confirm(
+    `<div class="military-dialog-content"><p>清空后会创建一个新的空会话。</p><p>历史记录将从本地浏览器移除。</p><p class="emphasis">当前操作对象：${activeProjectObjectLabel.value}</p></div>`,
+    '清空历史',
+    {
     confirmButtonText: '清空',
     cancelButtonText: '取消',
-    type: 'warning',
-  })
+    dangerouslyUseHTMLString: true,
+    customClass: 'military-dialog military-dialog--danger',
+  },
+  )
   chat.clearAllSessions()
+}
+
+function getFileExtension(name: string) {
+  const extension = name.includes('.') ? name.split('.').pop() || '' : ''
+  return extension.toLowerCase()
+}
+
+function getFileTypeLabel(name: string) {
+  const ext = getFileExtension(name)
+  if (!ext) return 'FILE'
+  return ext.length > 5 ? ext.slice(0, 5).toUpperCase() : ext.toUpperCase()
+}
+
+function getFileTypeClass(name: string) {
+  const ext = getFileExtension(name)
+  if (['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'].includes(ext)) return 'code'
+  if (['vue', 'html', 'css', 'scss', 'sass', 'less'].includes(ext)) return 'style'
+  if (['json', 'yaml', 'yml', 'toml', 'ini'].includes(ext)) return 'config'
+  if (['md', 'txt'].includes(ext)) return 'doc'
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext)) return 'asset'
+  return 'other'
 }
 
 // ==================== 停止生成功能 ====================
@@ -262,6 +365,50 @@ function formatText(text: string) {
 
       <el-button class="new-chat" type="primary" :icon="Plus" @click="chat.newSession">新会话</el-button>
 
+      <section class="project-panel" aria-label="项目">
+        <div class="panel-title">
+          <span>项目</span>
+          <el-button class="panel-icon-button" :icon="FolderAdd" text title="导入项目文件夹" :loading="chat.isImportingProject" @click="pickProjectFolder" />
+        </div>
+        <div class="project-list">
+          <button
+            v-for="project in chat.projects"
+            :key="project.id"
+            type="button"
+            class="project-item"
+            :class="{ active: project.id === chat.activeProjectId }"
+            @click="chat.setActiveProject(project.id)"
+          >
+            <el-icon><Files /></el-icon>
+            <span>{{ project.name }}</span>
+            <small>{{ project.fileCount }} 文件</small>
+            <el-icon class="delete-project" title="删除项目" @click.stop="confirmDeleteProject(project.id, project.name)">
+              <Delete />
+            </el-icon>
+          </button>
+          <button v-if="!chat.projects.length" type="button" class="project-empty" @click="pickProjectFolder">
+            导入一个项目文件夹
+          </button>
+        </div>
+        <el-button
+          class="analyze-project-button"
+          plain
+          :disabled="!chat.activeProject"
+          :loading="chat.isAnalyzingProject"
+          @click="analyzeProject"
+        >
+          分析项目框架
+        </el-button>
+        <input
+          ref="projectInputEl"
+          class="file-input"
+          type="file"
+          webkitdirectory
+          multiple
+          @change="handleProjectFolder"
+        />
+      </section>
+
       <nav class="sessions" aria-label="历史会话">
         <button
           v-for="session in chat.sessions"
@@ -328,6 +475,9 @@ function formatText(text: string) {
         <div>
           <p>当前会话</p>
           <h1>{{ chat.activeSession.title }}</h1>
+          <div class="active-project-indicator">
+            当前项目：{{ activeProjectObjectLabel }}
+          </div>
         </div>
         <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
           {{ chat.isProviderReady ? `${chat.selectedProvider.name} 已就绪` : '等待 API Key' }}
@@ -462,6 +612,10 @@ function formatText(text: string) {
           </el-tag>
         </div>
 
+        <div class="composer-project-indicator">
+          当前项目：<strong>{{ activeProjectLabel }}</strong>
+        </div>
+
         <div class="composer">
           <el-button class="icon-button" :icon="Paperclip" circle title="添加附件" @click="pickFiles" />
           <el-input
@@ -469,7 +623,7 @@ function formatText(text: string) {
             type="textarea"
             resize="vertical"
             :autosize="{ minRows: 1, maxRows: 6 }"
-            :placeholder="`向 ${chat.selectedProvider.name} 提问...`"
+            :placeholder="`向 ${chat.selectedProvider.name} 提问（当前项目：${activeProjectLabel}）...`"
             @keydown.enter="handleEnter"
           />
           
@@ -499,6 +653,85 @@ function formatText(text: string) {
         </div>
       </section>
     </main>
+
+    <aside class="workspace-panel-right" :class="{ collapsed: isWorkspaceCollapsed }">
+      <header class="workspace-topbar">
+        <div>
+          <p>Workspace</p>
+          <h2>{{ chat.activeProject?.name || '未选择项目' }}</h2>
+        </div>
+        <el-button class="panel-icon-button" text @click="isWorkspaceCollapsed = !isWorkspaceCollapsed">
+          {{ isWorkspaceCollapsed ? '展开' : '收起' }}
+        </el-button>
+      </header>
+
+      <template v-if="!isWorkspaceCollapsed">
+        <section class="file-tree-section">
+          <div class="workspace-section-title">
+            <span>文件树</span>
+            <small v-if="chat.activeProject">{{ chat.activeProject.chunkCount }} 片段</small>
+          </div>
+          <el-tree
+            v-if="chat.activeProjectTree.length"
+            class="project-tree"
+            :data="chat.activeProjectTree"
+            node-key="path"
+            :props="{ label: 'name', children: 'children' }"
+            :highlight-current="true"
+            @node-click="handleTreeNodeClick"
+          >
+            <template #default="{ data }">
+              <span class="tree-node" :class="{ directory: data.isDirectory, file: !data.isDirectory }">
+                <template v-if="data.isDirectory">
+                  <span class="tree-folder-name">{{ data.name }}</span>
+                </template>
+                <template v-else>
+                  <span class="file-type-badge" :class="`type-${getFileTypeClass(data.name)}`">
+                    {{ getFileTypeLabel(data.name) }}
+                  </span>
+                  <span class="tree-file-name">{{ data.name }}</span>
+                </template>
+              </span>
+            </template>
+          </el-tree>
+          <button v-else type="button" class="project-empty" @click="pickProjectFolder">
+            先导入项目文件夹
+          </button>
+        </section>
+
+        <section class="code-preview-section">
+          <div class="workspace-section-title">
+            <span>{{ chat.activeFilePath || '代码预览' }}</span>
+          </div>
+          <div v-if="chat.activeFilePath" class="file-actions">
+            <el-button v-if="!isEditingFile" size="small" plain :icon="Edit" @click="isEditingFile = true">编辑</el-button>
+            <template v-else>
+              <el-button size="small" plain @click="cancelFileEdit">取消</el-button>
+              <el-button
+                size="small"
+                type="primary"
+                :loading="chat.isPreviewingFileDiff || chat.isApplyingFileWrite"
+                @click="previewAndApplyFileWrite"
+              >
+                生成 Diff
+              </el-button>
+            </template>
+          </div>
+
+          <el-input
+            v-if="chat.activeFilePath && isEditingFile"
+            v-model="chat.editedFileContent"
+            class="file-editor"
+            type="textarea"
+            resize="none"
+          />
+          <pre v-else-if="chat.activeFilePath" class="code-preview"><code>{{ chat.activeFileContent }}</code></pre>
+          <div v-else class="code-empty">选择文件后在这里预览代码</div>
+
+          <pre v-if="chat.activeFileDiff" class="diff-preview"><code>{{ chat.activeFileDiff }}</code></pre>
+        </section>
+      </template>
+    </aside>
   </div>
 </template>
 
@@ -514,6 +747,7 @@ function formatText(text: string) {
   color: #17201a;
   font-size: 14px;
 }
+
 
 :deep(.message-content h1), 
 :deep(.message-content h2), 
@@ -618,12 +852,12 @@ function formatText(text: string) {
 }
 
 .stop-button {
-  --el-button-bg-color: #8c4240 !important;
-  --el-button-border-color: #8c4240 !important;
-  --el-button-hover-bg-color: #a45350 !important;
-  --el-button-hover-border-color: #a45350 !important;
-  --el-button-active-bg-color: #723432 !important;
-  --el-button-active-border-color: #723432 !important;
+  --el-button-bg-color: #4f5d3a !important;
+  --el-button-border-color: #4f5d3a !important;
+  --el-button-hover-bg-color: #5f6f48 !important;
+  --el-button-hover-border-color: #5f6f48 !important;
+  --el-button-active-bg-color: #435033 !important;
+  --el-button-active-border-color: #435033 !important;
 }
 
 .inline-edit-box {

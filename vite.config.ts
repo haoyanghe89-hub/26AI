@@ -1,54 +1,48 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { spawn, type ChildProcess } from 'node:child_process'
+
+function agentBackendPlugin() {
+  let backend: ChildProcess | undefined
+
+  return {
+    name: 'twentys1x-agent-backend',
+    configureServer() {
+      if (process.env.AGENT_BACKEND === 'false') return
+
+      backend = spawn('node', ['server/index.mjs'], {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          PORT: process.env.PORT || '8787',
+          HOST: process.env.HOST || '127.0.0.1',
+        },
+      })
+
+      const stopBackend = () => {
+        if (backend && !backend.killed) backend.kill()
+      }
+
+      process.once('exit', stopBackend)
+      process.once('SIGINT', () => {
+        stopBackend()
+        process.exit(0)
+      })
+      process.once('SIGTERM', () => {
+        stopBackend()
+        process.exit(0)
+      })
+    },
+  }
+}
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), agentBackendPlugin()],
   server: {
     proxy: {
-      '/api/openai': {
-        target: 'https://api.openai.com',
+      '/api': {
+        target: 'http://localhost:8787',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/openai/, ''),
-      },
-      '/api/gemini': {
-        target: 'https://generativelanguage.googleapis.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/gemini/, ''),
-      },
-      '/api/xai': {
-        target: 'https://api.x.ai',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/xai/, ''),
-      },
-      '/api/anthropic': {
-        target: 'https://api.anthropic.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/anthropic/, ''),
-      },
-      '/api/deepseek': {
-        target: 'https://api.deepseek.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/deepseek/, ''),
-      },
-      '/api/doubao': {
-        target: 'https://ark.cn-beijing.volces.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/doubao/, ''),
-      },
-      '/api/kimi': {
-        target: 'https://api.moonshot.cn',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/kimi/, ''),
-      },
-      '/api/qwen': {
-        target: 'https://dashscope.aliyuncs.com/compatible-mode',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/qwen/, ''),
-      },
-      '/api/ollama': {
-        target: 'http://localhost:11434',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/ollama/, ''),
       },
     },
   },

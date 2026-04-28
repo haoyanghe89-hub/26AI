@@ -2,7 +2,6 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
 type Role = 'user' | 'assistant'
-type ProviderKind = 'openai-compatible' | 'gemini' | 'claude'
 export type ProviderId =
   | 'openai'
   | 'gemini'
@@ -60,10 +59,33 @@ export interface AiProvider {
   name: string
   keyLabel: string
   keyPlaceholder: string
-  kind: ProviderKind
-  endpoint: string
   models: ProviderModel[]
   needsApiKey: boolean
+}
+
+export interface WorkspaceStatus {
+  indexed: boolean
+  root: string
+  fileCount: number
+  chunkCount: number
+  updatedAt: string | null
+}
+
+export interface ImportedProject {
+  id: string
+  name: string
+  root: string
+  importedAt: string
+  updatedAt: string
+  fileCount: number
+  chunkCount: number
+}
+
+export interface ProjectTreeNode {
+  name: string
+  path: string
+  isDirectory: boolean
+  children?: ProjectTreeNode[]
 }
 
 const STORAGE_KEYS = {
@@ -74,6 +96,7 @@ const STORAGE_KEYS = {
   activeSession: 'twentys1x:active-session',
   models: 'twentys1x:provider-models',
   model: 'twentys1x:kimi-model',
+  activeProject: 'twentys1x:active-project',
 }
 
 export const AI_PROVIDERS: AiProvider[] = [
@@ -82,8 +105,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'ChatGPT / OpenAI',
     keyLabel: 'OpenAI API Key',
     keyPlaceholder: 'sk-...',
-    kind: 'openai-compatible',
-    endpoint: '/api/openai/v1/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'GPT-5.2', value: 'gpt-5.2' },
@@ -98,8 +119,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'Gemini',
     keyLabel: 'Gemini API Key',
     keyPlaceholder: 'AIza...',
-    kind: 'gemini',
-    endpoint: '/api/gemini/v1beta/models',
     needsApiKey: true,
     models: [
       { label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro' },
@@ -112,8 +131,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'Grok / xAI',
     keyLabel: 'xAI API Key',
     keyPlaceholder: 'xai-...',
-    kind: 'openai-compatible',
-    endpoint: '/api/xai/v1/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'Grok 4', value: 'grok-4' },
@@ -126,8 +143,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'Claude / Anthropic',
     keyLabel: 'Anthropic API Key',
     keyPlaceholder: 'sk-ant-...',
-    kind: 'claude',
-    endpoint: '/api/anthropic/v1/messages',
     needsApiKey: true,
     models: [
       { label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
@@ -141,8 +156,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'DeepSeek',
     keyLabel: 'DeepSeek API Key',
     keyPlaceholder: 'sk-...',
-    kind: 'openai-compatible',
-    endpoint: '/api/deepseek/v1/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'DeepSeek Chat', value: 'deepseek-chat' },
@@ -154,8 +167,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: '豆包 / 火山方舟',
     keyLabel: 'ARK API Key',
     keyPlaceholder: '填入火山方舟 API Key',
-    kind: 'openai-compatible',
-    endpoint: '/api/doubao/api/v3/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'Doubao 1.5 Pro', value: 'doubao-1-5-pro-32k-250115', hint: '也可填火山方舟 Endpoint ID' },
@@ -167,8 +178,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'Kimi / Moonshot',
     keyLabel: 'Kimi API Key',
     keyPlaceholder: 'sk-...',
-    kind: 'openai-compatible',
-    endpoint: '/api/kimi/v1/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'Kimi K2.6', value: 'kimi-k2.6' },
@@ -181,8 +190,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: '千问 / 通义千问',
     keyLabel: 'DashScope API Key',
     keyPlaceholder: 'sk-...',
-    kind: 'openai-compatible',
-    endpoint: '/api/qwen/v1/chat/completions',
     needsApiKey: true,
     models: [
       { label: 'Qwen3 Max', value: 'qwen3-max' },
@@ -198,8 +205,6 @@ export const AI_PROVIDERS: AiProvider[] = [
     name: 'Ollama 本地',
     keyLabel: 'Ollama API Key',
     keyPlaceholder: '本地 Ollama 通常无需填写',
-    kind: 'openai-compatible',
-    endpoint: '/api/ollama/v1/chat/completions',
     needsApiKey: false,
     models: [
       { label: 'Llama 3.1', value: 'llama3.1' },
@@ -211,8 +216,6 @@ export const AI_PROVIDERS: AiProvider[] = [
 
 const DEFAULT_PROVIDER: ProviderId = 'kimi'
 const DEFAULT_MODEL = 'kimi-k2.6'
-const SYSTEM_PROMPT =
-  '你是 Twentys1x 的 AI 助手。请用清晰、可靠、友好的方式回答问题，默认使用中文，必要时给出结构化步骤。'
 
 function getProvider(id: ProviderId) {
   return AI_PROVIDERS.find((provider) => provider.id === id) || AI_PROVIDERS.find((provider) => provider.id === DEFAULT_PROVIDER)!
@@ -318,54 +321,6 @@ export function messagePreviewContent(content: MessageContent) {
     .join('\n')
 }
 
-function dataUrlToClaudeImage(part: Extract<MultiModalContent[number], { type: 'image_url' }>) {
-  const match = part.image_url.url.match(/^data:(.*?);base64,(.*)$/)
-  if (!match) return null
-
-  return {
-    type: 'image' as const,
-    source: {
-      type: 'base64' as const,
-      media_type: match[1],
-      data: match[2],
-    },
-  }
-}
-
-function dataUrlToGeminiImage(part: Extract<MultiModalContent[number], { type: 'image_url' }>) {
-  const match = part.image_url.url.match(/^data:(.*?);base64,(.*)$/)
-  if (!match) return null
-
-  return {
-    inlineData: {
-      mimeType: match[1],
-      data: match[2],
-    },
-  }
-}
-
-function toClaudeContent(content: MessageContent) {
-  if (typeof content === 'string') return content
-
-  return content
-    .map((part) => {
-      if (part.type === 'text') return { type: 'text' as const, text: part.text }
-      return dataUrlToClaudeImage(part)
-    })
-    .filter(Boolean)
-}
-
-function toGeminiParts(content: MessageContent) {
-  if (typeof content === 'string') return [{ text: content }]
-
-  return content
-    .map((part) => {
-      if (part.type === 'text') return { text: part.text }
-      return dataUrlToGeminiImage(part)
-    })
-    .filter(Boolean)
-}
-
 export const useChatStore = defineStore('chat', () => {
   const legacyKimiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || ''
   const providerApiKeys = ref<Record<string, string>>({
@@ -381,6 +336,27 @@ export const useChatStore = defineStore('chat', () => {
   const activeSessionId = ref(localStorage.getItem(STORAGE_KEYS.activeSession) || sessions.value[0].id)
   const pendingFiles = ref<PreparedFile[]>([])
   const isSending = ref(false)
+  const isIndexingWorkspace = ref(false)
+  const isImportingProject = ref(false)
+  const isAnalyzingProject = ref(false)
+  const projects = ref<ImportedProject[]>([])
+  const activeProjectId = ref(localStorage.getItem(STORAGE_KEYS.activeProject) || '')
+  const activeProjectTree = ref<ProjectTreeNode[]>([])
+  const activeFilePath = ref('')
+  const activeFileContent = ref('')
+  const editedFileContent = ref('')
+  const activeFileDiff = ref('')
+  const isLoadingProjectTree = ref(false)
+  const isLoadingFile = ref(false)
+  const isPreviewingFileDiff = ref(false)
+  const isApplyingFileWrite = ref(false)
+  const workspaceStatus = ref<WorkspaceStatus>({
+    indexed: false,
+    root: '',
+    fileCount: 0,
+    chunkCount: 0,
+    updatedAt: null,
+  })
   const errorMessage = ref('')
 
   const providers = computed(() => AI_PROVIDERS)
@@ -395,6 +371,7 @@ export const useChatStore = defineStore('chat', () => {
   })
 
   const visibleMessages = computed(() => activeSession.value?.messages || [])
+  const activeProject = computed(() => projects.value.find((project) => project.id === activeProjectId.value) || null)
 
   function saveSessions() {
     persist(STORAGE_KEYS.sessions, JSON.stringify(sessions.value))
@@ -513,7 +490,6 @@ export const useChatStore = defineStore('chat', () => {
     if (!isProviderReady.value || isSending.value || (!cleanText && !files.length)) return false
 
     const session = activeSession.value
-    const provider = selectedProvider.value
     const content = buildUserContent(cleanText, files)
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -540,15 +516,15 @@ export const useChatStore = defineStore('chat', () => {
     session.messages.push(assistantMessage)
 
     try {
-      const response = await callProvider(provider, session.messages)
+      const response = await callChatBackend(session.messages)
 
       if (!response.ok) {
-        const detail = await response.text()
-        throw new Error(detail || `请求失败：${response.status}`)
+        const detail = await response.json().catch(() => null)
+        throw new Error(detail?.error || `请求失败：${response.status}`)
       }
 
       const data = await response.json()
-      assistantMessage.content = extractProviderText(provider, data)
+      assistantMessage.content = data.content || '没有收到有效回复。'
       session.updatedAt = new Date().toISOString()
     } catch (error) {
       assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
@@ -561,96 +537,257 @@ export const useChatStore = defineStore('chat', () => {
     return true
   }
 
-  function authHeaders(provider: AiProvider): Record<string, string> {
-    const key = apiKey.value.trim()
-    if (!provider.needsApiKey || !key) return {}
-    if (provider.kind === 'gemini') return { 'x-goog-api-key': key }
-    if (provider.kind === 'claude') return { 'x-api-key': key, 'anthropic-version': '2023-06-01' }
-    return { Authorization: `Bearer ${key}` }
-  }
-
-  function callProvider(provider: AiProvider, messages: ChatMessage[]) {
-    if (provider.kind === 'gemini') return callGemini(provider, messages)
-    if (provider.kind === 'claude') return callClaude(provider, messages)
-    return callOpenAiCompatible(provider, messages)
-  }
-
-  function callOpenAiCompatible(provider: AiProvider, messages: ChatMessage[]) {
-    return fetch(provider.endpoint, {
+  function callChatBackend(messages: ChatMessage[]) {
+    return fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...authHeaders(provider),
       },
       body: JSON.stringify({
-        model: model.value.trim() || getDefaultModel(provider.id),
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...messages
-            .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
-            .map((message) => ({
-              role: message.role,
-              content: message.content,
-            })),
-        ],
-        ...(provider.id === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
-      }),
-    })
-  }
-
-  function callClaude(provider: AiProvider, messages: ChatMessage[]) {
-    return fetch(provider.endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(provider),
-      },
-      body: JSON.stringify({
-        model: model.value.trim() || getDefaultModel(provider.id),
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
+        providerId: selectedProviderId.value,
+        model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+        apiKey: apiKey.value.trim(),
+        projectId: activeProjectId.value || undefined,
+        useWorkspaceContext: Boolean(activeProject.value || workspaceStatus.value.indexed),
         messages: messages
           .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
           .map((message) => ({
             role: message.role,
-            content: toClaudeContent(message.content),
+            content: message.content,
           })),
       }),
     })
   }
 
-  function callGemini(provider: AiProvider, messages: ChatMessage[]) {
-    const geminiModel = encodeURIComponent(model.value.trim() || getDefaultModel(provider.id))
-    return fetch(`${provider.endpoint}/${geminiModel}:generateContent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...authHeaders(provider),
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: SYSTEM_PROMPT }],
-        },
-        contents: messages
-          .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
-          .map((message) => ({
-            role: message.role === 'assistant' ? 'model' : 'user',
-            parts: toGeminiParts(message.content),
-          })),
-      }),
-    })
+  async function refreshWorkspaceStatus() {
+    try {
+      const response = await fetch('/api/workspace/status')
+      if (!response.ok) return
+      workspaceStatus.value = await response.json()
+    } catch {
+      // 后端未启动时不阻塞聊天界面。
+    }
   }
 
-  function extractProviderText(provider: AiProvider, data: any) {
-    if (provider.kind === 'gemini') {
-      return data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('') || '没有收到有效回复。'
+  async function refreshProjects() {
+    try {
+      const response = await fetch('/api/projects')
+      if (!response.ok) return
+      const data = await response.json()
+      projects.value = Array.isArray(data.projects) ? data.projects : []
+      if (!activeProjectId.value && projects.value.length) setActiveProject(projects.value[0].id)
+      if (activeProjectId.value && !projects.value.some((project) => project.id === activeProjectId.value)) {
+        setActiveProject(projects.value[0]?.id || '')
+      }
+    } catch {
+      // 后端未启动时不阻塞聊天界面。
     }
+  }
 
-    if (provider.kind === 'claude') {
-      return data.content?.map((part: { text?: string }) => part.text || '').join('') || '没有收到有效回复。'
+  function setActiveProject(projectId: string) {
+    activeProjectId.value = projectId
+    persist(STORAGE_KEYS.activeProject, projectId)
+    activeFilePath.value = ''
+    activeFileContent.value = ''
+    editedFileContent.value = ''
+    activeFileDiff.value = ''
+    if (projectId) refreshActiveProjectTree()
+    else activeProjectTree.value = []
+  }
+
+  async function importProjectFolder(files: File[]) {
+    if (isImportingProject.value || !files.length) return
+
+    isImportingProject.value = true
+    errorMessage.value = ''
+
+    try {
+      const projectFiles = await prepareProjectFiles(files)
+      if (!projectFiles.length) throw new Error('没有可导入的文本/代码文件。')
+
+      const firstPath = projectFiles[0].path
+      const name = firstPath.split('/')[0] || '导入项目'
+      const response = await fetch('/api/projects/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, files: projectFiles }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `导入失败：${response.status}`)
+
+      const project = data.project as ImportedProject
+      projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
+      setActiveProject(project.id)
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '导入项目失败'
+    } finally {
+      isImportingProject.value = false
     }
+  }
 
-    return data.choices?.[0]?.message?.content || '没有收到有效回复。'
+  async function analyzeActiveProject() {
+    const project = activeProject.value
+    if (!project || isAnalyzingProject.value) return false
+
+    isAnalyzingProject.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/analyze`, { method: 'POST' })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `分析失败：${response.status}`)
+
+      const session = activeSession.value
+      session.messages.push({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: data.analysis || '没有生成有效分析。',
+        createdAt: new Date().toISOString(),
+      })
+      session.updatedAt = new Date().toISOString()
+      if (session.title === '新的会话') session.title = `${project.name} 框架分析`.slice(0, 24)
+      saveSessions()
+      return true
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '分析项目失败'
+      return false
+    } finally {
+      isAnalyzingProject.value = false
+    }
+  }
+
+  async function refreshActiveProjectTree() {
+    const project = activeProject.value
+    if (!project || isLoadingProjectTree.value) return
+
+    isLoadingProjectTree.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/tree`)
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `获取目录树失败：${response.status}`)
+      activeProjectTree.value = Array.isArray(data.tree) ? data.tree : []
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '获取目录树失败'
+    } finally {
+      isLoadingProjectTree.value = false
+    }
+  }
+
+  async function loadProjectFile(path: string) {
+    const project = activeProject.value
+    if (!project || !path || isLoadingFile.value) return
+
+    isLoadingFile.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`)
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `读取文件失败：${response.status}`)
+      activeFilePath.value = path
+      activeFileContent.value = data.content || ''
+      editedFileContent.value = activeFileContent.value
+      activeFileDiff.value = ''
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '读取文件失败'
+    } finally {
+      isLoadingFile.value = false
+    }
+  }
+
+  async function previewActiveFileDiff() {
+    const project = activeProject.value
+    if (!project || !activeFilePath.value || isPreviewingFileDiff.value) return ''
+
+    isPreviewingFileDiff.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editedFileContent.value, dryRun: true }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `生成 Diff 失败：${response.status}`)
+      activeFileDiff.value = data.diff || ''
+      return activeFileDiff.value
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '生成 Diff 失败'
+      return ''
+    } finally {
+      isPreviewingFileDiff.value = false
+    }
+  }
+
+  async function applyActiveFileWrite() {
+    const project = activeProject.value
+    if (!project || !activeFilePath.value || isApplyingFileWrite.value) return false
+
+    isApplyingFileWrite.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: editedFileContent.value, dryRun: false }),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `写入失败：${response.status}`)
+      activeFileContent.value = editedFileContent.value
+      activeFileDiff.value = data.diff || ''
+      await refreshProjects()
+      await refreshActiveProjectTree()
+      return true
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '写入文件失败'
+      return false
+    } finally {
+      isApplyingFileWrite.value = false
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    if (!projectId) return false
+
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `删除失败：${response.status}`)
+      projects.value = projects.value.filter((project) => project.id !== projectId)
+      if (activeProjectId.value === projectId) setActiveProject(projects.value[0]?.id || '')
+      return true
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '删除项目失败'
+      return false
+    }
+  }
+
+  async function indexCurrentWorkspace() {
+    if (isIndexingWorkspace.value) return
+
+    isIndexingWorkspace.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch('/api/workspace/index', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `索引失败：${response.status}`)
+      workspaceStatus.value = data
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '索引项目失败'
+    } finally {
+      isIndexingWorkspace.value = false
+    }
   }
 
   return {
@@ -667,6 +804,22 @@ export const useChatStore = defineStore('chat', () => {
     visibleMessages,
     pendingFiles,
     isSending,
+    isIndexingWorkspace,
+    isImportingProject,
+    isAnalyzingProject,
+    isLoadingProjectTree,
+    isLoadingFile,
+    isPreviewingFileDiff,
+    isApplyingFileWrite,
+    projects,
+    activeProjectId,
+    activeProject,
+    activeProjectTree,
+    activeFilePath,
+    activeFileContent,
+    editedFileContent,
+    activeFileDiff,
+    workspaceStatus,
     errorMessage,
     setProvider,
     setApiKey,
@@ -678,5 +831,82 @@ export const useChatStore = defineStore('chat', () => {
     prepareFiles,
     removePendingFile,
     sendMessage,
+    refreshWorkspaceStatus,
+    refreshProjects,
+    indexCurrentWorkspace,
+    importProjectFolder,
+    setActiveProject,
+    analyzeActiveProject,
+    refreshActiveProjectTree,
+    loadProjectFile,
+    previewActiveFileDiff,
+    applyActiveFileWrite,
+    deleteProject,
   }
 })
+
+const PROJECT_FILE_EXTENSIONS = new Set([
+  '.c',
+  '.cpp',
+  '.css',
+  '.csv',
+  '.go',
+  '.html',
+  '.java',
+  '.js',
+  '.json',
+  '.jsx',
+  '.md',
+  '.mjs',
+  '.py',
+  '.rs',
+  '.scss',
+  '.sh',
+  '.sql',
+  '.svg',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.vue',
+  '.xml',
+  '.yaml',
+  '.yml',
+])
+
+async function prepareProjectFiles(files: File[]) {
+  const maxBytes = 256 * 1024
+  const maxFiles = 1000
+  const prepared: Array<{ path: string; text: string; size: number; type: string; lastModified: number }> = []
+
+  for (const file of files.slice(0, maxFiles)) {
+    const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, '/')
+    if (!isProjectFilePath(relativePath)) continue
+    if (file.size > maxBytes) continue
+
+    prepared.push({
+      path: relativePath,
+      text: await readAsText(file),
+      size: file.size,
+      type: file.type || 'text/plain',
+      lastModified: file.lastModified,
+    })
+  }
+
+  return prepared
+}
+
+function isProjectFilePath(value: string) {
+  const normalized = value.toLowerCase()
+  if (
+    normalized.includes('/node_modules/') ||
+    normalized.includes('/dist/') ||
+    normalized.includes('/.git/') ||
+    normalized.includes('/coverage/')
+  ) {
+    return false
+  }
+
+  if (normalized.endsWith('/package-lock.json')) return false
+  const dotIndex = normalized.lastIndexOf('.')
+  return dotIndex === -1 ? normalized.endsWith('/.gitignore') : PROJECT_FILE_EXTENSIONS.has(normalized.slice(dotIndex))
+}
