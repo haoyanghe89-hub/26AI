@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue'
+import DOMPurify from 'dompurify'
 import {
   Delete,
   Paperclip,
@@ -88,6 +89,8 @@ const {
 })
 
 onMounted(() => {
+  chat.hydrateClientState()
+  chat.refreshProviderServerConfig()
   chat.refreshProjects()
 })
 
@@ -261,7 +264,7 @@ function highlightCode(code: string, language: string) {
   const grammar = Prism.languages[language]
   if (!safeCode) return ''
   if (!grammar) return escapeHtml(safeCode)
-  return Prism.highlight(safeCode, grammar, language)
+  return DOMPurify.sanitize(Prism.highlight(safeCode, grammar, language))
 }
 
 function closeCodePreview() {

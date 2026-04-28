@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick, ref } from 'vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
@@ -19,6 +20,19 @@ const emit = defineEmits<{
   'select-model': [value: string]
   'clear-history': []
 }>()
+
+const providerSelectRef = ref<InstanceType<typeof ElSelect> | null>(null)
+const modelSelectRef = ref<InstanceType<typeof ElSelect> | null>(null)
+
+function handleProviderChange(value: string) {
+  emit('select-provider', value)
+  nextTick(() => providerSelectRef.value?.blur())
+}
+
+function handleModelChange(value: string) {
+  emit('select-model', value)
+  nextTick(() => modelSelectRef.value?.blur())
+}
 </script>
 
 <template>
@@ -26,10 +40,11 @@ const emit = defineEmits<{
     <label>
       <span>AI 供应商</span>
       <el-select
+        ref="providerSelectRef"
         :model-value="selectedProviderId"
-        filterable
+        :reserve-keyword="false"
         popper-class="military-green-select-dropdown"
-        @change="(value) => emit('select-provider', String(value))"
+        @change="(value) => handleProviderChange(String(value))"
       >
         <el-option
           v-for="provider in providers"
@@ -54,13 +69,15 @@ const emit = defineEmits<{
     <label>
       <span>模型</span>
       <el-select
+        ref="modelSelectRef"
         :model-value="model"
         filterable
         allow-create
         default-first-option
+        :reserve-keyword="false"
         placeholder="选择或输入模型"
         popper-class="military-green-select-dropdown"
-        @update:model-value="(value: string) => emit('select-model', value)"
+        @update:model-value="handleModelChange"
       >
         <el-option
           v-for="item in currentModelOptions"

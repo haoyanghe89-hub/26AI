@@ -1,5 +1,14 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import {
+  getSecureJson,
+  getStoredJson,
+  getStoredString,
+  setSecureJson,
+  setStoredJson,
+  setStoredString,
+} from '../lib/clientStorage'
+import { requestWithRetry } from '../lib/request'
 
 type Role = 'user' | 'assistant'
 export type ProviderId =
@@ -27,6 +36,7 @@ export interface PreparedFile {
   name: string
   type: string
   size: number
+  hash: string
   kind: 'image' | 'text'
   dataUrl?: string
   text?: string
@@ -36,7 +46,7 @@ export interface ChatMessage {
   id: string
   role: Role
   content: MessageContent
-  attachments?: Array<Pick<PreparedFile, 'id' | 'name' | 'kind' | 'size' | 'type'>>
+  attachments?: Array<Pick<PreparedFile, 'id' | 'name' | 'kind' | 'size' | 'type' | 'hash'>>
   createdAt: string
 }
 
@@ -98,6 +108,48 @@ const STORAGE_KEYS = {
   model: 'twentys1x:kimi-model',
   activeProject: 'twentys1x:active-project',
 }
+
+const MAX_MESSAGE_CHARS = 12000
+const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+const MAX_ATTACHMENT_TEXT_CHARS = 20000
+const ALLOWED_ATTACHMENT_TYPES = new Set([
+  'application/json',
+  'application/pdf',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/csv',
+  'text/markdown',
+  'text/plain',
+])
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
+  '.c',
+  '.cpp',
+  '.css',
+  '.csv',
+  '.go',
+  '.html',
+  '.java',
+  '.js',
+  '.json',
+  '.jsx',
+  '.md',
+  '.mjs',
+  '.py',
+  '.rs',
+  '.scss',
+  '.sh',
+  '.sql',
+  '.svg',
+  '.ts',
+  '.tsx',
+  '.txt',
+  '.vue',
+  '.xml',
+  '.yaml',
+  '.yml',
+])
 
 export const AI_PROVIDERS: AiProvider[] = [
   {
@@ -218,7 +270,10 @@ const DEFAULT_PROVIDER: ProviderId = 'kimi'
 const DEFAULT_MODEL = 'kimi-k2.6'
 
 function getProvider(id: ProviderId) {
-  return AI_PROVIDERS.find((provider) => provider.id === id) || AI_PROVIDERS.find((provider) => provider.id === DEFAULT_PROVIDER)!
+  return (
+    AI_PROVIDERS.find((provider) => provider.id === id) ||
+    AI_PROVIDERS.find((provider) => provider.id === DEFAULT_PROVIDER)!
+  )
 }
 
 function getDefaultModel(providerId: ProviderId) {
@@ -253,7 +308,7 @@ function loadSessions(): ChatSession[] {
 }
 
 function persist(key: string, value: string) {
-  localStorage.setItem(key, value)
+  void setStoredString(key, value)
 }
 
 function loadJsonRecord(key: string): Record<string, string> {
@@ -266,6 +321,15 @@ function loadJsonRecord(key: string): Record<string, string> {
   }
 
   return {}
+}
+
+async function hydrateJsonRecord(key: string, fallback: Record<string, string>) {
+  return getStoredJson<Record<string, string>>(key, fallback)
+}
+
+async function hydrateSessions(fallback: ChatSession[]) {
+  const stored = await getStoredJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null)
+  return Array.isArray(stored) && stored.length ? stored : fallback
 }
 
 function readAsDataUrl(file: File) {
@@ -284,6 +348,37 @@ function readAsText(file: File) {
     reader.onerror = reject
     reader.readAsText(file)
   })
+}
+
+async function hashFile(file: File) {
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+function isAllowedAttachment(file: File) {
+  if (file.type && ALLOWED_ATTACHMENT_TYPES.has(file.type)) return true
+  const extension = getFileExtension(file.name)
+  return extension ? ALLOWED_ATTACHMENT_EXTENSIONS.has(extension) : false
+}
+
+function getFileExtension(name: string) {
+  const normalized = name.toLowerCase()
+  const dotIndex = normalized.lastIndexOf('.')
+  return dotIndex === -1 ? '' : normalized.slice(dotIndex)
+}
+
+function sanitizeUserInput(value: string) {
+  return value
+    .split('')
+    .filter((char) => {
+      const code = char.charCodeAt(0)
+      return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127)
+    })
+    .join('')
+    .slice(0, MAX_MESSAGE_CHARS)
+    .trim()
 }
 
 function buildUserContent(text: string, files: PreparedFile[]): MessageContent {
@@ -322,6 +417,7 @@ export function messagePreviewContent(content: MessageContent) {
 }
 
 export const useChatStore = defineStore('chat', () => {
+  const hasHydratedClientState = ref(false)
   const legacyKimiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || ''
   const providerApiKeys = ref<Record<string, string>>({
     ...loadJsonRecord(STORAGE_KEYS.apiKeys),
@@ -335,6 +431,7 @@ export const useChatStore = defineStore('chat', () => {
   const sessions = ref<ChatSession[]>(loadSessions())
   const activeSessionId = ref(localStorage.getItem(STORAGE_KEYS.activeSession) || sessions.value[0].id)
   const pendingFiles = ref<PreparedFile[]>([])
+  const providerServerConfigured = ref<Record<string, boolean>>({})
   const isSending = ref(false)
   const isIndexingWorkspace = ref(false)
   const isImportingProject = ref(false)
@@ -363,18 +460,27 @@ export const useChatStore = defineStore('chat', () => {
   const selectedProvider = computed(() => getProvider(selectedProviderId.value))
   const currentModelOptions = computed(() => selectedProvider.value.models)
   const apiKey = computed(() => providerApiKeys.value[selectedProviderId.value] || '')
-  const model = computed(() => providerModels.value[selectedProviderId.value] || getDefaultModel(selectedProviderId.value))
-  const isProviderReady = computed(() => !selectedProvider.value.needsApiKey || Boolean(apiKey.value.trim()))
+  const model = computed(
+    () => providerModels.value[selectedProviderId.value] || getDefaultModel(selectedProviderId.value),
+  )
+  const isProviderReady = computed(
+    () =>
+      !selectedProvider.value.needsApiKey ||
+      Boolean(providerServerConfigured.value[selectedProviderId.value]) ||
+      Boolean(apiKey.value.trim()),
+  )
 
   const activeSession = computed(() => {
     return sessions.value.find((session) => session.id === activeSessionId.value) || sessions.value[0]
   })
 
   const visibleMessages = computed(() => activeSession.value?.messages || [])
-  const activeProject = computed(() => projects.value.find((project) => project.id === activeProjectId.value) || null)
+  const activeProject = computed(
+    () => projects.value.find((project) => project.id === activeProjectId.value) || null,
+  )
 
   function saveSessions() {
-    persist(STORAGE_KEYS.sessions, JSON.stringify(sessions.value))
+    void setStoredJson(STORAGE_KEYS.sessions, sessions.value)
   }
 
   function setApiKey(value: string) {
@@ -382,8 +488,7 @@ export const useChatStore = defineStore('chat', () => {
       ...providerApiKeys.value,
       [selectedProviderId.value]: value,
     }
-    persist(STORAGE_KEYS.apiKeys, JSON.stringify(providerApiKeys.value))
-    if (selectedProviderId.value === 'kimi') persist(STORAGE_KEYS.apiKey, value.trim())
+    void setSecureJson(STORAGE_KEYS.apiKeys, providerApiKeys.value)
   }
 
   function setModel(value: string) {
@@ -391,8 +496,7 @@ export const useChatStore = defineStore('chat', () => {
       ...providerModels.value,
       [selectedProviderId.value]: value.trim() || getDefaultModel(selectedProviderId.value),
     }
-    persist(STORAGE_KEYS.models, JSON.stringify(providerModels.value))
-    if (selectedProviderId.value === 'kimi') persist(STORAGE_KEYS.model, providerModels.value.kimi || DEFAULT_MODEL)
+    void setStoredJson(STORAGE_KEYS.models, providerModels.value)
   }
 
   function setProvider(providerId: ProviderId) {
@@ -400,6 +504,44 @@ export const useChatStore = defineStore('chat', () => {
     if (!providerModels.value[providerId]) setModel(getDefaultModel(providerId))
     errorMessage.value = ''
     persist(STORAGE_KEYS.provider, providerId)
+  }
+
+  async function hydrateClientState() {
+    if (hasHydratedClientState.value) return
+    hasHydratedClientState.value = true
+
+    const [
+      storedApiKeys,
+      storedModels,
+      storedProvider,
+      storedSessions,
+      storedActiveSession,
+      storedActiveProject,
+    ] = await Promise.all([
+      getSecureJson<Record<string, string>>(STORAGE_KEYS.apiKeys, providerApiKeys.value),
+      hydrateJsonRecord(STORAGE_KEYS.models, providerModels.value),
+      getStoredString(STORAGE_KEYS.provider),
+      hydrateSessions(sessions.value),
+      getStoredString(STORAGE_KEYS.activeSession),
+      getStoredString(STORAGE_KEYS.activeProject),
+    ])
+
+    providerApiKeys.value = { ...providerApiKeys.value, ...storedApiKeys }
+    providerModels.value = { ...providerModels.value, ...storedModels }
+    selectedProviderId.value = normalizeProviderId(storedProvider || selectedProviderId.value)
+    sessions.value = storedSessions
+    activeSessionId.value =
+      storedActiveSession && storedSessions.some((session) => session.id === storedActiveSession)
+        ? storedActiveSession
+        : storedSessions[0].id
+    activeProjectId.value = storedActiveProject || activeProjectId.value
+
+    void setSecureJson(STORAGE_KEYS.apiKeys, providerApiKeys.value)
+    void setStoredJson(STORAGE_KEYS.models, providerModels.value)
+    saveSessions()
+    persist(STORAGE_KEYS.provider, selectedProviderId.value)
+    persist(STORAGE_KEYS.activeSession, activeSessionId.value)
+    persist(STORAGE_KEYS.activeProject, activeProjectId.value)
   }
 
   function newSession() {
@@ -439,14 +581,20 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function prepareFiles(files: File[]) {
-    const maxBytes = 4 * 1024 * 1024
     const prepared: PreparedFile[] = []
 
     for (const file of files) {
-      if (file.size > maxBytes) {
-        errorMessage.value = `${file.name} 超过 4MB，当前版本先限制小文件上传。`
+      if (file.size > MAX_UPLOAD_BYTES) {
+        errorMessage.value = `${file.name} 超过 10MB，已跳过。`
         continue
       }
+
+      if (!isAllowedAttachment(file)) {
+        errorMessage.value = `${file.name} 类型不在上传白名单内，已跳过。`
+        continue
+      }
+
+      const hash = await hashFile(file)
 
       if (file.type.startsWith('image/')) {
         prepared.push({
@@ -454,6 +602,7 @@ export const useChatStore = defineStore('chat', () => {
           name: file.name,
           type: file.type,
           size: file.size,
+          hash,
           kind: 'image',
           dataUrl: await readAsDataUrl(file),
         })
@@ -466,8 +615,9 @@ export const useChatStore = defineStore('chat', () => {
         name: file.name,
         type: file.type || 'text/plain',
         size: file.size,
+        hash,
         kind: 'text',
-        text: text.slice(0, 20000),
+        text: text.slice(0, MAX_ATTACHMENT_TEXT_CHARS),
       })
     }
 
@@ -485,9 +635,13 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function sendMessage(text: string) {
-    const cleanText = text.trim()
+    const cleanText = sanitizeUserInput(text)
     const files = [...pendingFiles.value]
     if (!isProviderReady.value || isSending.value || (!cleanText && !files.length)) return false
+
+    if (text.trim().length > MAX_MESSAGE_CHARS) {
+      errorMessage.value = `单次输入最多 ${MAX_MESSAGE_CHARS} 个字符，已自动截断后发送。`
+    }
 
     const session = activeSession.value
     const content = buildUserContent(cleanText, files)
@@ -495,7 +649,14 @@ export const useChatStore = defineStore('chat', () => {
       id: crypto.randomUUID(),
       role: 'user',
       content,
-      attachments: files.map(({ id, name, kind, size, type }) => ({ id, name, kind, size, type })),
+      attachments: files.map(({ id, name, kind, size, type, hash }) => ({
+        id,
+        name,
+        kind,
+        size,
+        type,
+        hash,
+      })),
       createdAt: new Date().toISOString(),
     }
 
@@ -516,7 +677,11 @@ export const useChatStore = defineStore('chat', () => {
     session.messages.push(assistantMessage)
 
     try {
-      const response = await callChatBackend(session.messages)
+      const response = await requestWithRetry(async () => {
+        const result = await callChatBackend(session.messages)
+        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        return result
+      })
 
       if (!response.ok) {
         const detail = await response.json().catch(() => null)
@@ -546,7 +711,9 @@ export const useChatStore = defineStore('chat', () => {
       body: JSON.stringify({
         providerId: selectedProviderId.value,
         model: model.value.trim() || getDefaultModel(selectedProviderId.value),
-        apiKey: apiKey.value.trim(),
+        apiKey: providerServerConfigured.value[selectedProviderId.value]
+          ? undefined
+          : apiKey.value.trim() || undefined,
         projectId: activeProjectId.value || undefined,
         useWorkspaceContext: Boolean(activeProject.value || workspaceStatus.value.indexed),
         messages: messages
@@ -566,6 +733,23 @@ export const useChatStore = defineStore('chat', () => {
       workspaceStatus.value = await response.json()
     } catch {
       // 后端未启动时不阻塞聊天界面。
+    }
+  }
+
+  async function refreshProviderServerConfig() {
+    try {
+      const response = await fetch('/api/providers')
+      if (!response.ok) return
+      const data = await response.json()
+      const providers = data?.providers && typeof data.providers === 'object' ? data.providers : {}
+      providerServerConfigured.value = Object.fromEntries(
+        Object.entries(providers).map(([id, config]) => [
+          id,
+          Boolean((config as { serverConfigured?: boolean }).serverConfigured),
+        ]),
+      )
+    } catch {
+      // 后端未启动时仍允许用户使用本地填写的 API Key。
     }
   }
 
@@ -705,11 +889,14 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editedFileContent.value, dryRun: true }),
-      })
+      const response = await fetch(
+        `/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editedFileContent.value, dryRun: true }),
+        },
+      )
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `生成 Diff 失败：${response.status}`)
       activeFileDiff.value = data.diff || ''
@@ -730,11 +917,14 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editedFileContent.value, dryRun: false }),
-      })
+      const response = await fetch(
+        `/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: editedFileContent.value, dryRun: false }),
+        },
+      )
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `写入失败：${response.status}`)
       activeFileContent.value = editedFileContent.value
@@ -803,6 +993,7 @@ export const useChatStore = defineStore('chat', () => {
     activeSession,
     visibleMessages,
     pendingFiles,
+    providerServerConfigured,
     isSending,
     isIndexingWorkspace,
     isImportingProject,
@@ -821,6 +1012,7 @@ export const useChatStore = defineStore('chat', () => {
     activeFileDiff,
     workspaceStatus,
     errorMessage,
+    hydrateClientState,
     setProvider,
     setApiKey,
     setModel,
@@ -831,6 +1023,7 @@ export const useChatStore = defineStore('chat', () => {
     prepareFiles,
     removePendingFile,
     sendMessage,
+    refreshProviderServerConfig,
     refreshWorkspaceStatus,
     refreshProjects,
     indexCurrentWorkspace,
@@ -879,7 +1072,9 @@ async function prepareProjectFiles(files: File[]) {
   const prepared: Array<{ path: string; text: string; size: number; type: string; lastModified: number }> = []
 
   for (const file of files.slice(0, maxFiles)) {
-    const relativePath = ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/\\/g, '/')
+    const relativePath = (
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+    ).replace(/\\/g, '/')
     if (!isProjectFilePath(relativePath)) continue
     if (file.size > maxBytes) continue
 
@@ -908,5 +1103,7 @@ function isProjectFilePath(value: string) {
 
   if (normalized.endsWith('/package-lock.json')) return false
   const dotIndex = normalized.lastIndexOf('.')
-  return dotIndex === -1 ? normalized.endsWith('/.gitignore') : PROJECT_FILE_EXTENSIONS.has(normalized.slice(dotIndex))
+  return dotIndex === -1
+    ? normalized.endsWith('/.gitignore')
+    : PROJECT_FILE_EXTENSIONS.has(normalized.slice(dotIndex))
 }

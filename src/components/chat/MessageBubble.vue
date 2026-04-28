@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Check, CopyDocument, Edit } from '@element-plus/icons-vue'
+import DOMPurify from 'dompurify'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
@@ -101,7 +102,7 @@ function formatText(text: string) {
   res = res.replace(/\n{3,}/g, '\n\n')
   res = res.replace(/\n*(<h[1-6]>|<hr>)/g, '$1')
   res = res.replace(/(<\/h[1-6]>|<hr>)\n*/g, '$1')
-  return res
+  return DOMPurify.sanitize(res)
 }
 </script>
 

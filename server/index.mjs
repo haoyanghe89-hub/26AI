@@ -107,6 +107,21 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'GET' && req.url === '/api/providers') {
+      sendJson(res, 200, {
+        providers: Object.fromEntries(
+          Object.entries(PROVIDERS).map(([id, provider]) => [
+            id,
+            {
+              needsApiKey: provider.needsApiKey,
+              serverConfigured: !provider.needsApiKey || Boolean(process.env[provider.envKey]),
+            },
+          ]),
+        ),
+      })
+      return
+    }
+
     if (req.method === 'POST' && req.url === '/api/projects/import') {
       const body = await readJson(req)
       sendJson(res, 200, { project: await importProject(body) })
@@ -235,10 +250,14 @@ async function handleChat(body) {
     throw httpError(400, `${provider.envKey} or apiKey is required`)
   }
 
-  const response =
-    await callProvider(providerId, provider, model, messages, apiKey, systemPrompt).catch((error) => {
-      throw httpError(502, `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`)
-    })
+  const response = await callProvider(providerId, provider, model, messages, apiKey, systemPrompt).catch(
+    (error) => {
+      throw httpError(
+        502,
+        `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`,
+      )
+    },
+  )
 
   const data = await readProviderResponse(response)
   if (!response.ok) {
@@ -247,7 +266,12 @@ async function handleChat(body) {
 
   return {
     content: extractProviderText(provider, data),
-    workspaceHits: workspaceHits.map(({ path, startLine, endLine, score }) => ({ path, startLine, endLine, score })),
+    workspaceHits: workspaceHits.map(({ path, startLine, endLine, score }) => ({
+      path,
+      startLine,
+      endLine,
+      score,
+    })),
     raw: data,
   }
 }
@@ -402,7 +426,9 @@ function dataUrlToGeminiImage(part) {
 
 function extractProviderText(provider, data) {
   if (provider.kind === 'gemini') {
-    return data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '没有收到有效回复。'
+    return (
+      data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '没有收到有效回复。'
+    )
   }
 
   if (provider.kind === 'claude') {
@@ -449,7 +475,7 @@ function readJson(req) {
 
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
 }
 
