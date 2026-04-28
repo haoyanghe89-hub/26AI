@@ -15,10 +15,14 @@
     "@vitejs/plugin-vue": "^6.0.2",
     "element-plus": "^2.13.7",
     "pinia": "^3.0.4",
+    "prismjs": "^1.30.0",
     "typescript": "^5.9.3",
     "vite": "^7.1.12",
     "vue": "^3.5.22",
     "vue-router": "^4.6.4",
     "vue-tsc": "^3.2.7"
+  },
+  "devDependencies": {
+    "@types/prismjs": "^1.26.6"
   }
 }

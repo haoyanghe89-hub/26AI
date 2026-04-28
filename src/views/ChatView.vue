@@ -9,6 +9,22 @@ import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
 import ElTree from 'element-plus/es/components/tree/index.mjs'
+import Prism from 'prismjs'
+import 'prismjs/components/prism-clike'
+import 'prismjs/components/prism-markup'
+import 'prismjs/components/prism-css'
+import 'prismjs/components/prism-scss'
+import 'prismjs/components/prism-javascript'
+import 'prismjs/components/prism-jsx'
+import 'prismjs/components/prism-typescript'
+import 'prismjs/components/prism-tsx'
+import 'prismjs/components/prism-json'
+import 'prismjs/components/prism-yaml'
+import 'prismjs/components/prism-bash'
+import 'prismjs/components/prism-python'
+import 'prismjs/components/prism-sql'
+import 'prismjs/components/prism-markdown'
+import 'prismjs/components/prism-diff'
 import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
 
 const chat = useChatStore()
@@ -34,6 +50,11 @@ const activeProjectLabel = computed(() => chat.activeProject?.name || '未选择
 const activeProjectObjectLabel = computed(() =>
   chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '未选择项目',
 )
+const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
+const highlightedActiveFileContent = computed(() =>
+  highlightCode(chat.activeFileContent || '', activeFileLanguage.value),
+)
+const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
 
 onMounted(() => {
   chat.refreshProjects()
@@ -182,6 +203,43 @@ async function confirmClear() {
 function getFileExtension(name: string) {
   const extension = name.includes('.') ? name.split('.').pop() || '' : ''
   return extension.toLowerCase()
+}
+
+function detectPrismLanguage(filePath: string) {
+  const extension = getFileExtension(filePath || '')
+  const languageByExt: Record<string, string> = {
+    js: 'javascript',
+    jsx: 'jsx',
+    ts: 'typescript',
+    tsx: 'tsx',
+    mjs: 'javascript',
+    cjs: 'javascript',
+    vue: 'markup',
+    html: 'markup',
+    xml: 'markup',
+    svg: 'markup',
+    css: 'css',
+    scss: 'scss',
+    sass: 'scss',
+    less: 'css',
+    json: 'json',
+    yml: 'yaml',
+    yaml: 'yaml',
+    md: 'markdown',
+    sh: 'bash',
+    bash: 'bash',
+    py: 'python',
+    sql: 'sql',
+  }
+  return languageByExt[extension] || 'markup'
+}
+
+function highlightCode(code: string, language: string) {
+  const safeCode = String(code || '')
+  const grammar = Prism.languages[language]
+  if (!safeCode) return ''
+  if (!grammar) return escapeHtml(safeCode)
+  return Prism.highlight(safeCode, grammar, language)
 }
 
 function getFileTypeLabel(name: string) {
@@ -725,10 +783,14 @@ function formatText(text: string) {
             type="textarea"
             resize="none"
           />
-          <pre v-else-if="chat.activeFilePath" class="code-preview"><code>{{ chat.activeFileContent }}</code></pre>
+          <pre v-else-if="chat.activeFilePath" class="code-preview">
+            <code :class="`language-${activeFileLanguage}`" v-html="highlightedActiveFileContent"></code>
+          </pre>
           <div v-else class="code-empty">选择文件后在这里预览代码</div>
 
-          <pre v-if="chat.activeFileDiff" class="diff-preview"><code>{{ chat.activeFileDiff }}</code></pre>
+          <pre v-if="chat.activeFileDiff" class="diff-preview">
+            <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
+          </pre>
         </section>
       </template>
     </aside>
