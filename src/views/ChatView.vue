@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
-import { Delete, Paperclip, Plus, Promotion, CopyDocument, Check, Edit, CircleClose, FolderAdd, Files } from '@element-plus/icons-vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { Delete, Paperclip, Plus, Promotion, CopyDocument, Check, Edit, CircleClose, FolderAdd, Files, Close } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
@@ -29,6 +29,7 @@ import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/
 
 const chat = useChatStore()
 const input = ref('')
+const appShellEl = ref<HTMLElement | null>(null)
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const projectInputEl = ref<HTMLInputElement | null>(null)
@@ -46,18 +47,49 @@ const editingContent = ref('')
 const canSend = computed(() => {
   return chat.isProviderReady && !chat.isSending && (input.value.trim() || chat.pendingFiles.length)
 })
-const activeProjectLabel = computed(() => chat.activeProject?.name || '未选择项目')
+
+// === 修改：优化无项目状态的显示文案 ===
+const activeProjectLabel = computed(() => chat.activeProject?.name || '普通对话')
 const activeProjectObjectLabel = computed(() =>
-  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '未选择项目',
+  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '无项目关联',
 )
+
 const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
 const highlightedActiveFileContent = computed(() =>
   highlightCode(chat.activeFileContent || '', activeFileLanguage.value),
 )
+const activeFileLineNumbers = computed(() => {
+  const lineCount = String(chat.activeFileContent || '').split('\n').length
+  return Array.from({ length: Math.max(1, lineCount) }, (_, index) => index + 1)
+})
 const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
+const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath))
+const leftSidebarWidth = ref(loadStoredWidth('twentys1x:left-sidebar-width', 304))
+const rightWorkspaceWidth = ref(loadStoredWidth('twentys1x:right-workspace-width', 380))
+const previewPanelWidth = ref(loadStoredWidth('twentys1x:preview-panel-width', 520))
+const isCodePreviewVisible = ref(false)
+const isDraggingPanels = ref(false)
+const PANEL_HANDLE_WIDTH = 8
+const MAIN_MIN_WIDTH = 560
+
+const appShellStyle = computed(() => ({
+  '--sidebar-left-width': `${leftSidebarWidth.value}px`,
+  '--preview-panel-width': `${isCodePreviewVisible.value ? previewPanelWidth.value : 0}px`,
+  '--preview-handle-width': `${isCodePreviewVisible.value ? PANEL_HANDLE_WIDTH : 0}px`,
+  '--workspace-width': `${rightWorkspaceWidth.value}px`,
+}))
+
+let cleanupDragListeners: (() => void) | null = null
 
 onMounted(() => {
   chat.refreshProjects()
+  clampPanelWidths()
+  window.addEventListener('resize', clampPanelWidths)
+})
+
+onBeforeUnmount(() => {
+  cleanupActiveDrag()
+  window.removeEventListener('resize', clampPanelWidths)
 })
 
 function formatSessionTime(value: string) {
@@ -116,10 +148,12 @@ async function analyzeProject() {
   if (analyzed) scrollToBottom()
 }
 
-function handleTreeNodeClick(node: any) {
+async function handleTreeNodeClick(node: any) {
   if (node.isDirectory) return
   isEditingFile.value = false
-  chat.loadProjectFile(node.path)
+  setCodePreviewVisible(true)
+  await chat.loadProjectFile(node.path)
+  clampPanelWidths()
 }
 
 async function previewAndApplyFileWrite() {
@@ -240,6 +274,165 @@ function highlightCode(code: string, language: string) {
   if (!safeCode) return ''
   if (!grammar) return escapeHtml(safeCode)
   return Prism.highlight(safeCode, grammar, language)
+}
+
+function closeCodePreview() {
+  setCodePreviewVisible(false)
+}
+
+function toggleCodePreview() {
+  if (!canToggleCodePreview.value) return
+  setCodePreviewVisible(!isCodePreviewVisible.value)
+}
+
+function setCodePreviewVisible(visible: boolean) {
+  isCodePreviewVisible.value = visible
+  if (!visible) isEditingFile.value = false
+  clampPanelWidths()
+}
+
+function loadStoredWidth(key: string, fallback: number) {
+  const saved = Number(localStorage.getItem(key) || '')
+  return Number.isFinite(saved) && saved > 0 ? saved : fallback
+}
+
+function getPanelBounds(containerWidth: number) {
+  const leftMin = Math.max(248, Math.round(containerWidth * 0.16))
+  const leftMaxByRatio = Math.min(460, Math.round(containerWidth * 0.34))
+  const rightMin = Math.max(300, Math.round(containerWidth * 0.2))
+  const rightMaxByRatio = Math.min(580, Math.round(containerWidth * 0.42))
+  const previewMin = Math.max(360, Math.round(containerWidth * 0.24))
+  const previewMaxByRatio = Math.min(760, Math.round(containerWidth * 0.48))
+  return { leftMin, leftMaxByRatio, rightMin, rightMaxByRatio, previewMin, previewMaxByRatio }
+}
+
+function clampPanelWidths() {
+  const shell = appShellEl.value
+  if (!shell) return
+  const total = shell.clientWidth
+  if (!total) return
+
+  const { leftMin, leftMaxByRatio, rightMin, rightMaxByRatio, previewMin, previewMaxByRatio } = getPanelBounds(total)
+  const handleCount = isCodePreviewVisible.value ? 3 : 2
+  const usable = total - MAIN_MIN_WIDTH - PANEL_HANDLE_WIDTH * handleCount
+
+  if (isCodePreviewVisible.value && usable <= leftMin + rightMin + previewMin) {
+    isCodePreviewVisible.value = false
+    clampPanelWidths()
+    return
+  }
+
+  const leftMax = Math.max(leftMin, Math.min(leftMaxByRatio, usable - rightMin - (isCodePreviewVisible.value ? previewMin : 0)))
+  const rightMax = Math.max(rightMin, Math.min(rightMaxByRatio, usable - leftMin - (isCodePreviewVisible.value ? previewMin : 0)))
+  leftSidebarWidth.value = Math.round(Math.min(Math.max(leftSidebarWidth.value, leftMin), leftMax))
+  rightWorkspaceWidth.value = Math.round(Math.min(Math.max(rightWorkspaceWidth.value, rightMin), rightMax))
+
+  if (!isCodePreviewVisible.value) return
+
+  const previewMax = Math.max(
+    previewMin,
+    Math.min(previewMaxByRatio, usable - leftSidebarWidth.value - rightWorkspaceWidth.value),
+  )
+  previewPanelWidth.value = Math.round(Math.min(Math.max(previewPanelWidth.value, previewMin), previewMax))
+
+  const overflow = leftSidebarWidth.value + rightWorkspaceWidth.value + previewPanelWidth.value - usable
+  if (overflow > 0) {
+    const previewCanShrink = Math.max(0, previewPanelWidth.value - previewMin)
+    const previewShrink = Math.min(previewCanShrink, overflow)
+    previewPanelWidth.value -= previewShrink
+
+    const remainderAfterPreview = overflow - previewShrink
+    if (remainderAfterPreview > 0) {
+      const rightCanShrink = Math.max(0, rightWorkspaceWidth.value - rightMin)
+      const rightShrink = Math.min(rightCanShrink, remainderAfterPreview)
+      rightWorkspaceWidth.value -= rightShrink
+
+      const remainderAfterRight = remainderAfterPreview - rightShrink
+      if (remainderAfterRight > 0) {
+        const leftCanShrink = Math.max(0, leftSidebarWidth.value - leftMin)
+        const leftShrink = Math.min(leftCanShrink, remainderAfterRight)
+        leftSidebarWidth.value -= leftShrink
+      }
+    }
+  }
+}
+
+function cleanupActiveDrag() {
+  if (cleanupDragListeners) {
+    cleanupDragListeners()
+    cleanupDragListeners = null
+  }
+  isDraggingPanels.value = false
+}
+
+function startResize(side: 'left' | 'preview' | 'right', event: MouseEvent) {
+  const shell = appShellEl.value
+  if (!shell) return
+  event.preventDefault()
+
+  const shellRect = shell.getBoundingClientRect()
+  const total = shellRect.width
+  const { leftMin, leftMaxByRatio, rightMin, rightMaxByRatio, previewMin, previewMaxByRatio } = getPanelBounds(total)
+  const handleCount = isCodePreviewVisible.value ? 3 : 2
+  const usable = total - MAIN_MIN_WIDTH - PANEL_HANDLE_WIDTH * handleCount
+  const leftMax = Math.max(leftMin, Math.min(leftMaxByRatio, usable - rightMin - (isCodePreviewVisible.value ? previewMin : 0)))
+  const rightMax = Math.max(rightMin, Math.min(rightMaxByRatio, usable - leftMin - (isCodePreviewVisible.value ? previewMin : 0)))
+  const previewMax = Math.max(previewMin, Math.min(previewMaxByRatio, usable - leftMin - rightMin))
+
+  isDraggingPanels.value = true
+
+  const onMove = (moveEvent: MouseEvent) => {
+    const offsetX = moveEvent.clientX - shellRect.left
+    if (side === 'left') {
+      const leftAllowedMax = Math.min(
+        leftMax,
+        total -
+          rightWorkspaceWidth.value -
+          (isCodePreviewVisible.value ? previewPanelWidth.value : 0) -
+          PANEL_HANDLE_WIDTH * handleCount -
+          MAIN_MIN_WIDTH,
+      )
+      leftSidebarWidth.value = Math.round(Math.min(Math.max(offsetX, leftMin), leftAllowedMax))
+      localStorage.setItem('twentys1x:left-sidebar-width', String(leftSidebarWidth.value))
+      return
+    }
+
+    if (side === 'preview') {
+      if (!isCodePreviewVisible.value) return
+      const rightSegment = rightWorkspaceWidth.value + PANEL_HANDLE_WIDTH
+      const previewFromPointer = total - offsetX - rightSegment
+      const previewAllowedMax = Math.min(
+        previewMax,
+        total - leftSidebarWidth.value - rightWorkspaceWidth.value - PANEL_HANDLE_WIDTH * handleCount - MAIN_MIN_WIDTH,
+      )
+      previewPanelWidth.value = Math.round(Math.min(Math.max(previewFromPointer, previewMin), previewAllowedMax))
+      localStorage.setItem('twentys1x:preview-panel-width', String(previewPanelWidth.value))
+      return
+    }
+
+    const rightFromPointer = total - offsetX
+    const rightAllowedMax = Math.min(
+      rightMax,
+      total -
+        leftSidebarWidth.value -
+        (isCodePreviewVisible.value ? previewPanelWidth.value : 0) -
+        PANEL_HANDLE_WIDTH * handleCount -
+        MAIN_MIN_WIDTH,
+    )
+    rightWorkspaceWidth.value = Math.round(Math.min(Math.max(rightFromPointer, rightMin), rightAllowedMax))
+    localStorage.setItem('twentys1x:right-workspace-width', String(rightWorkspaceWidth.value))
+  }
+
+  const onUp = () => {
+    cleanupActiveDrag()
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp, { once: true })
+  cleanupDragListeners = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
 }
 
 function getFileTypeLabel(name: string) {
@@ -411,7 +604,7 @@ function formatText(text: string) {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div ref="appShellEl" class="app-shell" :class="{ 'is-resizing': isDraggingPanels }" :style="appShellStyle">
     <aside class="sidebar">
       <div class="brand">
         <div class="logo-mark">T1</div>
@@ -429,6 +622,19 @@ function formatText(text: string) {
           <el-button class="panel-icon-button" :icon="FolderAdd" text title="导入项目文件夹" :loading="chat.isImportingProject" @click="pickProjectFolder" />
         </div>
         <div class="project-list">
+          <!-- === 新增：普通对话（取消关联） === -->
+          <button
+            type="button"
+            class="project-item"
+            :class="{ active: !chat.activeProjectId }"
+            @click="chat.setActiveProject('')"
+          >
+            <el-icon><Promotion /></el-icon>
+            <span>普通对话</span>
+            <small>不关联任何项目</small>
+          </button>
+
+          <!-- 原有的项目列表循环 -->
           <button
             v-for="project in chat.projects"
             :key="project.id"
@@ -527,6 +733,7 @@ function formatText(text: string) {
         <el-button plain @click="confirmClear">清空历史</el-button>
       </div>
     </aside>
+    <div class="panel-resizer left" title="拖拽调整左侧栏宽度" @mousedown="startResize('left', $event)"></div>
 
     <main class="chat-area">
       <header class="topbar">
@@ -670,18 +877,23 @@ function formatText(text: string) {
           </el-tag>
         </div>
 
-        <div class="composer-project-indicator">
-          当前项目：<strong>{{ activeProjectLabel }}</strong>
+        <!-- === 修改：仅在有项目时显示，并添加退出按钮 === -->
+        <div v-if="chat.activeProjectId" class="composer-project-indicator">
+          <span>当前项目：<strong>{{ activeProjectLabel }}</strong></span>
+          <el-button link @click="chat.setActiveProject('')">
+            <el-icon><Close /></el-icon> 退出项目模式
+          </el-button>
         </div>
 
         <div class="composer">
           <el-button class="icon-button" :icon="Paperclip" circle title="添加附件" @click="pickFiles" />
+          <!-- === 修改：动态更新 Placeholder 文案 === -->
           <el-input
             v-model="input"
             type="textarea"
             resize="vertical"
             :autosize="{ minRows: 1, maxRows: 6 }"
-            :placeholder="`向 ${chat.selectedProvider.name} 提问（当前项目：${activeProjectLabel}）...`"
+            :placeholder="chat.activeProjectId ? `向 ${chat.selectedProvider.name} 提问（当前项目：${activeProjectLabel}）...` : `向 ${chat.selectedProvider.name} 提问...`"
             @keydown.enter="handleEnter"
           />
           
@@ -711,6 +923,60 @@ function formatText(text: string) {
         </div>
       </section>
     </main>
+    <div
+      v-if="isCodePreviewVisible"
+      class="panel-resizer preview"
+      title="拖拽调整代码预览宽度"
+      @mousedown="startResize('preview', $event)"
+    ></div>
+
+    <aside v-if="isCodePreviewVisible" class="code-preview-panel">
+      <header class="code-preview-topbar">
+        <div class="code-preview-title">
+          <p>代码预览</p>
+          <h3>{{ chat.activeFilePath || '未选择文件' }}</h3>
+        </div>
+        <el-button class="panel-icon-button" text :icon="Close" title="关闭代码预览" @click="closeCodePreview" />
+      </header>
+
+      <section class="code-preview-body">
+        <div v-if="chat.activeFilePath" class="file-actions">
+          <el-button v-if="!isEditingFile" size="small" plain :icon="Edit" @click="isEditingFile = true">编辑</el-button>
+          <template v-else>
+            <el-button size="small" plain @click="cancelFileEdit">取消</el-button>
+            <el-button
+              size="small"
+              type="primary"
+              :loading="chat.isPreviewingFileDiff || chat.isApplyingFileWrite"
+              @click="previewAndApplyFileWrite"
+            >
+              生成 Diff
+            </el-button>
+          </template>
+        </div>
+
+        <el-input
+          v-if="chat.activeFilePath && isEditingFile"
+          v-model="chat.editedFileContent"
+          class="file-editor"
+          type="textarea"
+          resize="none"
+        />
+        <pre v-else-if="chat.activeFilePath" class="code-preview line-numbered">
+          <span class="line-number-gutter" aria-hidden="true">
+            <span v-for="line in activeFileLineNumbers" :key="line" class="line-no">{{ line }}</span>
+          </span>
+          <code :class="`language-${activeFileLanguage}`" v-html="highlightedActiveFileContent"></code>
+        </pre>
+        <div v-else class="code-empty">选择文件后在这里预览代码</div>
+
+        <pre v-if="chat.activeFileDiff" class="diff-preview">
+          <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
+        </pre>
+      </section>
+    </aside>
+
+    <div class="panel-resizer right" title="拖拽调整 Workspace 宽度" @mousedown="startResize('right', $event)"></div>
 
     <aside class="workspace-panel-right" :class="{ collapsed: isWorkspaceCollapsed }">
       <header class="workspace-topbar">
@@ -718,9 +984,20 @@ function formatText(text: string) {
           <p>Workspace</p>
           <h2>{{ chat.activeProject?.name || '未选择项目' }}</h2>
         </div>
-        <el-button class="panel-icon-button" text @click="isWorkspaceCollapsed = !isWorkspaceCollapsed">
-          {{ isWorkspaceCollapsed ? '展开' : '收起' }}
-        </el-button>
+        <div class="workspace-topbar-actions">
+          <el-button
+            class="panel-icon-button"
+            text
+            :disabled="!canToggleCodePreview"
+            :title="isCodePreviewVisible ? '隐藏代码预览' : '显示代码预览'"
+            @click="toggleCodePreview"
+          >
+            <span class="split-panel-icon" :class="{ collapsed: !isCodePreviewVisible }" aria-hidden="true"></span>
+          </el-button>
+          <el-button class="panel-icon-button" text @click="isWorkspaceCollapsed = !isWorkspaceCollapsed">
+            {{ isWorkspaceCollapsed ? '展开' : '收起' }}
+          </el-button>
+        </div>
       </header>
 
       <template v-if="!isWorkspaceCollapsed">
@@ -757,41 +1034,6 @@ function formatText(text: string) {
           </button>
         </section>
 
-        <section class="code-preview-section">
-          <div class="workspace-section-title">
-            <span>{{ chat.activeFilePath || '代码预览' }}</span>
-          </div>
-          <div v-if="chat.activeFilePath" class="file-actions">
-            <el-button v-if="!isEditingFile" size="small" plain :icon="Edit" @click="isEditingFile = true">编辑</el-button>
-            <template v-else>
-              <el-button size="small" plain @click="cancelFileEdit">取消</el-button>
-              <el-button
-                size="small"
-                type="primary"
-                :loading="chat.isPreviewingFileDiff || chat.isApplyingFileWrite"
-                @click="previewAndApplyFileWrite"
-              >
-                生成 Diff
-              </el-button>
-            </template>
-          </div>
-
-          <el-input
-            v-if="chat.activeFilePath && isEditingFile"
-            v-model="chat.editedFileContent"
-            class="file-editor"
-            type="textarea"
-            resize="none"
-          />
-          <pre v-else-if="chat.activeFilePath" class="code-preview">
-            <code :class="`language-${activeFileLanguage}`" v-html="highlightedActiveFileContent"></code>
-          </pre>
-          <div v-else class="code-empty">选择文件后在这里预览代码</div>
-
-          <pre v-if="chat.activeFileDiff" class="diff-preview">
-            <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
-          </pre>
-        </section>
       </template>
     </aside>
   </div>
