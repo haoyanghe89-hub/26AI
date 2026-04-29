@@ -37,12 +37,15 @@ async function reportClientError(error: unknown, context: Partial<ClientErrorPay
   const payload = normalizeError(error, context)
 
   try {
-    await fetch('/api/client-errors', {
+    const response = await fetch('/api/client-errors', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
       keepalive: true,
     })
+    if (!response.ok && !import.meta.env.DEV) {
+      console.warn(`Client error reporting failed: ${response.status}`)
+    }
   } catch {
     // Error reporting must never interrupt the user flow.
   }

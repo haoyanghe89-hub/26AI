@@ -258,9 +258,12 @@ async function handleChat(body) {
   const projectInstruction = activeProject
     ? `${currentOperationObject}。当前正在查看和操作的项目是「${activeProject.name}」（projectId: ${activeProject.id}）。所有项目分析、文件路径引用、修改建议和工具操作都必须默认针对这个项目；不要把后端宿主项目或其他导入项目当成当前目标。`
     : `${currentOperationObject}。当前未选择导入项目；只有在用户明确要求时才分析宿主工作区。`
+  const requestSystemPrompt = String(body?.systemPrompt || '').trim()
   const systemPrompt = workspaceContext
     ? `${SYSTEM_PROMPT}\n\n${projectInstruction}\n\n你可以使用以下项目检索上下文回答问题。上下文来自当前项目索引，优先根据这些片段给出有文件路径依据的回答；如果上下文不足，请明确说明。\n\n${workspaceContext}`
     : `${SYSTEM_PROMPT}\n\n${projectInstruction}`
+  const runtimeSystemPrompt = requestSystemPrompt ? `${systemPrompt}\n\n${requestSystemPrompt}` : systemPrompt
+  const temperature = normalizeTemperature(body?.temperature)
 
   if (!model) throw httpError(400, 'model is required')
   if (!messages.length) throw httpError(400, 'messages are required')
@@ -268,14 +271,14 @@ async function handleChat(body) {
     throw httpError(400, `${provider.envKey} or apiKey is required`)
   }
 
-  const response = await callProvider(providerId, provider, model, messages, apiKey, systemPrompt).catch(
-    (error) => {
-      throw httpError(
-        502,
-        `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`,
-      )
-    },
-  )
+  const response = await callProvider(providerId, provider, model, messages, apiKey, runtimeSystemPrompt, {
+    temperature,
+  }).catch((error) => {
+    throw httpError(
+      502,
+      `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`,
+    )
+  })
 
   const data = await readProviderResponse(response)
   if (!response.ok) {
@@ -294,10 +297,10 @@ async function handleChat(body) {
   }
 }
 
-function callProvider(providerId, provider, model, messages, apiKey, systemPrompt) {
-  if (provider.kind === 'gemini') return callGemini(provider, model, messages, apiKey, systemPrompt)
-  if (provider.kind === 'claude') return callClaude(provider, model, messages, apiKey, systemPrompt)
-  return callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt)
+function callProvider(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
+  if (provider.kind === 'gemini') return callGemini(provider, model, messages, apiKey, systemPrompt, options)
+  if (provider.kind === 'claude') return callClaude(provider, model, messages, apiKey, systemPrompt, options)
+  return callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt, options)
 }
 
 function getApiKey(provider, requestApiKey) {
@@ -312,7 +315,7 @@ function authHeaders(provider, apiKey) {
   return { Authorization: `Bearer ${apiKey}` }
 }
 
-function callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt) {
+function callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
   return fetch(provider.endpoint, {
     method: 'POST',
     headers: {
@@ -330,12 +333,13 @@ function callOpenAiCompatible(providerId, provider, model, messages, apiKey, sys
             content: message.content,
           })),
       ],
+      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
       ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
     }),
   })
 }
 
-function callClaude(provider, model, messages, apiKey, systemPrompt) {
+function callClaude(provider, model, messages, apiKey, systemPrompt, options = {}) {
   return fetch(provider.endpoint, {
     method: 'POST',
     headers: {
@@ -345,6 +349,7 @@ function callClaude(provider, model, messages, apiKey, systemPrompt) {
     body: JSON.stringify({
       model,
       max_tokens: 4096,
+      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
       system: systemPrompt,
       messages: messages
         .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
@@ -356,7 +361,7 @@ function callClaude(provider, model, messages, apiKey, systemPrompt) {
   })
 }
 
-function callGemini(provider, model, messages, apiKey, systemPrompt) {
+function callGemini(provider, model, messages, apiKey, systemPrompt, options = {}) {
   const geminiModel = encodeURIComponent(model)
   return fetch(`${provider.endpoint}/${geminiModel}:generateContent`, {
     method: 'POST',
@@ -368,6 +373,9 @@ function callGemini(provider, model, messages, apiKey, systemPrompt) {
       systemInstruction: {
         parts: [{ text: systemPrompt }],
       },
+      ...(typeof options.temperature === 'number'
+        ? { generationConfig: { temperature: options.temperature } }
+        : {}),
       contents: messages
         .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
         .map((message) => ({
@@ -376,6 +384,13 @@ function callGemini(provider, model, messages, apiKey, systemPrompt) {
         })),
     }),
   })
+}
+
+function normalizeTemperature(value) {
+  if (value === undefined || value === null || value === '') return undefined
+  const temperature = Number(value)
+  if (!Number.isFinite(temperature)) return undefined
+  return Math.min(2, Math.max(0, temperature))
 }
 
 function getLatestUserText(messages) {

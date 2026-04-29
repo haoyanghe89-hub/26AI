@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify'
 import {
   Delete,
   Download,
+  Expand,
   Paperclip,
   Plus,
   Promotion,
@@ -12,13 +13,19 @@ import {
   FolderAdd,
   Files,
   Close,
+  Fold,
   Search,
   MagicStick,
+  ArrowDown,
+  ArrowUp,
+  MoreFilled,
+  CopyDocument,
+  Check,
 } from '@element-plus/icons-vue'
-import { DynamicScroller, DynamicScrollerItem, type DynamicScrollerExposed } from 'vue-virtual-scroller'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
+import ElDialog from 'element-plus/es/components/dialog/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
@@ -40,6 +47,7 @@ import 'prismjs/components/prism-sql'
 import 'prismjs/components/prism-markdown'
 import 'prismjs/components/prism-diff'
 import MessageBubble from '../components/chat/MessageBubble.vue'
+import PromptLabPanel from '../components/chat/PromptLabPanel.vue'
 import SessionItem from '../components/chat/SessionItem.vue'
 import SettingsPanel from '../components/chat/SettingsPanel.vue'
 import { useResizablePanels } from '../composables/useResizablePanels'
@@ -49,18 +57,23 @@ import {
   normalizeTags,
   sessionMatchesQuery,
 } from '../lib/sessionManagement'
-import { messagePreviewContent, type ChatMessage, type ProviderId, useChatStore } from '../stores/chat'
+import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
 
 const chat = useChatStore()
 const input = ref('')
 const appShellEl = ref<HTMLElement | null>(null)
-const messagesEl = ref<DynamicScrollerExposed<ChatMessage> | null>(null)
+const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const projectInputEl = ref<HTMLInputElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
-const isWorkspaceCollapsed = ref(false)
+const isWorkspaceCollapsed = ref(true)
 const isEditingFile = ref(false)
+const storedSessionManagerCollapsed = localStorage.getItem('twentys1x:session-manager-collapsed')
+const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
+const isSummaryDialogVisible = ref(false)
+const summaryDraft = ref('')
+const copiedSummary = ref(false)
 const sessionSearchQuery = ref('')
 const activeSessionTag = ref('')
 
@@ -112,6 +125,11 @@ const {
 } = useResizablePanels(appShellEl, (visible) => {
   if (!visible) isEditingFile.value = false
 })
+const appShellViewStyle = computed(() => ({
+  ...appShellStyle.value,
+  '--workspace-width': isWorkspaceCollapsed.value ? '0px' : appShellStyle.value['--workspace-width'],
+  '--workspace-handle-width': isWorkspaceCollapsed.value ? '0px' : '8px',
+}))
 
 onMounted(() => {
   chat.hydrateClientState()
@@ -121,7 +139,8 @@ onMounted(() => {
 
 function scrollToBottom() {
   nextTick(() => {
-    messagesEl.value?.scrollToBottom()
+    const el = messagesEl.value
+    if (el) el.scrollTop = el.scrollHeight
   })
 }
 
@@ -234,6 +253,40 @@ async function submit() {
   }
 }
 
+function applyPromptTemplate(value: string) {
+  input.value = value
+  nextTick(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea')
+    textarea?.focus()
+  })
+}
+
+async function runPromptWorkflow(workflowId: string, workflowInput?: string) {
+  const content = (workflowInput ?? input.value).trim()
+  if (!content) return
+  if (!workflowInput) input.value = ''
+  scrollToBottom()
+  const ran = await chat.runPromptWorkflow(workflowId, content)
+  if (ran) {
+    scrollToBottom()
+  } else if (!workflowInput) {
+    input.value = content
+  }
+}
+
+function savePromptTemplate(value: Parameters<typeof chat.savePromptTemplate>[0]) {
+  chat.savePromptTemplate(value)
+}
+
+function saveCustomAgent(value: Parameters<typeof chat.saveCustomAgent>[0]) {
+  const agent = chat.saveCustomAgent(value)
+  chat.setActiveAgent(agent.id)
+}
+
+function savePromptWorkflow(value: Parameters<typeof chat.savePromptWorkflow>[0]) {
+  chat.savePromptWorkflow(value)
+}
+
 function handleEnter(event: Event | KeyboardEvent) {
   if (event instanceof KeyboardEvent && event.shiftKey) return
   event.preventDefault()
@@ -270,6 +323,35 @@ function exportFilteredSessionsJson() {
 async function summarizeActiveSession() {
   const summarized = await chat.summarizeActiveSession()
   if (summarized) scrollToBottom()
+}
+
+function toggleSessionManager() {
+  isSessionManagerCollapsed.value = !isSessionManagerCollapsed.value
+  localStorage.setItem('twentys1x:session-manager-collapsed', String(isSessionManagerCollapsed.value))
+}
+
+function openSummaryDialog() {
+  summaryDraft.value = chat.activeSession.summary?.content || ''
+  copiedSummary.value = false
+  isSummaryDialogVisible.value = true
+}
+
+function saveSummaryDraft() {
+  chat.updateSessionSummary(chat.activeSession.id, summaryDraft.value)
+  isSummaryDialogVisible.value = false
+}
+
+async function copySummaryDraft() {
+  const content = summaryDraft.value.trim()
+  if (!content) return
+
+  try {
+    await navigator.clipboard.writeText(content)
+    copiedSummary.value = true
+    setTimeout(() => (copiedSummary.value = false), 2000)
+  } catch (err) {
+    console.error('复制总结失败', err)
+  }
 }
 
 function downloadText(fileName: string, content: string, type: string) {
@@ -336,6 +418,11 @@ function closeCodePreview() {
 function toggleCodePreviewPanel() {
   if (!canToggleCodePreview.value) return
   toggleCodePreview()
+}
+
+function toggleWorkspaceTree() {
+  isWorkspaceCollapsed.value = !isWorkspaceCollapsed.value
+  if (!isWorkspaceCollapsed.value) nextTick(clampPanelWidths)
 }
 
 function getFileTypeLabel(name: string) {
@@ -415,7 +502,12 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
 </script>
 
 <template>
-  <div ref="appShellEl" class="app-shell" :class="{ 'is-resizing': isDraggingPanels }" :style="appShellStyle">
+  <div
+    ref="appShellEl"
+    class="app-shell"
+    :class="{ 'is-resizing': isDraggingPanels, 'workspace-tree-hidden': isWorkspaceCollapsed }"
+    :style="appShellViewStyle"
+  >
     <aside class="sidebar">
       <div class="brand">
         <div class="logo-mark">T1</div>
@@ -495,66 +587,118 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
         />
       </section>
 
-      <section class="session-manager" aria-label="会话管理">
-        <div class="panel-title">
-          <span>会话</span>
-          <small>{{ filteredSessions.length }}/{{ chat.sessions.length }}</small>
-        </div>
-        <el-input
-          v-model="sessionSearchQuery"
-          class="session-search"
-          clearable
-          :prefix-icon="Search"
-          placeholder="搜索标题、标签、内容"
-        />
-        <div v-if="chat.allSessionTags.length" class="session-tags">
-          <button
-            type="button"
-            class="session-tag-filter"
-            :class="{ active: !activeSessionTag }"
-            @click="activeSessionTag = ''"
-          >
-            全部
-          </button>
-          <button
-            v-for="tag in chat.allSessionTags"
-            :key="tag"
-            type="button"
-            class="session-tag-filter"
-            :class="{ active: activeSessionTag === tag }"
-            @click="activeSessionTag = tag"
-          >
-            {{ tag }}
-          </button>
-        </div>
-        <div class="session-export-actions">
-          <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
-            >导出当前</el-button
-          >
-          <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
-            >导出列表</el-button
-          >
-        </div>
-        <label class="session-tag-editor">
-          <span>当前会话标签</span>
-          <el-input v-model="activeSessionTagsText" size="small" placeholder="用逗号分隔，例如 前端, 修复" />
-        </label>
-        <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
-          <div class="session-summary-head">
-            <span>智能总结</span>
-            <el-button
-              size="small"
-              plain
-              :icon="MagicStick"
-              :loading="chat.isSummarizingSession"
-              :disabled="!canSummarizeActiveSession"
-              @click="summarizeActiveSession"
+      <PromptLabPanel
+        :templates="chat.promptTemplates"
+        :agents="chat.customAgents"
+        :workflows="chat.promptWorkflows"
+        :active-agent-id="chat.activeAgentId"
+        :has-active-project="Boolean(chat.activeProjectId)"
+        :is-running-workflow="chat.isRunningWorkflow"
+        @apply-template="applyPromptTemplate"
+        @select-agent="chat.setActiveAgent"
+        @save-template="savePromptTemplate"
+        @delete-template="chat.deletePromptTemplate"
+        @save-agent="saveCustomAgent"
+        @delete-agent="chat.deleteCustomAgent"
+        @save-workflow="savePromptWorkflow"
+        @delete-workflow="chat.deletePromptWorkflow"
+        @run-workflow="runPromptWorkflow"
+      />
+
+      <section
+        class="session-manager"
+        :class="{ 'is-collapsed': isSessionManagerCollapsed }"
+        aria-label="会话智能管理"
+      >
+        <button
+          type="button"
+          class="session-manager-header"
+          :aria-expanded="!isSessionManagerCollapsed"
+          @click="toggleSessionManager"
+        >
+          <span class="session-manager-title">
+            <el-icon><Search /></el-icon>
+            会话智能管理
+          </span>
+          <span class="session-manager-count">{{ filteredSessions.length }}/{{ chat.sessions.length }}</span>
+          <el-icon class="session-manager-chevron">
+            <ArrowDown v-if="isSessionManagerCollapsed" />
+            <ArrowUp v-else />
+          </el-icon>
+        </button>
+
+        <div v-show="!isSessionManagerCollapsed" class="session-manager-body">
+          <el-input
+            v-model="sessionSearchQuery"
+            class="session-search"
+            clearable
+            :prefix-icon="Search"
+            placeholder="搜索标题、标签、内容"
+          />
+          <div v-if="chat.allSessionTags.length" class="session-tags">
+            <button
+              type="button"
+              class="session-tag-filter"
+              :class="{ active: !activeSessionTag }"
+              @click="activeSessionTag = ''"
             >
-              {{ chat.activeSession.summary ? '更新' : '生成' }}
-            </el-button>
+              全部
+            </button>
+            <button
+              v-for="tag in chat.allSessionTags"
+              :key="tag"
+              type="button"
+              class="session-tag-filter"
+              :class="{ active: activeSessionTag === tag }"
+              @click="activeSessionTag = tag"
+            >
+              {{ tag }}
+            </button>
           </div>
-          <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
-          <p v-else>长会话可一键压缩成可回顾摘要。</p>
+          <div class="session-export-actions">
+            <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
+              >导出当前</el-button
+            >
+            <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
+              >导出列表</el-button
+            >
+          </div>
+          <label class="session-tag-editor">
+            <span>当前会话标签</span>
+            <el-input
+              v-model="activeSessionTagsText"
+              size="small"
+              placeholder="用逗号分隔，例如 前端, 修复"
+            />
+          </label>
+          <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
+            <div class="session-summary-head">
+              <span>智能总结</span>
+              <div class="session-summary-actions">
+                <el-button
+                  v-if="chat.activeSession.summary"
+                  class="summary-more-button"
+                  size="small"
+                  text
+                  :icon="MoreFilled"
+                  aria-label="查看完整智能总结"
+                  @click="openSummaryDialog"
+                />
+                <el-button
+                  size="small"
+                  plain
+                  :icon="MagicStick"
+                  :loading="chat.isSummarizingSession"
+                  :disabled="!canSummarizeActiveSession"
+                  @click="summarizeActiveSession"
+                >
+                  {{ chat.activeSession.summary ? '更新' : '生成' }}
+                </el-button>
+              </div>
+            </div>
+            <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
+            <p v-else>长会话可一键压缩成可回顾摘要。</p>
+          </div>
         </div>
       </section>
 
@@ -590,6 +734,39 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
         @clear-history="confirmClear"
       />
     </aside>
+
+    <el-dialog
+      v-model="isSummaryDialogVisible"
+      class="summary-dialog"
+      title="智能总结"
+      width="min(640px, 92vw)"
+    >
+      <el-input
+        v-model="summaryDraft"
+        class="summary-editor"
+        type="textarea"
+        :rows="12"
+        resize="vertical"
+        placeholder="编辑当前会话总结"
+      />
+      <template #footer>
+        <div class="summary-dialog-actions">
+          <el-button
+            plain
+            :icon="copiedSummary ? Check : CopyDocument"
+            :disabled="!summaryDraft.trim()"
+            @click="copySummaryDraft"
+          >
+            {{ copiedSummary ? '已复制' : '复制' }}
+          </el-button>
+          <el-button @click="isSummaryDialogVisible = false">取消</el-button>
+          <el-button type="primary" :disabled="!summaryDraft.trim()" @click="saveSummaryDraft"
+            >保存</el-button
+          >
+        </div>
+      </template>
+    </el-dialog>
+
     <div class="panel-resizer left" title="拖拽调整左侧栏宽度" @mousedown="startResize('left', $event)"></div>
 
     <main id="main-content" class="chat-area" tabindex="-1">
@@ -599,57 +776,48 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           <h1>{{ chat.activeSession.title }}</h1>
           <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div>
         </div>
-        <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
-          {{ chat.isProviderReady ? `${chat.selectedProvider.name} 已就绪` : '等待 API Key' }}
-        </el-tag>
+        <div class="topbar-actions">
+          <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
+            {{ chat.isProviderReady ? `${chat.selectedProvider.name} 已就绪` : '等待 API Key' }}
+          </el-tag>
+          <el-button
+            class="topbar-icon-button"
+            :icon="isWorkspaceCollapsed ? Expand : Fold"
+            :title="isWorkspaceCollapsed ? '展开文件树' : '收起文件树'"
+            :aria-label="isWorkspaceCollapsed ? '展开文件树' : '收起文件树'"
+            circle
+            @click="toggleWorkspaceTree"
+          />
+        </div>
       </header>
 
-      <DynamicScroller
-        ref="messagesEl"
-        class="messages"
-        :items="chat.visibleMessages"
-        key-field="id"
-        :min-item-size="132"
-        aria-label="消息列表"
-        role="log"
-        aria-live="polite"
-      >
-        <template #empty>
-          <div class="empty-state">
-            <div class="empty-logo">T1</div>
-            <h2>Twentys1x AI 工作台</h2>
-            <p>
-              选择 AI 供应商并粘贴对应 API Key
-              后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
-            </p>
-          </div>
-        </template>
+      <div ref="messagesEl" class="messages" aria-label="消息列表" role="log" aria-live="polite">
+        <div v-if="!chat.visibleMessages.length" class="empty-state">
+          <div class="empty-logo">T1</div>
+          <h2>Twentys1x AI 工作台</h2>
+          <p>
+            选择 AI 供应商并粘贴对应 API Key
+            后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
+          </p>
+        </div>
 
-        <template #default="{ item: message, active, index }">
-          <DynamicScrollerItem
-            :item="message"
-            :active="active"
-            :index="index"
-            :size-dependencies="[message.content, editingMessageId === message.id, editingContent]"
-            class="message-virtual-item"
-          >
-            <MessageBubble
-              :message="message"
-              :is-sending="chat.isSending"
-              :copied-message-id="copiedMessageId"
-              :copied-code-block="copiedCodeBlock"
-              :is-editing="editingMessageId === message.id"
-              :editing-content="editingContent"
-              @update:editing-content="editingContent = $event"
-              @start-inline-edit="startInlineEdit"
-              @cancel-inline-edit="cancelInlineEdit"
-              @submit-inline-edit="submitInlineEdit"
-              @copy-message="copyMessage"
-              @copy-code-block="copyCodeBlock"
-            />
-          </DynamicScrollerItem>
-        </template>
-      </DynamicScroller>
+        <div v-for="message in chat.visibleMessages" v-else :key="message.id" class="message-list-item">
+          <MessageBubble
+            :message="message"
+            :is-sending="chat.isSending"
+            :copied-message-id="copiedMessageId"
+            :copied-code-block="copiedCodeBlock"
+            :is-editing="editingMessageId === message.id"
+            :editing-content="editingContent"
+            @update:editing-content="editingContent = $event"
+            @start-inline-edit="startInlineEdit"
+            @cancel-inline-edit="cancelInlineEdit"
+            @submit-inline-edit="submitInlineEdit"
+            @copy-message="copyMessage"
+            @copy-code-block="copyCodeBlock"
+          />
+        </div>
+      </div>
 
       <section class="composer-wrap">
         <el-alert v-if="chat.errorMessage" class="error-message" type="error" :closable="false" show-icon>
@@ -782,12 +950,13 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
     </aside>
 
     <div
+      v-if="!isWorkspaceCollapsed"
       class="panel-resizer right"
       title="拖拽调整 Workspace 宽度"
       @mousedown="startResize('right', $event)"
     ></div>
 
-    <aside class="workspace-panel-right" :class="{ collapsed: isWorkspaceCollapsed }">
+    <aside v-if="!isWorkspaceCollapsed" class="workspace-panel-right">
       <header class="workspace-topbar">
         <div>
           <p>Workspace</p>
@@ -807,46 +976,49 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
               aria-hidden="true"
             ></span>
           </el-button>
-          <el-button class="panel-icon-button" text @click="isWorkspaceCollapsed = !isWorkspaceCollapsed">
-            {{ isWorkspaceCollapsed ? '展开' : '收起' }}
-          </el-button>
+          <el-button
+            class="panel-icon-button"
+            text
+            :icon="Fold"
+            title="收起文件树"
+            aria-label="收起文件树"
+            @click="toggleWorkspaceTree"
+          />
         </div>
       </header>
 
-      <template v-if="!isWorkspaceCollapsed">
-        <section class="file-tree-section">
-          <div class="workspace-section-title">
-            <span>文件树</span>
-            <small v-if="chat.activeProject">{{ chat.activeProject.chunkCount }} 片段</small>
-          </div>
-          <el-tree
-            v-if="chat.activeProjectTree.length"
-            class="project-tree"
-            :data="chat.activeProjectTree"
-            node-key="path"
-            :props="{ label: 'name', children: 'children' }"
-            :highlight-current="true"
-            @node-click="handleTreeNodeClick"
-          >
-            <template #default="{ data }">
-              <span class="tree-node" :class="{ directory: data.isDirectory, file: !data.isDirectory }">
-                <template v-if="data.isDirectory">
-                  <span class="tree-folder-name">{{ data.name }}</span>
-                </template>
-                <template v-else>
-                  <span class="file-type-badge" :class="`type-${getFileTypeClass(data.name)}`">
-                    {{ getFileTypeLabel(data.name) }}
-                  </span>
-                  <span class="tree-file-name">{{ data.name }}</span>
-                </template>
-              </span>
-            </template>
-          </el-tree>
-          <button v-else type="button" class="project-empty" @click="pickProjectFolder">
-            先导入项目文件夹
-          </button>
-        </section>
-      </template>
+      <section class="file-tree-section">
+        <div class="workspace-section-title">
+          <span>文件树</span>
+          <small v-if="chat.activeProject">{{ chat.activeProject.chunkCount }} 片段</small>
+        </div>
+        <el-tree
+          v-if="chat.activeProjectTree.length"
+          class="project-tree"
+          :data="chat.activeProjectTree"
+          node-key="path"
+          :props="{ label: 'name', children: 'children' }"
+          :highlight-current="true"
+          @node-click="handleTreeNodeClick"
+        >
+          <template #default="{ data }">
+            <span class="tree-node" :class="{ directory: data.isDirectory, file: !data.isDirectory }">
+              <template v-if="data.isDirectory">
+                <span class="tree-folder-name">{{ data.name }}</span>
+              </template>
+              <template v-else>
+                <span class="file-type-badge" :class="`type-${getFileTypeClass(data.name)}`">
+                  {{ getFileTypeLabel(data.name) }}
+                </span>
+                <span class="tree-file-name">{{ data.name }}</span>
+              </template>
+            </span>
+          </template>
+        </el-tree>
+        <button v-else type="button" class="project-empty" @click="pickProjectFolder">
+          先导入项目文件夹
+        </button>
+      </section>
     </aside>
   </div>
 </template>

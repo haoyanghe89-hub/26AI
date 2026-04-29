@@ -9,6 +9,21 @@ import {
   setStoredString,
 } from '../lib/clientStorage'
 import { requestWithRetry } from '../lib/request'
+import {
+  BUILTIN_AGENTS,
+  BUILTIN_PROMPT_TEMPLATES,
+  BUILTIN_WORKFLOWS,
+  DEFAULT_AGENT_ID,
+  buildPromptRuntimeConfig,
+  normalizeAgent,
+  normalizePromptTemplate,
+  normalizeWorkflow,
+  renderPromptTemplate,
+  type CustomAgent,
+  type PromptRuntimeConfig,
+  type PromptTemplate,
+  type PromptWorkflow,
+} from '../lib/promptEngineering'
 import { buildSessionSummaryPrompt, normalizeTags } from '../lib/sessionManagement'
 
 type Role = 'user' | 'assistant'
@@ -113,6 +128,12 @@ const STORAGE_KEYS = {
   models: 'twentys1x:provider-models',
   model: 'twentys1x:kimi-model',
   activeProject: 'twentys1x:active-project',
+  promptTemplates: 'twentys1x:prompt-templates',
+  customAgents: 'twentys1x:custom-agents',
+  activeAgent: 'twentys1x:active-agent',
+  activeNormalAgent: 'twentys1x:active-normal-agent',
+  activeProjectAgent: 'twentys1x:active-project-agent',
+  promptWorkflows: 'twentys1x:prompt-workflows',
 }
 
 const MAX_MESSAGE_CHARS = 12000
@@ -274,6 +295,7 @@ export const AI_PROVIDERS: AiProvider[] = [
 
 const DEFAULT_PROVIDER: ProviderId = 'kimi'
 const DEFAULT_MODEL = 'kimi-k2.6'
+const DEFAULT_PROJECT_AGENT_ID = 'agent-frontend-engineer'
 
 function getProvider(id: ProviderId) {
   return (
@@ -327,6 +349,62 @@ function loadSessions(): ChatSession[] {
   }
 
   return [createSession()]
+}
+
+function loadPromptTemplates(): PromptTemplate[] {
+  return mergePromptAssets(
+    BUILTIN_PROMPT_TEMPLATES,
+    loadJsonArray<PromptTemplate>(STORAGE_KEYS.promptTemplates),
+  ).map((item) =>
+    normalizePromptTemplate(
+      item,
+      BUILTIN_PROMPT_TEMPLATES.find((template) => template.id === item.id),
+    ),
+  )
+}
+
+function loadCustomAgents(): CustomAgent[] {
+  return mergePromptAssets(BUILTIN_AGENTS, loadJsonArray<CustomAgent>(STORAGE_KEYS.customAgents)).map(
+    (item) =>
+      normalizeAgent(
+        item,
+        BUILTIN_AGENTS.find((agent) => agent.id === item.id),
+      ),
+  )
+}
+
+function loadPromptWorkflows(): PromptWorkflow[] {
+  return mergePromptAssets(
+    BUILTIN_WORKFLOWS,
+    loadJsonArray<PromptWorkflow>(STORAGE_KEYS.promptWorkflows),
+  ).map((item) =>
+    normalizeWorkflow(
+      item,
+      BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
+    ),
+  )
+}
+
+function loadJsonArray<T>(key: string): T[] {
+  try {
+    const raw = localStorage.getItem(key)
+    const parsed = raw ? JSON.parse(raw) : null
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    localStorage.removeItem(key)
+    return []
+  }
+}
+
+function mergePromptAssets<T extends { id: string; isBuiltin?: boolean }>(builtins: T[], stored: T[]) {
+  const custom = stored.filter(
+    (item) => !builtins.some((builtin) => builtin.id === item.id && builtin.isBuiltin),
+  )
+  const builtinOverrides = new Map(stored.filter((item) => item.isBuiltin).map((item) => [item.id, item]))
+  return [
+    ...builtins.map((builtin) => ({ ...builtin, ...builtinOverrides.get(builtin.id), isBuiltin: true })),
+    ...custom,
+  ]
 }
 
 function persist(key: string, value: string) {
@@ -452,9 +530,21 @@ export const useChatStore = defineStore('chat', () => {
   const selectedProviderId = ref<ProviderId>(normalizeProviderId(localStorage.getItem(STORAGE_KEYS.provider)))
   const sessions = ref<ChatSession[]>(loadSessions())
   const activeSessionId = ref(localStorage.getItem(STORAGE_KEYS.activeSession) || sessions.value[0].id)
+  const promptTemplates = ref<PromptTemplate[]>(loadPromptTemplates())
+  const customAgents = ref<CustomAgent[]>(loadCustomAgents())
+  const activeNormalAgentId = ref(
+    localStorage.getItem(STORAGE_KEYS.activeNormalAgent) ||
+      localStorage.getItem(STORAGE_KEYS.activeAgent) ||
+      DEFAULT_AGENT_ID,
+  )
+  const activeProjectAgentId = ref(
+    localStorage.getItem(STORAGE_KEYS.activeProjectAgent) || DEFAULT_PROJECT_AGENT_ID,
+  )
+  const promptWorkflows = ref<PromptWorkflow[]>(loadPromptWorkflows())
   const pendingFiles = ref<PreparedFile[]>([])
   const providerServerConfigured = ref<Record<string, boolean>>({})
   const isSending = ref(false)
+  const isRunningWorkflow = ref(false)
   const isSummarizingSession = ref(false)
   const isIndexingWorkspace = ref(false)
   const isImportingProject = ref(false)
@@ -496,6 +586,20 @@ export const useChatStore = defineStore('chat', () => {
   const activeSession = computed(() => {
     return sessions.value.find((session) => session.id === activeSessionId.value) || sessions.value[0]
   })
+  const activeAgentId = computed({
+    get: () => {
+      const fallback = activeProjectId.value ? DEFAULT_PROJECT_AGENT_ID : DEFAULT_AGENT_ID
+      const selected = activeProjectId.value ? activeProjectAgentId.value : activeNormalAgentId.value
+      return resolveAgentId(selected, fallback)
+    },
+    set: (agentId: string) => setActiveAgent(agentId),
+  })
+  const activeAgent = computed(
+    () =>
+      customAgents.value.find((agent) => agent.id === activeAgentId.value) ||
+      customAgents.value.find((agent) => agent.id === DEFAULT_AGENT_ID) ||
+      null,
+  )
 
   const visibleMessages = computed(() => activeSession.value?.messages || [])
   const allSessionTags = computed(() =>
@@ -507,8 +611,26 @@ export const useChatStore = defineStore('chat', () => {
     () => projects.value.find((project) => project.id === activeProjectId.value) || null,
   )
 
+  function resolveAgentId(agentId: string, fallback: string) {
+    if (customAgents.value.some((agent) => agent.id === agentId)) return agentId
+    if (customAgents.value.some((agent) => agent.id === fallback)) return fallback
+    return DEFAULT_AGENT_ID
+  }
+
   function saveSessions() {
     void setStoredJson(STORAGE_KEYS.sessions, sessions.value)
+  }
+
+  function savePromptTemplates() {
+    void setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+  }
+
+  function saveCustomAgents() {
+    void setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
+  }
+
+  function savePromptWorkflows() {
+    void setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
   }
 
   function setApiKey(value: string) {
@@ -545,6 +667,12 @@ export const useChatStore = defineStore('chat', () => {
       storedSessions,
       storedActiveSession,
       storedActiveProject,
+      storedPromptTemplates,
+      storedCustomAgents,
+      storedActiveAgent,
+      storedActiveNormalAgent,
+      storedActiveProjectAgent,
+      storedPromptWorkflows,
     ] = await Promise.all([
       getSecureJson<Record<string, string>>(STORAGE_KEYS.apiKeys, providerApiKeys.value),
       hydrateJsonRecord(STORAGE_KEYS.models, providerModels.value),
@@ -552,24 +680,62 @@ export const useChatStore = defineStore('chat', () => {
       hydrateSessions(sessions.value),
       getStoredString(STORAGE_KEYS.activeSession),
       getStoredString(STORAGE_KEYS.activeProject),
+      getStoredJson<PromptTemplate[]>(STORAGE_KEYS.promptTemplates, promptTemplates.value),
+      getStoredJson<CustomAgent[]>(STORAGE_KEYS.customAgents, customAgents.value),
+      getStoredString(STORAGE_KEYS.activeAgent),
+      getStoredString(STORAGE_KEYS.activeNormalAgent),
+      getStoredString(STORAGE_KEYS.activeProjectAgent),
+      getStoredJson<PromptWorkflow[]>(STORAGE_KEYS.promptWorkflows, promptWorkflows.value),
     ])
 
     providerApiKeys.value = { ...providerApiKeys.value, ...storedApiKeys }
     providerModels.value = { ...providerModels.value, ...storedModels }
     selectedProviderId.value = normalizeProviderId(storedProvider || selectedProviderId.value)
     sessions.value = storedSessions
+    promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
+      normalizePromptTemplate(
+        item,
+        BUILTIN_PROMPT_TEMPLATES.find((template) => template.id === item.id),
+      ),
+    )
+    customAgents.value = mergePromptAssets(BUILTIN_AGENTS, storedCustomAgents).map((item) =>
+      normalizeAgent(
+        item,
+        BUILTIN_AGENTS.find((agent) => agent.id === item.id),
+      ),
+    )
+    promptWorkflows.value = mergePromptAssets(BUILTIN_WORKFLOWS, storedPromptWorkflows).map((item) =>
+      normalizeWorkflow(
+        item,
+        BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
+      ),
+    )
     activeSessionId.value =
       storedActiveSession && storedSessions.some((session) => session.id === storedActiveSession)
         ? storedActiveSession
         : storedSessions[0].id
     activeProjectId.value = storedActiveProject || activeProjectId.value
+    activeNormalAgentId.value = resolveAgentId(
+      storedActiveNormalAgent || storedActiveAgent || activeNormalAgentId.value,
+      DEFAULT_AGENT_ID,
+    )
+    activeProjectAgentId.value = resolveAgentId(
+      storedActiveProjectAgent || activeProjectAgentId.value,
+      DEFAULT_PROJECT_AGENT_ID,
+    )
 
     void setSecureJson(STORAGE_KEYS.apiKeys, providerApiKeys.value)
     void setStoredJson(STORAGE_KEYS.models, providerModels.value)
     saveSessions()
+    savePromptTemplates()
+    saveCustomAgents()
+    savePromptWorkflows()
     persist(STORAGE_KEYS.provider, selectedProviderId.value)
     persist(STORAGE_KEYS.activeSession, activeSessionId.value)
     persist(STORAGE_KEYS.activeProject, activeProjectId.value)
+    persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+    persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
+    persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
   }
 
   function newSession() {
@@ -614,6 +780,125 @@ export const useChatStore = defineStore('chat', () => {
     session.tags = normalizeTags(tags)
     session.updatedAt = new Date().toISOString()
     saveSessions()
+  }
+
+  function updateSessionSummary(sessionId: string, content: string) {
+    const session = sessions.value.find((item) => item.id === sessionId)
+    const normalizedContent = content.trim()
+    if (!session || !normalizedContent) return
+
+    const now = new Date().toISOString()
+    session.summary = {
+      content: normalizedContent,
+      updatedAt: now,
+    }
+    session.updatedAt = now
+    saveSessions()
+  }
+
+  function setActiveAgent(agentId: string) {
+    const fallback = activeProjectId.value ? DEFAULT_PROJECT_AGENT_ID : DEFAULT_AGENT_ID
+    const resolved = resolveAgentId(agentId, fallback)
+    if (activeProjectId.value) {
+      activeProjectAgentId.value = resolved
+      persist(STORAGE_KEYS.activeProjectAgent, resolved)
+    } else {
+      activeNormalAgentId.value = resolved
+      persist(STORAGE_KEYS.activeNormalAgent, resolved)
+    }
+    persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+  }
+
+  function savePromptTemplate(template: Partial<PromptTemplate>) {
+    const existing = template.id ? promptTemplates.value.find((item) => item.id === template.id) : undefined
+    const normalized = normalizePromptTemplate(
+      {
+        ...template,
+        isBuiltin: existing?.isBuiltin && template.id ? true : false,
+      },
+      existing,
+    )
+    promptTemplates.value = [
+      normalized,
+      ...promptTemplates.value.filter((item) => item.id !== normalized.id),
+    ].sort((a, b) => Number(b.isBuiltin) - Number(a.isBuiltin) || a.name.localeCompare(b.name, 'zh-CN'))
+    savePromptTemplates()
+    return normalized
+  }
+
+  function deletePromptTemplate(templateId: string) {
+    const template = promptTemplates.value.find((item) => item.id === templateId)
+    if (!template || template.isBuiltin) return false
+    promptTemplates.value = promptTemplates.value.filter((item) => item.id !== templateId)
+    savePromptTemplates()
+    return true
+  }
+
+  function saveCustomAgent(agent: Partial<CustomAgent>) {
+    const existing = agent.id ? customAgents.value.find((item) => item.id === agent.id) : undefined
+    const normalized = normalizeAgent(
+      {
+        ...agent,
+        isBuiltin: existing?.isBuiltin && agent.id ? true : false,
+      },
+      existing,
+    )
+    customAgents.value = [normalized, ...customAgents.value.filter((item) => item.id !== normalized.id)].sort(
+      (a, b) => Number(b.isBuiltin) - Number(a.isBuiltin) || a.name.localeCompare(b.name, 'zh-CN'),
+    )
+    saveCustomAgents()
+    if (!activeAgentId.value) setActiveAgent(normalized.id)
+    return normalized
+  }
+
+  function deleteCustomAgent(agentId: string) {
+    const agent = customAgents.value.find((item) => item.id === agentId)
+    if (!agent || agent.isBuiltin) return false
+    customAgents.value = customAgents.value.filter((item) => item.id !== agentId)
+    promptWorkflows.value = promptWorkflows.value.map((workflow) => ({
+      ...workflow,
+      steps: workflow.steps.map((step) => ({
+        ...step,
+        agentId: step.agentId === agentId ? DEFAULT_AGENT_ID : step.agentId,
+      })),
+    }))
+    if (activeNormalAgentId.value === agentId) {
+      activeNormalAgentId.value = resolveAgentId(DEFAULT_AGENT_ID, DEFAULT_AGENT_ID)
+      persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
+    }
+    if (activeProjectAgentId.value === agentId) {
+      activeProjectAgentId.value = resolveAgentId(DEFAULT_PROJECT_AGENT_ID, DEFAULT_AGENT_ID)
+      persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
+    }
+    persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+    saveCustomAgents()
+    savePromptWorkflows()
+    return true
+  }
+
+  function savePromptWorkflow(workflow: Partial<PromptWorkflow>) {
+    const existing = workflow.id ? promptWorkflows.value.find((item) => item.id === workflow.id) : undefined
+    const normalized = normalizeWorkflow(
+      {
+        ...workflow,
+        isBuiltin: existing?.isBuiltin && workflow.id ? true : false,
+      },
+      existing,
+    )
+    promptWorkflows.value = [
+      normalized,
+      ...promptWorkflows.value.filter((item) => item.id !== normalized.id),
+    ].sort((a, b) => Number(b.isBuiltin) - Number(a.isBuiltin) || a.name.localeCompare(b.name, 'zh-CN'))
+    savePromptWorkflows()
+    return normalized
+  }
+
+  function deletePromptWorkflow(workflowId: string) {
+    const workflow = promptWorkflows.value.find((item) => item.id === workflowId)
+    if (!workflow || workflow.isBuiltin) return false
+    promptWorkflows.value = promptWorkflows.value.filter((item) => item.id !== workflowId)
+    savePromptWorkflows()
+    return true
   }
 
   async function prepareFiles(files: File[]) {
@@ -714,7 +999,11 @@ export const useChatStore = defineStore('chat', () => {
 
     try {
       const response = await requestWithRetry(async () => {
-        const result = await callChatBackend(session.messages)
+        const runtime = buildPromptRuntimeConfig(activeAgent.value)
+        const result = await callChatBackend(session.messages, {
+          runtime,
+          useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
+        })
         if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
         return result
       })
@@ -736,6 +1025,112 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     return true
+  }
+
+  async function runPromptWorkflow(workflowId: string, input: string) {
+    const workflow = promptWorkflows.value.find((item) => item.id === workflowId)
+    const cleanInput = sanitizeUserInput(input)
+    if (!workflow || !workflow.steps.length) {
+      errorMessage.value = '请选择一个包含步骤的工作流。'
+      return false
+    }
+    if (!cleanInput) {
+      errorMessage.value = '请输入要交给工作流处理的任务。'
+      return false
+    }
+    if (!isProviderReady.value) {
+      errorMessage.value = '请先配置 API Key 或后端供应商环境变量。'
+      return false
+    }
+    if (isSending.value) {
+      errorMessage.value = '当前已有请求进行中，请稍后再执行工作流。'
+      return false
+    }
+
+    const session = activeSession.value
+    const now = new Date().toISOString()
+    let previous = ''
+    isRunningWorkflow.value = true
+    isSending.value = true
+    errorMessage.value = ''
+
+    session.messages.push({
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: `运行工作流「${workflow.name}」\n\n${cleanInput}`,
+      createdAt: now,
+    })
+    session.updatedAt = now
+    updateTitle(session, workflow.name)
+    saveSessions()
+
+    try {
+      for (const [index, step] of workflow.steps.entries()) {
+        const template = step.templateId
+          ? promptTemplates.value.find((item) => item.id === step.templateId)
+          : null
+        const promptSource = template?.content || step.prompt
+        const prompt = renderPromptTemplate(promptSource, {
+          input: cleanInput,
+          previous,
+          step: step.title,
+        })
+        const agent = customAgents.value.find((item) => item.id === step.agentId) || activeAgent.value
+        const assistantMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: `### ${index + 1}. ${step.title}\n\n执行中...`,
+          createdAt: new Date().toISOString(),
+        }
+        session.messages.push(assistantMessage)
+        saveSessions()
+
+        const response = await requestWithRetry(async () => {
+          const runtime = buildPromptRuntimeConfig(agent)
+          const result = await callChatBackend(
+            [
+              {
+                id: crypto.randomUUID(),
+                role: 'user',
+                content: prompt,
+                createdAt: new Date().toISOString(),
+              },
+            ],
+            {
+              runtime,
+              useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
+            },
+          )
+          if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+          return result
+        })
+
+        if (!response.ok) {
+          const detail = await response.json().catch(() => null)
+          throw new Error(detail?.error || `工作流步骤失败：${response.status}`)
+        }
+
+        const data = await response.json()
+        previous = String(data.content || '').trim() || '没有收到有效回复。'
+        assistantMessage.content = `### ${index + 1}. ${step.title}\n\n${previous}`
+        session.updatedAt = new Date().toISOString()
+        saveSessions()
+      }
+      return true
+    } catch (error) {
+      session.messages.push({
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: '工作流执行失败，请检查 API Key、模型名称、Agent 配置或网络连接。',
+        createdAt: new Date().toISOString(),
+      })
+      errorMessage.value = error instanceof Error ? error.message : '工作流执行失败'
+      saveSessions()
+      return false
+    } finally {
+      isRunningWorkflow.value = false
+      isSending.value = false
+    }
   }
 
   async function summarizeActiveSession() {
@@ -788,7 +1183,10 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  function callChatBackend(messages: ChatMessage[], options: { useWorkspaceContext?: boolean } = {}) {
+  function callChatBackend(
+    messages: ChatMessage[],
+    options: { useWorkspaceContext?: boolean; runtime?: PromptRuntimeConfig } = {},
+  ) {
     const useWorkspaceContext =
       options.useWorkspaceContext ?? Boolean(activeProject.value || workspaceStatus.value.indexed)
 
@@ -799,7 +1197,10 @@ export const useChatStore = defineStore('chat', () => {
       },
       body: JSON.stringify({
         providerId: selectedProviderId.value,
-        model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+        model:
+          options.runtime?.model?.trim() || model.value.trim() || getDefaultModel(selectedProviderId.value),
+        temperature: options.runtime?.temperature,
+        systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
         apiKey: providerServerConfigured.value[selectedProviderId.value]
           ? undefined
           : apiKey.value.trim() || undefined,
@@ -860,6 +1261,7 @@ export const useChatStore = defineStore('chat', () => {
   function setActiveProject(projectId: string) {
     activeProjectId.value = projectId
     persist(STORAGE_KEYS.activeProject, projectId)
+    persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
     activeFilePath.value = ''
     activeFileContent.value = ''
     editedFileContent.value = ''
@@ -1080,11 +1482,17 @@ export const useChatStore = defineStore('chat', () => {
     sessions,
     activeSessionId,
     activeSession,
+    promptTemplates,
+    customAgents,
+    activeAgentId,
+    activeAgent,
+    promptWorkflows,
     visibleMessages,
     allSessionTags,
     pendingFiles,
     providerServerConfigured,
     isSending,
+    isRunningWorkflow,
     isSummarizingSession,
     isIndexingWorkspace,
     isImportingProject,
@@ -1112,9 +1520,18 @@ export const useChatStore = defineStore('chat', () => {
     setActiveSession,
     clearAllSessions,
     setSessionTags,
+    updateSessionSummary,
+    setActiveAgent,
+    savePromptTemplate,
+    deletePromptTemplate,
+    saveCustomAgent,
+    deleteCustomAgent,
+    savePromptWorkflow,
+    deletePromptWorkflow,
     prepareFiles,
     removePendingFile,
     sendMessage,
+    runPromptWorkflow,
     summarizeActiveSession,
     refreshProviderServerConfig,
     refreshWorkspaceStatus,

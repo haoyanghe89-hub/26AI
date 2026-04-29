@@ -92,7 +92,7 @@ test('keeps the mobile shell usable for the primary controls', async ({ page }, 
   test.skip(testInfo.project.name !== 'mobile-chrome', 'Mobile shell is covered in the mobile project.')
 
   await expect(page.getByRole('button', { name: /新会话/ })).toBeVisible()
-  await expect(page.getByRole('region', { name: '会话管理' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '会话智能管理' })).toBeVisible()
 
   await page.getByPlaceholder('sk-...').fill('sk-e2e-test-key')
   const mobilePrompt = '移动端核心流程 smoke test'
