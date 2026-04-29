@@ -1659,8 +1659,9 @@ button {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  max-width: 900px;
-  margin: 0 auto 10px;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 10px;
 }
 
 .attachment-list button,
@@ -1700,27 +1701,20 @@ button {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr) 88px;
   gap: 12px;
-  align-items: end;
-  max-width: 900px;
-  margin: 0 auto;
-  border: 1px solid rgba(23, 32, 26, 0.1);
-  border-radius: var(--t1-radius-lg);
-  padding: 12px 12px 12px 14px;
-  background: linear-gradient(180deg, #fff 0%, #fafcfb 100%);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.65) inset,
-    0 22px 56px rgba(23, 32, 26, 0.1);
-  transition:
-    border-color var(--t1-duration) var(--t1-ease),
-    box-shadow var(--t1-duration) var(--t1-ease);
+  align-items: center;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 
 .composer-project-indicator {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 900px;
-  margin: 0 auto 10px;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 10px;
   padding: 8px 12px;
   border: 1px solid rgba(23, 32, 26, 0.1);
   border-radius: 10px;
@@ -1750,8 +1744,9 @@ button {
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  max-width: 900px;
-  margin: 0 auto 10px;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 10px;
   padding: 9px 12px;
   border: 1px solid rgba(52, 96, 78, 0.2);
   border-radius: 12px;
@@ -1778,11 +1773,7 @@ button {
 }
 
 .composer:focus-within {
-  border-color: rgba(52, 96, 78, 0.28);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.65) inset,
-    0 0 0 3px rgba(52, 96, 78, 0.1),
-    0 24px 60px rgba(23, 32, 26, 0.12);
+  box-shadow: none;
 }
 
 .icon-button,
@@ -1865,14 +1856,17 @@ button {
   max-height: 180px;
   min-height: 44px;
   resize: vertical;
-  border: 1px solid transparent;
+  border: 1px solid rgba(23, 32, 26, 0.14);
   border-radius: var(--t1-radius-sm);
   padding: 11px 14px;
   color: #17201a;
-  background: linear-gradient(180deg, #f6faf7 0%, #f0f5f1 100%);
+  background: rgba(255, 255, 255, 0.94);
   outline: none;
   line-height: 1.5;
-  transition: background var(--t1-duration) var(--t1-ease);
+  transition:
+    border-color var(--t1-duration) var(--t1-ease),
+    box-shadow var(--t1-duration) var(--t1-ease),
+    background var(--t1-duration) var(--t1-ease);
 }
 
 .composer textarea::placeholder {
@@ -1881,12 +1875,15 @@ button {
 }
 
 .composer textarea:focus {
-  background: #f8faf7;
+  border-color: rgba(52, 96, 78, 0.32);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
 }
 
 .error-message {
-  max-width: 900px;
-  margin: 0 auto 12px;
+  width: 100%;
+  max-width: none;
+  margin: 0 0 12px;
   border: 1px solid rgba(122, 54, 52, 0.22);
   border-radius: var(--t1-radius-md);
   padding: 12px 14px;

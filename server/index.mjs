@@ -78,7 +78,9 @@ const PROVIDERS = {
   },
   kimi: {
     kind: 'openai-compatible',
-    endpoint: 'https://api.moonshot.cn/v1/chat/completions',
+    endpoint: process.env.KIMI_BASE_URL
+      ? `${process.env.KIMI_BASE_URL.replace(/\/$/, '')}/chat/completions`
+      : 'https://api.moonshot.cn/v1/chat/completions',
     envKey: 'KIMI_API_KEY',
     needsApiKey: true,
   },
@@ -308,7 +310,11 @@ async function handleChat(body) {
 
   const data = await readProviderResponse(response)
   if (!response.ok) {
-    throw httpError(response.status, 'Provider request failed', data)
+    throw httpError(
+      response.status,
+      extractProviderErrorMessage(data) || `Provider request failed: ${response.status}`,
+      data,
+    )
   }
 
   return {
@@ -331,7 +337,15 @@ function callProvider(providerId, provider, model, messages, apiKey, systemPromp
 
 function getApiKey(provider, requestApiKey) {
   const envKey = provider.envKey ? process.env[provider.envKey] : ''
-  return String(envKey || requestApiKey || '').trim()
+  // 优先使用前端本次请求携带的 key，便于用户在界面内及时切换/修复失效凭证
+  return normalizeApiKey(requestApiKey || envKey || '')
+}
+
+function normalizeApiKey(value) {
+  return String(value || '')
+    .replace(/^Bearer\s+/i, '')
+    .replace(/\s+/g, '')
+    .trim()
 }
 
 function authHeaders(provider, apiKey) {
@@ -342,26 +356,31 @@ function authHeaders(provider, apiKey) {
 }
 
 function callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
+  const requestedTemperature = typeof options.temperature === 'number' ? options.temperature : undefined
+  const effectiveTemperature = providerId === 'kimi' && model === 'kimi-k2.6' ? 0.6 : requestedTemperature
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+    ],
+    ...(typeof effectiveTemperature === 'number' ? { temperature: effectiveTemperature } : {}),
+    ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
+  }
+
   return fetch(provider.endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...authHeaders(provider, apiKey),
     },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages
-          .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
-          .map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
-      ],
-      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
-      ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
-    }),
+    body: JSON.stringify(body),
   })
 }
 
@@ -506,6 +525,24 @@ async function readProviderResponse(response) {
   } catch {
     return text
   }
+}
+
+function extractProviderErrorMessage(data) {
+  if (!data) return ''
+  if (typeof data === 'string') return data.trim()
+  if (typeof data !== 'object') return ''
+
+  const error = data.error
+  if (typeof error === 'string') return error.trim()
+  if (error && typeof error === 'object') {
+    const message = typeof error.message === 'string' ? error.message.trim() : ''
+    const type = typeof error.type === 'string' ? error.type.trim() : ''
+    if (type && message) return `${type}: ${message}`
+    if (message) return message
+    if (type) return type
+  }
+
+  return typeof data.message === 'string' ? data.message.trim() : ''
 }
 
 function readJson(req, maxBytes = 40 * 1024 * 1024) {

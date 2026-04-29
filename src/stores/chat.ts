@@ -494,6 +494,13 @@ function sanitizeUserInput(value: string) {
     .trim()
 }
 
+function normalizeApiKeyInput(value: string) {
+  // 防止用户粘贴了 "Bearer sk-..." 或包含不可见空白字符。
+  return String(value || '')
+    .replace(/^Bearer\s+/i, '')
+    .replace(/\s+/g, '')
+}
+
 function replaceLastUserMessageContent(messages: ChatMessage[], content: MessageContent): ChatMessage[] {
   let lastUserIndex = -1
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -660,9 +667,10 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function setApiKey(value: string) {
+    const normalized = normalizeApiKeyInput(value)
     providerApiKeys.value = {
       ...providerApiKeys.value,
-      [selectedProviderId.value]: value,
+      [selectedProviderId.value]: normalized,
     }
     void setSecureJson(STORAGE_KEYS.apiKeys, providerApiKeys.value)
   }
@@ -1323,9 +1331,8 @@ export const useChatStore = defineStore('chat', () => {
           options.runtime?.model?.trim() || model.value.trim() || getDefaultModel(selectedProviderId.value),
         temperature: options.runtime?.temperature,
         systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
-        apiKey: providerServerConfigured.value[selectedProviderId.value]
-          ? undefined
-          : apiKey.value.trim() || undefined,
+        // 始终允许前端当前输入的 key 覆盖服务端环境变量，便于失效 key 的即时修复。
+        apiKey: apiKey.value.trim() || undefined,
         projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
         useWorkspaceContext,
         messages: messages
