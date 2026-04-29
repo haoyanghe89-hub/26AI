@@ -19,12 +19,19 @@ import {
   normalizePromptTemplate,
   normalizeWorkflow,
   renderPromptTemplate,
+  wrapComposerTemplate,
   type CustomAgent,
   type PromptRuntimeConfig,
   type PromptTemplate,
   type PromptWorkflow,
 } from '../lib/promptEngineering'
-import { buildSessionSummaryPrompt, normalizeTags } from '../lib/sessionManagement'
+import {
+  buildHeuristicSessionTags,
+  buildSessionSummaryPrompt,
+  buildSessionTagsPrompt,
+  normalizeTags,
+  parseAutoSessionTagsResponse,
+} from '../lib/sessionManagement'
 
 type Role = 'user' | 'assistant'
 export type ProviderId =
@@ -70,6 +77,8 @@ export interface ChatSession {
   id: string
   title: string
   tags: string[]
+  /** 自动推断标签的尝试次数；用户清空标签时归零 */
+  tagsInferAttempts?: number
   summary?: {
     content: string
     updatedAt: string
@@ -328,6 +337,10 @@ function normalizeSession(value: ChatSession): ChatSession {
   return {
     ...value,
     tags: normalizeTags(value.tags || []),
+    tagsInferAttempts:
+      typeof value.tagsInferAttempts === 'number' && value.tagsInferAttempts >= 0
+        ? Math.min(99, Math.floor(value.tagsInferAttempts))
+        : 0,
     summary:
       value.summary && typeof value.summary.content === 'string'
         ? {
@@ -481,6 +494,18 @@ function sanitizeUserInput(value: string) {
     .trim()
 }
 
+function replaceLastUserMessageContent(messages: ChatMessage[], content: MessageContent): ChatMessage[] {
+  let lastUserIndex = -1
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') {
+      lastUserIndex = i
+      break
+    }
+  }
+  if (lastUserIndex === -1) return messages
+  return messages.map((message, index) => (index === lastUserIndex ? { ...message, content } : message))
+}
+
 function buildUserContent(text: string, files: PreparedFile[]): MessageContent {
   const parts: MultiModalContent = []
   const trimmedText = text.trim()
@@ -560,6 +585,7 @@ export const useChatStore = defineStore('chat', () => {
   const isLoadingFile = ref(false)
   const isPreviewingFileDiff = ref(false)
   const isApplyingFileWrite = ref(false)
+  const isOpeningExternalEditor = ref(false)
   const workspaceStatus = ref<WorkspaceStatus>({
     indexed: false,
     root: '',
@@ -758,6 +784,16 @@ export const useChatStore = defineStore('chat', () => {
     saveSessions()
   }
 
+  function renameSession(sessionId: string, title: string) {
+    const session = sessions.value.find((item) => item.id === sessionId)
+    if (!session) return false
+    const next = title.trim().slice(0, 120)
+    if (!next) return false
+    session.title = next
+    saveSessions()
+    return true
+  }
+
   function setActiveSession(id: string) {
     activeSessionId.value = id
     errorMessage.value = ''
@@ -774,10 +810,21 @@ export const useChatStore = defineStore('chat', () => {
     saveSessions()
   }
 
+  function applyHeuristicSessionTagsIfEmpty(sessionId: string) {
+    const fresh = sessions.value.find((item) => item.id === sessionId)
+    if (!fresh || fresh.tags.length) return
+    const inferred = buildHeuristicSessionTags(fresh)
+    if (!inferred.length) return
+    fresh.tags = inferred
+    fresh.updatedAt = new Date().toISOString()
+    saveSessions()
+  }
+
   function setSessionTags(sessionId: string, tags: string[]) {
     const session = sessions.value.find((item) => item.id === sessionId)
     if (!session) return
     session.tags = normalizeTags(tags)
+    if (!session.tags.length) session.tagsInferAttempts = 0
     session.updatedAt = new Date().toISOString()
     saveSessions()
   }
@@ -955,7 +1002,10 @@ export const useChatStore = defineStore('chat', () => {
     session.title = compact ? compact.slice(0, 24) : '附件会话'
   }
 
-  async function sendMessage(text: string) {
+  async function sendMessage(
+    text: string,
+    options?: { composerTemplate?: Pick<PromptTemplate, 'id' | 'name' | 'content'> | null },
+  ) {
     const cleanText = sanitizeUserInput(text)
     const files = [...pendingFiles.value]
     if (!isProviderReady.value || isSending.value || (!cleanText && !files.length)) return false
@@ -964,12 +1014,16 @@ export const useChatStore = defineStore('chat', () => {
       errorMessage.value = `单次输入最多 ${MAX_MESSAGE_CHARS} 个字符，已自动截断后发送。`
     }
 
+    const template = options?.composerTemplate ?? undefined
     const session = activeSession.value
-    const content = buildUserContent(cleanText, files)
+    const displayContent = buildUserContent(cleanText, files)
+    const apiPayloadContent = template
+      ? buildUserContent(wrapComposerTemplate(template.content, cleanText), files)
+      : displayContent
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
-      content,
+      content: displayContent,
       attachments: files.map(({ id, name, kind, size, type, hash }) => ({
         id,
         name,
@@ -997,10 +1051,14 @@ export const useChatStore = defineStore('chat', () => {
     }
     session.messages.push(assistantMessage)
 
+    let assistantHttpOk = false
     try {
       const response = await requestWithRetry(async () => {
         const runtime = buildPromptRuntimeConfig(activeAgent.value)
-        const result = await callChatBackend(session.messages, {
+        const messagesPayload = template
+          ? replaceLastUserMessageContent(session.messages, apiPayloadContent)
+          : session.messages
+        const result = await callChatBackend(messagesPayload, {
           runtime,
           useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
         })
@@ -1014,7 +1072,9 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const data = await response.json()
-      assistantMessage.content = data.content || '没有收到有效回复。'
+      assistantHttpOk = true
+      const reply = data.content || '没有收到有效回复。'
+      assistantMessage.content = reply
       session.updatedAt = new Date().toISOString()
     } catch (error) {
       assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
@@ -1022,6 +1082,7 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isSending.value = false
       saveSessions()
+      if (assistantHttpOk) void maybeInferSessionTags(session)
     }
 
     return true
@@ -1116,6 +1177,7 @@ export const useChatStore = defineStore('chat', () => {
         session.updatedAt = new Date().toISOString()
         saveSessions()
       }
+      void maybeInferSessionTags(session)
       return true
     } catch (error) {
       session.messages.push({
@@ -1130,6 +1192,66 @@ export const useChatStore = defineStore('chat', () => {
     } finally {
       isRunningWorkflow.value = false
       isSending.value = false
+    }
+  }
+
+  async function maybeInferSessionTags(session: ChatSession) {
+    if (session.tags?.length) return
+
+    // 先同步填启发式，侧栏立刻有标签；模型返回后再覆盖为更贴切的结果
+    applyHeuristicSessionTagsIfEmpty(session.id)
+
+    if (!isProviderReady.value) return
+
+    if ((session.tagsInferAttempts ?? 0) >= 2) return
+
+    const prompt = buildSessionTagsPrompt(session)
+    if (!prompt.trim()) return
+
+    session.tagsInferAttempts = (session.tagsInferAttempts ?? 0) + 1
+    session.updatedAt = new Date().toISOString()
+    saveSessions()
+
+    try {
+      const response = await requestWithRetry(async () => {
+        const result = await callChatBackend(
+          [
+            {
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: prompt,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          {
+            useWorkspaceContext: false,
+            runtime: {
+              temperature: 0.2,
+              systemPrompt:
+                '【附加指令】下一条用户消息是一项元任务：仅根据其中的「会话内容」摘录输出 2～4 个中文主题标签。请只输出一行标签，用英文半角逗号分隔；禁止解释、禁止 Markdown、禁止序号与多余文字。',
+            },
+          },
+        )
+        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        return result
+      })
+
+      if (!response.ok) return
+
+      const data = await response.json()
+      const fresh = sessions.value.find((item) => item.id === session.id)
+      if (!fresh) return
+
+      const inferred = parseAutoSessionTagsResponse(String(data.content || ''))
+      if (!inferred.length) return
+
+      fresh.tags = inferred
+      fresh.updatedAt = new Date().toISOString()
+      saveSessions()
+    } catch {
+      // 不打断主流程、不写入 errorMessage
+    } finally {
+      applyHeuristicSessionTagsIfEmpty(session.id)
     }
   }
 
@@ -1350,9 +1472,14 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function loadProjectFile(path: string) {
+  async function refreshActiveProjectFiles() {
+    await refreshActiveProjectTree()
+    if (activeFilePath.value) await loadProjectFile(activeFilePath.value, { force: true })
+  }
+
+  async function loadProjectFile(path: string, options: { force?: boolean } = {}) {
     const project = activeProject.value
-    if (!project || !path || isLoadingFile.value) return
+    if (!project || !path || (isLoadingFile.value && !options.force)) return
 
     isLoadingFile.value = true
     errorMessage.value = ''
@@ -1431,6 +1558,33 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function openActiveFileInEditor(editor: 'cursor' | 'vscode' = 'cursor') {
+    const project = activeProject.value
+    if (!project || !activeFilePath.value || isOpeningExternalEditor.value) return false
+
+    isOpeningExternalEditor.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await fetch(
+        `/api/projects/${project.id}/open-file?path=${encodeURIComponent(activeFilePath.value)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ editor }),
+        },
+      )
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `打开编辑器失败：${response.status}`)
+      return true
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '打开编辑器失败'
+      return false
+    } finally {
+      isOpeningExternalEditor.value = false
+    }
+  }
+
   async function deleteProject(projectId: string) {
     if (!projectId) return false
 
@@ -1501,6 +1655,7 @@ export const useChatStore = defineStore('chat', () => {
     isLoadingFile,
     isPreviewingFileDiff,
     isApplyingFileWrite,
+    isOpeningExternalEditor,
     projects,
     activeProjectId,
     activeProject,
@@ -1517,6 +1672,7 @@ export const useChatStore = defineStore('chat', () => {
     setModel,
     newSession,
     deleteSession,
+    renameSession,
     setActiveSession,
     clearAllSessions,
     setSessionTags,
@@ -1541,9 +1697,11 @@ export const useChatStore = defineStore('chat', () => {
     setActiveProject,
     analyzeActiveProject,
     refreshActiveProjectTree,
+    refreshActiveProjectFiles,
     loadProjectFile,
     previewActiveFileDiff,
     applyActiveFileWrite,
+    openActiveFileInEditor,
     deleteProject,
   }
 })

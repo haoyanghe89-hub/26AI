@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
-import { ArrowDown, ArrowUp, Setting } from '@element-plus/icons-vue'
+import { ArrowUp, Setting } from '@element-plus/icons-vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
@@ -52,64 +52,67 @@ function handleModelChange(value: string) {
         配置
       </span>
       <span class="settings-summary">{{ selectedProvider.name }} · {{ model }}</span>
-      <el-icon class="settings-chevron">
-        <ArrowDown v-if="isCollapsed" />
-        <ArrowUp v-else />
+      <el-icon class="settings-chevron t1-chevron" :class="{ 'is-expanded': !isCollapsed }">
+        <ArrowUp />
       </el-icon>
     </button>
 
-    <div v-show="!isCollapsed" class="settings-body">
-      <label>
-        <span>AI 供应商</span>
-        <el-select
-          ref="providerSelectRef"
-          :model-value="selectedProviderId"
-          :reserve-keyword="false"
-          popper-class="military-green-select-dropdown"
-          @change="(value) => handleProviderChange(String(value))"
-        >
-          <el-option
-            v-for="provider in providers"
-            :key="provider.id"
-            :label="provider.name"
-            :value="provider.id"
-          />
-        </el-select>
-      </label>
-      <label>
-        <span>{{ selectedProvider.keyLabel }}</span>
-        <el-input
-          :key="selectedProviderId"
-          :model-value="apiKey"
-          type="password"
-          :placeholder="selectedProvider.keyPlaceholder"
-          show-password
-          autocomplete="off"
-          @update:model-value="(value: string) => emit('update-api-key', value)"
-        />
-      </label>
-      <label>
-        <span>模型</span>
-        <el-select
-          ref="modelSelectRef"
-          :model-value="model"
-          filterable
-          allow-create
-          default-first-option
-          :reserve-keyword="false"
-          placeholder="选择或输入模型"
-          popper-class="military-green-select-dropdown"
-          @update:model-value="handleModelChange"
-        >
-          <el-option
-            v-for="item in currentModelOptions"
-            :key="item.value"
-            :label="item.hint ? `${item.label} · ${item.hint}` : item.label"
-            :value="item.value"
-          />
-        </el-select>
-      </label>
-      <el-button plain @click="emit('clear-history')">清空历史</el-button>
+    <div class="t1-collapse-wrap" :class="{ 'is-open': !isCollapsed }">
+      <div class="t1-collapse-inner">
+        <div class="settings-body">
+          <label>
+            <span>AI 供应商</span>
+            <el-select
+              ref="providerSelectRef"
+              :model-value="selectedProviderId"
+              :reserve-keyword="false"
+              popper-class="military-green-select-dropdown"
+              @change="(value) => handleProviderChange(String(value))"
+            >
+              <el-option
+                v-for="provider in providers"
+                :key="provider.id"
+                :label="provider.name"
+                :value="provider.id"
+              />
+            </el-select>
+          </label>
+          <label>
+            <span>{{ selectedProvider.keyLabel }}</span>
+            <el-input
+              :key="selectedProviderId"
+              :model-value="apiKey"
+              type="password"
+              :placeholder="selectedProvider.keyPlaceholder"
+              show-password
+              autocomplete="off"
+              @update:model-value="(value: string) => emit('update-api-key', value)"
+            />
+          </label>
+          <label>
+            <span>模型</span>
+            <el-select
+              ref="modelSelectRef"
+              :model-value="model"
+              filterable
+              allow-create
+              default-first-option
+              :reserve-keyword="false"
+              placeholder="选择或输入模型"
+              popper-class="military-green-select-dropdown"
+              @update:model-value="handleModelChange"
+            >
+              <el-option
+                v-for="item in currentModelOptions"
+                :key="item.value"
+                :label="item.hint ? `${item.label} · ${item.hint}` : item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </label>
+          <el-button plain @click="emit('clear-history')">清空历史</el-button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

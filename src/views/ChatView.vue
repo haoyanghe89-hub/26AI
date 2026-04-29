@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import {
   Delete,
@@ -17,10 +17,10 @@ import {
   Search,
   MagicStick,
   ArrowDown,
-  ArrowUp,
   MoreFilled,
   CopyDocument,
   Check,
+  Refresh,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
@@ -57,10 +57,16 @@ import {
   normalizeTags,
   sessionMatchesQuery,
 } from '../lib/sessionManagement'
+import type { PromptTemplate } from '../lib/promptEngineering'
 import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
+import { useRoute, useRouter } from 'vue-router'
 
 const chat = useChatStore()
+const route = useRoute()
+const router = useRouter()
 const input = ref('')
+/** 当前会话输入区生效的模板（发送时套用到模型，界面仍显示用户原文） */
+const activeComposerTemplate = ref<Pick<PromptTemplate, 'id' | 'name' | 'content'> | null>(null)
 const appShellEl = ref<HTMLElement | null>(null)
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
@@ -131,11 +137,47 @@ const appShellViewStyle = computed(() => ({
   '--workspace-handle-width': isWorkspaceCollapsed.value ? '0px' : '8px',
 }))
 
+function syncSessionQueryParam() {
+  const q = route.query.session
+  const current = typeof q === 'string' ? q : Array.isArray(q) && q.length ? (q[0] as string) : ''
+  if (current === chat.activeSessionId) return
+  router.replace({ path: '/', query: { session: chat.activeSessionId } })
+}
+
+async function bootRouteSession() {
+  await chat.hydrateClientState()
+  const raw = route.query.session
+  const sid = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.length ? (raw[0] as string) : ''
+  if (sid && chat.sessions.some((s) => s.id === sid)) {
+    chat.setActiveSession(sid)
+  }
+  syncSessionQueryParam()
+}
+
 onMounted(() => {
-  chat.hydrateClientState()
+  void bootRouteSession()
   chat.refreshProviderServerConfig()
   chat.refreshProjects()
 })
+
+watch(
+  () => chat.activeSessionId,
+  () => {
+    activeComposerTemplate.value = null
+    syncSessionQueryParam()
+  },
+)
+
+watch(
+  () => route.query.session,
+  (q) => {
+    const sid = typeof q === 'string' ? q : Array.isArray(q) && q.length ? (q[0] as string) : ''
+    if (!sid || sid === chat.activeSessionId) return
+    if (chat.sessions.some((s) => s.id === sid)) {
+      chat.setActiveSession(sid)
+    }
+  },
+)
 
 function scrollToBottom() {
   nextTick(() => {
@@ -190,30 +232,20 @@ async function analyzeProject() {
 async function handleTreeNodeClick(node: any) {
   if (node.isDirectory) return
   isEditingFile.value = false
+  isWorkspaceCollapsed.value = false
   setCodePreviewVisible(true)
   await chat.loadProjectFile(node.path)
+  await nextTick()
   clampPanelWidths()
 }
 
-async function previewAndApplyFileWrite() {
-  const diff = await chat.previewActiveFileDiff()
-  if (!diff) return
-
-  await ElMessageBox.confirm(`<pre class="diff-confirm">${escapeHtml(diff)}</pre>`, '确认应用修改', {
-    confirmButtonText: '应用修改',
-    cancelButtonText: '取消',
-    dangerouslyUseHTMLString: true,
-    customClass: 'military-dialog military-dialog--diff',
-  })
-
-  const applied = await chat.applyActiveFileWrite()
-  if (applied) isEditingFile.value = false
-}
-
-function cancelFileEdit() {
-  chat.editedFileContent = chat.activeFileContent
-  chat.activeFileDiff = ''
-  isEditingFile.value = false
+async function selectProjectFromSidebar(projectId: string) {
+  chat.setActiveProject(projectId)
+  if (projectId) {
+    isWorkspaceCollapsed.value = false
+    await nextTick()
+    clampPanelWidths()
+  }
 }
 
 async function confirmDeleteProject(projectId: string, projectName: string) {
@@ -244,7 +276,9 @@ async function submit() {
   input.value = '' // 点击发送后立即清空输入框
   scrollToBottom() // 立即滚动到底部以显示用户刚发出的消息
 
-  const sent = await chat.sendMessage(content)
+  const sent = await chat.sendMessage(content, {
+    composerTemplate: activeComposerTemplate.value,
+  })
   if (sent) {
     scrollToBottom()
   } else {
@@ -253,8 +287,8 @@ async function submit() {
   }
 }
 
-function applyPromptTemplate(value: string) {
-  input.value = value
+function applyPromptTemplate(payload: Pick<PromptTemplate, 'id' | 'name' | 'content'>) {
+  activeComposerTemplate.value = payload
   nextTick(() => {
     const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea')
     textarea?.focus()
@@ -537,7 +571,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
             type="button"
             class="project-item"
             :class="{ active: !chat.activeProjectId }"
-            @click="chat.setActiveProject('')"
+            @click="selectProjectFromSidebar('')"
           >
             <el-icon><Promotion /></el-icon>
             <span>普通对话</span>
@@ -551,7 +585,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
             type="button"
             class="project-item"
             :class="{ active: project.id === chat.activeProjectId }"
-            @click="chat.setActiveProject(project.id)"
+            @click="selectProjectFromSidebar(project.id)"
           >
             <el-icon><Files /></el-icon>
             <span>{{ project.name }}</span>
@@ -621,83 +655,85 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
             会话智能管理
           </span>
           <span class="session-manager-count">{{ filteredSessions.length }}/{{ chat.sessions.length }}</span>
-          <el-icon class="session-manager-chevron">
-            <ArrowDown v-if="isSessionManagerCollapsed" />
-            <ArrowUp v-else />
+          <el-icon
+            class="session-manager-chevron t1-chevron"
+            :class="{ 'is-expanded': !isSessionManagerCollapsed }"
+          >
+            <ArrowDown />
           </el-icon>
         </button>
 
-        <div v-show="!isSessionManagerCollapsed" class="session-manager-body">
-          <el-input
-            v-model="sessionSearchQuery"
-            class="session-search"
-            clearable
-            :prefix-icon="Search"
-            placeholder="搜索标题、标签、内容"
-          />
-          <div v-if="chat.allSessionTags.length" class="session-tags">
-            <button
-              type="button"
-              class="session-tag-filter"
-              :class="{ active: !activeSessionTag }"
-              @click="activeSessionTag = ''"
-            >
-              全部
-            </button>
-            <button
-              v-for="tag in chat.allSessionTags"
-              :key="tag"
-              type="button"
-              class="session-tag-filter"
-              :class="{ active: activeSessionTag === tag }"
-              @click="activeSessionTag = tag"
-            >
-              {{ tag }}
-            </button>
-          </div>
-          <div class="session-export-actions">
-            <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
-              >导出当前</el-button
-            >
-            <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
-              >导出列表</el-button
-            >
-          </div>
-          <label class="session-tag-editor">
-            <span>当前会话标签</span>
-            <el-input
-              v-model="activeSessionTagsText"
-              size="small"
-              placeholder="用逗号分隔，例如 前端, 修复"
-            />
-          </label>
-          <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
-            <div class="session-summary-head">
-              <span>智能总结</span>
-              <div class="session-summary-actions">
-                <el-button
-                  v-if="chat.activeSession.summary"
-                  class="summary-more-button"
-                  size="small"
-                  text
-                  :icon="MoreFilled"
-                  aria-label="查看完整智能总结"
-                  @click="openSummaryDialog"
-                />
-                <el-button
-                  size="small"
-                  plain
-                  :icon="MagicStick"
-                  :loading="chat.isSummarizingSession"
-                  :disabled="!canSummarizeActiveSession"
-                  @click="summarizeActiveSession"
+        <div class="t1-collapse-wrap" :class="{ 'is-open': !isSessionManagerCollapsed }">
+          <div class="t1-collapse-inner">
+            <div class="session-manager-body">
+              <el-input
+                v-model="sessionSearchQuery"
+                class="session-search"
+                clearable
+                :prefix-icon="Search"
+                placeholder="搜索标题、标签、内容"
+              />
+              <div v-if="chat.allSessionTags.length" class="session-tags">
+                <button
+                  type="button"
+                  class="session-tag-filter"
+                  :class="{ active: !activeSessionTag }"
+                  @click="activeSessionTag = ''"
                 >
-                  {{ chat.activeSession.summary ? '更新' : '生成' }}
-                </el-button>
+                  全部
+                </button>
+                <button
+                  v-for="tag in chat.allSessionTags"
+                  :key="tag"
+                  type="button"
+                  class="session-tag-filter"
+                  :class="{ active: activeSessionTag === tag }"
+                  @click="activeSessionTag = tag"
+                >
+                  {{ tag }}
+                </button>
+              </div>
+              <div class="session-export-actions">
+                <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
+                  >导出当前</el-button
+                >
+                <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
+                  >导出列表</el-button
+                >
+              </div>
+              <label class="session-tag-editor">
+                <span>当前会话标签</span>
+                <el-input v-model="activeSessionTagsText" size="small" placeholder="自定义会话标签" />
+              </label>
+              <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
+                <div class="session-summary-head">
+                  <span>智能总结</span>
+                  <div class="session-summary-actions">
+                    <el-button
+                      v-if="chat.activeSession.summary"
+                      class="summary-more-button"
+                      size="small"
+                      text
+                      :icon="MoreFilled"
+                      aria-label="查看完整智能总结"
+                      @click="openSummaryDialog"
+                    />
+                    <el-button
+                      size="small"
+                      plain
+                      :icon="MagicStick"
+                      :loading="chat.isSummarizingSession"
+                      :disabled="!canSummarizeActiveSession"
+                      @click="summarizeActiveSession"
+                    >
+                      {{ chat.activeSession.summary ? '更新' : '生成' }}
+                    </el-button>
+                  </div>
+                </div>
+                <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
+                <p v-else>长会话可一键压缩成可回顾摘要。</p>
               </div>
             </div>
-            <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
-            <p v-else>长会话可一键压缩成可回顾摘要。</p>
           </div>
         </div>
       </section>
@@ -709,7 +745,6 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           :session="session"
           :active="session.id === chat.activeSessionId"
           @select="selectSession"
-          @delete="chat.deleteSession"
         />
         <button
           v-if="chat.sessions.length && !filteredSessions.length"
@@ -772,9 +807,9 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
     <main id="main-content" class="chat-area" tabindex="-1">
       <header class="topbar">
         <div>
-          <p>当前会话</p>
-          <h1>{{ chat.activeSession.title }}</h1>
-          <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div>
+          <!-- <p>当前会话</p> -->
+          <h4>{{ chat.activeSession.title }}</h4>
+          <!-- <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div> -->
         </div>
         <div class="topbar-actions">
           <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
@@ -794,11 +829,11 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
       <div ref="messagesEl" class="messages" aria-label="消息列表" role="log" aria-live="polite">
         <div v-if="!chat.visibleMessages.length" class="empty-state">
           <div class="empty-logo">T1</div>
-          <h2>Twentys1x AI 工作台</h2>
+          <!-- <h2>Twentys1x AI 工作台</h2>
           <p>
             选择 AI 供应商并粘贴对应 API Key
             后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
-          </p>
+          </p> -->
         </div>
 
         <div v-for="message in chat.visibleMessages" v-else :key="message.id" class="message-list-item">
@@ -844,6 +879,19 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           <el-button link @click="chat.setActiveProject('')">
             <el-icon><Close /></el-icon> 退出项目模式
           </el-button>
+        </div>
+
+        <div v-if="activeComposerTemplate" class="composer-template-indicator">
+          <span class="composer-template-indicator__label">对话模板</span>
+          <el-tag
+            class="composer-template-tag"
+            closable
+            type="success"
+            effect="plain"
+            @close="activeComposerTemplate = null"
+          >
+            {{ activeComposerTemplate.name }}
+          </el-tag>
         </div>
 
         <div class="composer">
@@ -904,6 +952,15 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
         <el-button
           class="panel-icon-button"
           text
+          :icon="Refresh"
+          :loading="chat.isLoadingFile"
+          :disabled="!chat.activeFilePath"
+          title="刷新当前文件"
+          @click="chat.activeFilePath && chat.loadProjectFile(chat.activeFilePath, { force: true })"
+        />
+        <el-button
+          class="panel-icon-button"
+          text
           :icon="Close"
           title="关闭代码预览"
           @click="closeCodePreview"
@@ -912,30 +969,26 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
 
       <section class="code-preview-body">
         <div v-if="chat.activeFilePath" class="file-actions">
-          <el-button v-if="!isEditingFile" size="small" plain :icon="Edit" @click="isEditingFile = true"
-            >编辑</el-button
+          <el-button
+            size="small"
+            type="primary"
+            :icon="Edit"
+            :loading="chat.isOpeningExternalEditor"
+            @click="chat.openActiveFileInEditor('cursor')"
           >
-          <template v-else>
-            <el-button size="small" plain @click="cancelFileEdit">取消</el-button>
-            <el-button
-              size="small"
-              type="primary"
-              :loading="chat.isPreviewingFileDiff || chat.isApplyingFileWrite"
-              @click="previewAndApplyFileWrite"
-            >
-              生成 Diff
-            </el-button>
-          </template>
+            Cursor
+          </el-button>
+          <el-button
+            size="small"
+            plain
+            :disabled="chat.isOpeningExternalEditor"
+            @click="chat.openActiveFileInEditor('vscode')"
+          >
+            VS Code
+          </el-button>
         </div>
 
-        <el-input
-          v-if="chat.activeFilePath && isEditingFile"
-          v-model="chat.editedFileContent"
-          class="file-editor"
-          type="textarea"
-          resize="none"
-        />
-        <div v-else-if="chat.activeFilePath" class="code-preview line-numbered">
+        <div v-if="chat.activeFilePath" class="code-preview line-numbered">
           <div v-for="line in activeFilePreviewLines" :key="line.number" class="code-line-row">
             <span class="line-number-gutter" aria-hidden="true">{{ line.number }}</span>
             <code :class="`code-line language-${activeFileLanguage}`" v-html="line.html"></code>
@@ -966,6 +1019,15 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           <el-button
             class="panel-icon-button"
             text
+            :icon="Refresh"
+            :loading="chat.isLoadingProjectTree || chat.isLoadingFile"
+            :disabled="!chat.activeProject"
+            title="刷新项目文件"
+            @click="chat.refreshActiveProjectFiles"
+          />
+          <el-button
+            class="panel-icon-button"
+            text
             :disabled="!canToggleCodePreview"
             :title="isCodePreviewVisible ? '隐藏代码预览' : '显示代码预览'"
             @click="toggleCodePreviewPanel"
@@ -989,7 +1051,9 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
 
       <section class="file-tree-section">
         <div class="workspace-section-title">
-          <span>文件树</span>
+          <span class="workspace-files-title"
+            >所有文件 <el-icon><ArrowDown /></el-icon
+          ></span>
           <small v-if="chat.activeProject">{{ chat.activeProject.chunkCount }} 片段</small>
         </div>
         <el-tree
@@ -999,6 +1063,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           node-key="path"
           :props="{ label: 'name', children: 'children' }"
           :highlight-current="true"
+          :expand-on-click-node="true"
           @node-click="handleTreeNodeClick"
         >
           <template #default="{ data }">

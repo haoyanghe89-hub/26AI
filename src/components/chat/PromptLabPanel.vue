@@ -2,7 +2,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import {
   ArrowDown,
-  ArrowUp,
   Collection,
   CopyDocument,
   Delete,
@@ -38,7 +37,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  'apply-template': [value: string]
+  'apply-template': [value: Pick<PromptTemplate, 'id' | 'name' | 'content'>]
   'select-agent': [value: string]
   'save-template': [value: Partial<PromptTemplate>]
   'delete-template': [id: string]
@@ -128,12 +127,28 @@ function saveTemplateDraft() {
 function applySelectedTemplate() {
   const template = selectedTemplate.value
   if (!template) return
-  if (!templateVariables.value.length) {
-    emit('apply-template', template.content)
+  const vars = templateVariables.value
+  if (!vars.length) {
+    emit('apply-template', {
+      id: template.id,
+      name: template.name,
+      content: template.content,
+    })
     return
   }
 
-  for (const key of templateVariables.value) {
+  // 仅有 {{input}} 时不弹窗，留给主输入框在发送时填入
+  const onlyInput = vars.length === 1 && vars[0] === 'input'
+  if (onlyInput) {
+    emit('apply-template', {
+      id: template.id,
+      name: template.name,
+      content: template.content,
+    })
+    return
+  }
+
+  for (const key of vars) {
     if (!(key in variableValues)) variableValues[key] = ''
   }
   variableDialogVisible.value = true
@@ -142,7 +157,11 @@ function applySelectedTemplate() {
 function applyTemplateVariables() {
   const template = selectedTemplate.value
   if (!template) return
-  emit('apply-template', renderPromptTemplate(template.content, variableValues))
+  emit('apply-template', {
+    id: template.id,
+    name: template.name,
+    content: renderPromptTemplate(template.content, variableValues),
+  })
   variableDialogVisible.value = false
 }
 
@@ -239,165 +258,176 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
         个性化工作台
       </span>
       <span class="prompt-lab-summary">{{ activeAgent?.name || '通用助手' }}</span>
-      <el-icon class="prompt-lab-chevron">
-        <ArrowDown v-if="isCollapsed" />
-        <ArrowUp v-else />
+      <el-icon class="prompt-lab-chevron t1-chevron" :class="{ 'is-expanded': !isCollapsed }">
+        <ArrowDown />
       </el-icon>
     </button>
 
-    <div v-show="!isCollapsed" class="prompt-lab-body">
-      <div class="prompt-lab-tabs" role="tablist" aria-label="个性化工作台视图">
-        <button :class="{ active: mode === 'templates' }" type="button" @click="switchMode('templates')">
-          模板
-        </button>
-        <button :class="{ active: mode === 'agents' }" type="button" @click="switchMode('agents')">
-          Agent
-        </button>
-        <button :class="{ active: mode === 'workflows' }" type="button" @click="switchMode('workflows')">
-          工作流
-        </button>
-      </div>
+    <div class="t1-collapse-wrap" :class="{ 'is-open': !isCollapsed }">
+      <div class="t1-collapse-inner">
+        <div class="prompt-lab-body">
+          <div class="prompt-lab-tabs" role="tablist" aria-label="个性化工作台视图">
+            <button :class="{ active: mode === 'templates' }" type="button" @click="switchMode('templates')">
+              模板
+            </button>
+            <button :class="{ active: mode === 'agents' }" type="button" @click="switchMode('agents')">
+              Agent
+            </button>
+            <button :class="{ active: mode === 'workflows' }" type="button" @click="switchMode('workflows')">
+              工作流
+            </button>
+          </div>
 
-      <div v-if="mode === 'templates'" class="prompt-lab-section">
-        <div class="prompt-lab-toolbar">
-          <el-select v-model="selectedTemplateId" size="small" popper-class="military-green-select-dropdown">
-            <el-option
-              v-for="template in templates"
-              :key="template.id"
-              :label="`${template.name} · ${template.category}`"
-              :value="template.id"
-            />
-          </el-select>
-          <el-button size="small" plain :icon="Plus" @click="openTemplateDialog()">新建</el-button>
-        </div>
-        <div v-if="selectedTemplate" class="prompt-card">
-          <div class="prompt-card-head">
-            <span
-              ><el-icon><Collection /></el-icon>{{ selectedTemplate.name }}</span
-            >
-            <small>{{ selectedTemplate.isBuiltin ? '内置' : '自定义' }}</small>
+          <div v-if="mode === 'templates'" class="prompt-lab-section">
+            <div class="prompt-lab-toolbar">
+              <el-select
+                v-model="selectedTemplateId"
+                size="small"
+                popper-class="military-green-select-dropdown"
+              >
+                <el-option
+                  v-for="template in templates"
+                  :key="template.id"
+                  :label="`${template.name} · ${template.category}`"
+                  :value="template.id"
+                />
+              </el-select>
+              <el-button size="small" plain :icon="Plus" @click="openTemplateDialog()">新建</el-button>
+            </div>
+            <div v-if="selectedTemplate" class="prompt-card">
+              <div class="prompt-card-head">
+                <span
+                  ><el-icon><Collection /></el-icon>{{ selectedTemplate.name }}</span
+                >
+                <small>{{ selectedTemplate.isBuiltin ? '内置' : '自定义' }}</small>
+              </div>
+              <p>{{ selectedTemplate.description || '无描述' }}</p>
+              <div v-if="templateVariables.length" class="prompt-chip-row">
+                <span v-for="name in templateVariables" :key="name">{{ name }}</span>
+              </div>
+              <div class="prompt-lab-actions">
+                <el-button size="small" type="primary" @click="applySelectedTemplate">使用模板</el-button>
+                <el-button size="small" plain :icon="Edit" @click="openTemplateDialog(selectedTemplate)">
+                  {{ selectedTemplate.isBuiltin ? '复制编辑' : '编辑' }}
+                </el-button>
+                <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedTemplate)">
+                  {{ copiedAssetId === selectedTemplate.id ? '已复制' : '分享' }}
+                </el-button>
+                <el-button
+                  v-if="!selectedTemplate.isBuiltin"
+                  size="small"
+                  plain
+                  :icon="Delete"
+                  @click="emit('delete-template', selectedTemplate.id)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div>
           </div>
-          <p>{{ selectedTemplate.description || '无描述' }}</p>
-          <div v-if="templateVariables.length" class="prompt-chip-row">
-            <span v-for="name in templateVariables" :key="name">{{ name }}</span>
-          </div>
-          <div class="prompt-lab-actions">
-            <el-button size="small" type="primary" @click="applySelectedTemplate">填入输入框</el-button>
-            <el-button size="small" plain :icon="Edit" @click="openTemplateDialog(selectedTemplate)">
-              {{ selectedTemplate.isBuiltin ? '复制编辑' : '编辑' }}
-            </el-button>
-            <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedTemplate)">
-              {{ copiedAssetId === selectedTemplate.id ? '已复制' : '分享' }}
-            </el-button>
-            <el-button
-              v-if="!selectedTemplate.isBuiltin"
-              size="small"
-              plain
-              :icon="Delete"
-              @click="emit('delete-template', selectedTemplate.id)"
-            >
-              删除
-            </el-button>
-          </div>
-        </div>
-      </div>
 
-      <div v-else-if="mode === 'agents'" class="prompt-lab-section">
-        <div class="prompt-lab-toolbar">
-          <el-select
-            :model-value="activeAgentId"
-            size="small"
-            popper-class="military-green-select-dropdown"
-            @update:model-value="(value: string) => emit('select-agent', value)"
-          >
-            <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
-          </el-select>
-          <el-button size="small" plain :icon="Plus" @click="openAgentDialog()">新建</el-button>
-        </div>
-        <div v-if="activeAgent" class="prompt-card">
-          <div class="prompt-card-head">
-            <span
-              ><el-icon><User /></el-icon>{{ activeAgent.name }}</span
-            >
-            <small>{{ activeAgent.model || '当前模型' }} · T {{ activeAgent.temperature }}</small>
+          <div v-else-if="mode === 'agents'" class="prompt-lab-section">
+            <div class="prompt-lab-toolbar">
+              <el-select
+                :model-value="activeAgentId"
+                size="small"
+                popper-class="military-green-select-dropdown"
+                @update:model-value="(value: string) => emit('select-agent', value)"
+              >
+                <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
+              </el-select>
+              <el-button size="small" plain :icon="Plus" @click="openAgentDialog()">新建</el-button>
+            </div>
+            <div v-if="activeAgent" class="prompt-card">
+              <div class="prompt-card-head">
+                <span
+                  ><el-icon><User /></el-icon>{{ activeAgent.name }}</span
+                >
+                <small>{{ activeAgent.model || '当前模型' }} · T {{ activeAgent.temperature }}</small>
+              </div>
+              <p>{{ activeAgent.description || '无描述' }}</p>
+              <div class="agent-context-row" :class="{ disabled: !isProjectContextActive }">
+                {{
+                  isProjectContextActive
+                    ? '项目上下文已开启'
+                    : hasActiveProject
+                      ? '项目上下文未启用'
+                      : '普通对话模式'
+                }}
+              </div>
+              <div class="prompt-lab-actions">
+                <el-button size="small" plain :icon="Edit" @click="openAgentDialog(activeAgent)">
+                  {{ activeAgent.isBuiltin ? '复制编辑' : '编辑' }}
+                </el-button>
+                <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(activeAgent)">
+                  {{ copiedAssetId === activeAgent.id ? '已复制' : '分享' }}
+                </el-button>
+                <el-button
+                  v-if="!activeAgent.isBuiltin"
+                  size="small"
+                  plain
+                  :icon="Delete"
+                  @click="emit('delete-agent', activeAgent.id)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div>
           </div>
-          <p>{{ activeAgent.description || '无描述' }}</p>
-          <div class="agent-context-row" :class="{ disabled: !isProjectContextActive }">
-            {{
-              isProjectContextActive
-                ? '项目上下文已开启'
-                : hasActiveProject
-                  ? '项目上下文未启用'
-                  : '普通对话模式'
-            }}
-          </div>
-          <div class="prompt-lab-actions">
-            <el-button size="small" plain :icon="Edit" @click="openAgentDialog(activeAgent)">
-              {{ activeAgent.isBuiltin ? '复制编辑' : '编辑' }}
-            </el-button>
-            <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(activeAgent)">
-              {{ copiedAssetId === activeAgent.id ? '已复制' : '分享' }}
-            </el-button>
-            <el-button
-              v-if="!activeAgent.isBuiltin"
-              size="small"
-              plain
-              :icon="Delete"
-              @click="emit('delete-agent', activeAgent.id)"
-            >
-              删除
-            </el-button>
-          </div>
-        </div>
-      </div>
 
-      <div v-else class="prompt-lab-section">
-        <div class="prompt-lab-toolbar">
-          <el-select v-model="selectedWorkflowId" size="small" popper-class="military-green-select-dropdown">
-            <el-option
-              v-for="workflow in workflows"
-              :key="workflow.id"
-              :label="workflow.name"
-              :value="workflow.id"
-            />
-          </el-select>
-          <el-button size="small" plain :icon="Plus" @click="openWorkflowDialog()">新建</el-button>
-        </div>
-        <div v-if="selectedWorkflow" class="prompt-card">
-          <div class="prompt-card-head">
-            <span
-              ><el-icon><MagicStick /></el-icon>{{ selectedWorkflow.name }}</span
-            >
-            <small>{{ selectedWorkflow.steps.length }} 步</small>
-          </div>
-          <p>{{ selectedWorkflow.description || '无描述' }}</p>
-          <ol class="workflow-step-list">
-            <li v-for="step in selectedWorkflow.steps" :key="step.id">{{ step.title }}</li>
-          </ol>
-          <div class="prompt-lab-actions">
-            <el-button
-              size="small"
-              type="primary"
-              :loading="isRunningWorkflow"
-              @click="openWorkflowRunDialog"
-            >
-              执行
-            </el-button>
-            <el-button size="small" plain :icon="Edit" @click="openWorkflowDialog(selectedWorkflow)">
-              {{ selectedWorkflow.isBuiltin ? '复制编辑' : '编辑' }}
-            </el-button>
-            <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedWorkflow)">
-              {{ copiedAssetId === selectedWorkflow.id ? '已复制' : '分享' }}
-            </el-button>
-            <el-button
-              v-if="!selectedWorkflow.isBuiltin"
-              size="small"
-              plain
-              :icon="Delete"
-              @click="emit('delete-workflow', selectedWorkflow.id)"
-            >
-              删除
-            </el-button>
+          <div v-else class="prompt-lab-section">
+            <div class="prompt-lab-toolbar">
+              <el-select
+                v-model="selectedWorkflowId"
+                size="small"
+                popper-class="military-green-select-dropdown"
+              >
+                <el-option
+                  v-for="workflow in workflows"
+                  :key="workflow.id"
+                  :label="workflow.name"
+                  :value="workflow.id"
+                />
+              </el-select>
+              <el-button size="small" plain :icon="Plus" @click="openWorkflowDialog()">新建</el-button>
+            </div>
+            <div v-if="selectedWorkflow" class="prompt-card">
+              <div class="prompt-card-head">
+                <span
+                  ><el-icon><MagicStick /></el-icon>{{ selectedWorkflow.name }}</span
+                >
+                <small>{{ selectedWorkflow.steps.length }} 步</small>
+              </div>
+              <p>{{ selectedWorkflow.description || '无描述' }}</p>
+              <ol class="workflow-step-list">
+                <li v-for="step in selectedWorkflow.steps" :key="step.id">{{ step.title }}</li>
+              </ol>
+              <div class="prompt-lab-actions">
+                <el-button
+                  size="small"
+                  type="primary"
+                  :loading="isRunningWorkflow"
+                  @click="openWorkflowRunDialog"
+                >
+                  执行
+                </el-button>
+                <el-button size="small" plain :icon="Edit" @click="openWorkflowDialog(selectedWorkflow)">
+                  {{ selectedWorkflow.isBuiltin ? '复制编辑' : '编辑' }}
+                </el-button>
+                <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedWorkflow)">
+                  {{ copiedAssetId === selectedWorkflow.id ? '已复制' : '分享' }}
+                </el-button>
+                <el-button
+                  v-if="!selectedWorkflow.isBuiltin"
+                  size="small"
+                  plain
+                  :icon="Delete"
+                  @click="emit('delete-workflow', selectedWorkflow.id)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -452,7 +482,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
     </div>
     <template #footer>
       <el-button @click="variableDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="applyTemplateVariables">填入输入框</el-button>
+      <el-button type="primary" @click="applyTemplateVariables">使用模板</el-button>
     </template>
   </el-dialog>
 
@@ -597,7 +627,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 <style scoped>
 .prompt-lab {
   display: grid;
-  gap: 12px;
+  gap: 0;
   padding: 14px;
   border: 1px solid rgba(23, 32, 26, 0.09);
   border-radius: 14px;
@@ -607,6 +637,10 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.78) inset,
     0 14px 34px rgba(23, 32, 26, 0.06);
+}
+
+.prompt-lab:not(.is-collapsed) .t1-collapse-wrap {
+  margin-top: 12px;
 }
 
 .prompt-lab.is-collapsed {

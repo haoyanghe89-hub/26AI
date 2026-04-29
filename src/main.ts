@@ -3,8 +3,10 @@ import 'element-plus/theme-chalk/base.css'
 import 'element-plus/theme-chalk/el-alert.css'
 import 'element-plus/theme-chalk/el-button.css'
 import 'element-plus/theme-chalk/el-dialog.css'
+import 'element-plus/theme-chalk/el-dropdown.css'
 import 'element-plus/theme-chalk/el-icon.css'
 import 'element-plus/theme-chalk/el-input.css'
+import 'element-plus/theme-chalk/el-message.css'
 import 'element-plus/theme-chalk/el-message-box.css'
 import 'element-plus/theme-chalk/el-overlay.css'
 import 'element-plus/theme-chalk/el-option.css'
@@ -18,5 +20,5 @@ import { router } from './router'
 import { installErrorReporting } from './lib/errorReporting'
 
 const app = createApp(App)
-installErrorReporting(app)
+installErrorReporting(app, router)
 app.use(pinia).use(router).mount('#app')

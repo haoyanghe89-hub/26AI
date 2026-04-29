@@ -1,3 +1,17 @@
+## 当前剩余未完成项
+
+- 完整 vue-i18n 中/英国际化
+- 会话导入、PDF 导出、跨设备同步
+- Monaco 代码编辑、运行、调试能力
+- 图片以外的语音/音频/视频多模态
+- 实时协作、分享链接、权限体系
+- 本地模型管理、混合推理策略
+- 多用户 JWT/OAuth2.0 鉴权与角色权限
+
+## 已完成项
+
+- Sentry 等外部错误监控接入：已完成浏览器端 `@sentry/vue`、服务端 `@sentry/node`、`/api/client-errors` 兜底转发、敏感信息脱敏、采样率配置与单元测试。
+
 | API Key明文存储/传输 | 1. 前端：用CryptoJS加密后存储到IndexedDB（替代localStorage）<br>2. 核心：**新增后端层**，前端不直连第三方AI接口，通过后端转发API Key（避免暴露） |
 | 恶意文件/输入 | 1. 文件上传：限制类型（白名单）、大小（如≤10MB）、校验文件哈希<br>2. 用户输入：过滤特殊字符，限制单次输入长度 |
 | 无权限控制 | 若后续支持多用户，需接入JWT/OAuth2.0鉴权，区分管理员/普通用户 |
@@ -30,7 +44,7 @@ async function requestWithRetry(fn: () => Promise<any>, retries = 3) {
     throw err
   }
 }
-```<br>2. 全局错误捕获（Vue errorHandler + Sentry上报）<br>3. 流式响应中断后支持续传 |
+```<br>2. 全局错误捕获（已完成 Vue errorHandler + Sentry 上报 + 后端兜底日志）<br>3. 流式响应中断后支持续传 |
 | 本地存储可靠性 | 用`localForage`替代localStorage，迁移到IndexedDB：<br>- 支持更大存储容量<br>- 异步操作避免阻塞主线程<br>- 自动降级兼容低版本浏览器 |
 
 ### 4. 产品化与合规（上线必备）

@@ -1,6 +1,7 @@
 import type { ChatSession, MessageContent } from '../stores/chat'
 
 const SUMMARY_TRANSCRIPT_MAX_CHARS = 18000
+const TAGS_TRANSCRIPT_MAX_CHARS = 12000
 
 export function normalizeTags(value: string | string[]) {
   const rawTags = Array.isArray(value) ? value : value.split(/[,，\s]+/)
@@ -62,9 +63,75 @@ export function exportSessionMarkdown(session: ChatSession) {
   return `${header}${summary}${body}`
 }
 
+export function buildSessionTagsPrompt(session: ChatSession) {
+  const transcript = session.messages
+    .filter((message) => messageContentText(message.content).trim())
+    .map((message) => {
+      const speaker = message.role === 'user' ? '用户' : '助手'
+      return `${speaker}: ${messageContentText(message.content).trim()}`
+    })
+    .join('\n\n')
+    .slice(-TAGS_TRANSCRIPT_MAX_CHARS)
+
+  if (!transcript.trim()) return ''
+
+  return [
+    '请根据下面会话内容，生成 2～4 个用于侧边栏分类与检索的短标签（每个不超过 8 个字，使用中文）。',
+    '只输出一行：多个标签用英文逗号分隔。不要序号、不要引号、不要解释或多余文字。',
+    '',
+    `会话标题：${session.title}`,
+    '会话内容：',
+    transcript,
+  ].join('\n')
+}
+
+/** 无模型或模型失败时，用标题与首条用户消息生成占位标签 */
+export function buildHeuristicSessionTags(session: ChatSession): string[] {
+  const title =
+    session.title && session.title !== '新的会话' ? session.title.replace(/\s*\.\.\.\s*$/, '').trim() : ''
+  const firstUser = session.messages.find((m) => m.role === 'user')
+  const userText = firstUser ? messageContentText(firstUser.content).replace(/\s+/g, ' ').trim() : ''
+  const parts: string[] = []
+  if (title) parts.push(title.slice(0, 12))
+  if (userText) {
+    const slice = userText.slice(0, 18)
+    const tPrefix = title.slice(0, Math.min(4, title.length))
+    if (!title || !tPrefix || !slice.includes(tPrefix)) parts.push(slice)
+  }
+  return normalizeTags(parts.join(',')).slice(0, 4)
+}
+
+/** 从模型返回的一行或多行文本中解析标签 */
+export function parseAutoSessionTagsResponse(raw: string) {
+  let s = raw.trim()
+  if (s.startsWith('```')) {
+    s = s.replace(/^```[a-zA-Z]*\n?/, '').replace(/\n?```\s*$/, '')
+  }
+  s = s.trim().replace(/^(标签|Tags?)[：:]\s*/i, '')
+
+  const lines = s
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+  if (!lines.length) return []
+
+  let best: string[] = []
+  for (const line of lines) {
+    const stripped = line
+      .replace(/^\d+[.)、]\s*/, '')
+      .replace(/^[•\-*]\s*/, '')
+      .replace(/，/g, ',')
+    const normalized = normalizeTags(stripped)
+    if (normalized.length > best.length) best = normalized
+  }
+  if (best.length) return best.slice(0, 12)
+
+  return normalizeTags(s.replace(/，/g, ',')).slice(0, 12)
+}
+
 export function buildSessionSummaryPrompt(session: ChatSession) {
   const transcript = session.messages
-    .filter((message) => message.content)
+    .filter((message) => messageContentText(message.content).trim())
     .map((message) => {
       const speaker = message.role === 'user' ? '用户' : '助手'
       return `${speaker}: ${messageContentText(message.content).trim()}`

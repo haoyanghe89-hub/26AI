@@ -7,15 +7,7 @@ const INDEX_PATH = path.join(DATA_DIR, 'workspace-index.json')
 const PROJECTS_DIR = path.join(DATA_DIR, 'projects')
 const PROJECTS_META_PATH = path.join(PROJECTS_DIR, 'projects.json')
 
-const IGNORED_DIRS = new Set([
-  '.git',
-  '.idea',
-  '.vscode',
-  'coverage',
-  'data',
-  'dist',
-  'node_modules',
-])
+const IGNORED_DIRS = new Set(['.git', '.idea', '.vscode', 'coverage', 'data', 'dist', 'node_modules'])
 
 const TEXT_EXTENSIONS = new Set([
   '.c',
@@ -126,7 +118,9 @@ export async function analyzeProject(projectId) {
   const tsconfig = await readProjectFile(projectId, 'tsconfig.json')
   const viteConfig = paths.find((item) => /^vite\.config\.(js|mjs|ts)$/.test(item))
   const srcFiles = paths.filter((item) => item.startsWith('src/'))
-  const testFiles = paths.filter((item) => /(\.|\/)(test|spec)\.[jt]sx?$/.test(item) || item.includes('__tests__/'))
+  const testFiles = paths.filter(
+    (item) => /(\.|\/)(test|spec)\.[jt]sx?$/.test(item) || item.includes('__tests__/'),
+  )
   const frameworks = detectFrameworks(paths, packageJson)
   const packageInfo = parseJson(packageJson)
   const scripts = packageInfo?.scripts ? Object.keys(packageInfo.scripts) : []
@@ -190,6 +184,7 @@ export async function getProjectTree(projectId) {
       if (entry.isDirectory()) {
         child.children = []
         await walk(fullPath, child)
+        if (!child.children.length) delete child.children
       }
 
       node.children.push(child)
@@ -200,7 +195,7 @@ export async function getProjectTree(projectId) {
   return root.children
 }
 
-export { readProjectFile }
+export { getProjectFilePath, getProjectFilesRoot, readProjectFile }
 
 export async function previewProjectFileWrite(projectId, relativePath, content) {
   const previous = await readProjectFile(projectId, relativePath)
@@ -381,13 +376,20 @@ async function loadProjectIndex(projectId) {
 }
 
 async function readProjectFile(projectId, relativePath) {
+  const filePath = await getProjectFilePath(projectId, relativePath)
+  if (!filePath) return null
+  return fs.readFile(filePath, 'utf8').catch(() => null)
+}
+
+async function getProjectFilePath(projectId, relativePath) {
   const filesRoot = await getProjectFilesRoot(projectId)
   if (!filesRoot || !isSafeRelativePath(relativePath)) return null
 
   const safePath = normalizeRelativePath(relativePath)
   const filePath = path.resolve(filesRoot, safePath)
   if (!filePath.startsWith(`${filesRoot}${path.sep}`) && filePath !== filesRoot) return null
-  return fs.readFile(filePath, 'utf8').catch(() => null)
+  const stat = await fs.stat(filePath).catch(() => null)
+  return stat?.isFile() ? filePath : null
 }
 
 async function getProjectFilesRoot(projectId) {
@@ -421,7 +423,9 @@ async function rebuildProjectIndex(projectId) {
   }
 
   await fs.writeFile(path.join(PROJECTS_DIR, projectId, 'index.json'), JSON.stringify(updated, null, 2))
-  const projects = (await loadProjects()).map((project) => (project.id === projectId ? projectSummary(updated) : project))
+  const projects = (await loadProjects()).map((project) =>
+    project.id === projectId ? projectSummary(updated) : project,
+  )
   cachedProjects = projects
   await saveProjects(projects)
   return projectSummary(updated)
@@ -582,7 +586,9 @@ function inferProjectName(files) {
 function stripCommonRoot(relativePath, commonRoot) {
   const normalizedRoot = normalizeRelativePath(commonRoot)
   if (!normalizedRoot) return relativePath
-  return relativePath.startsWith(`${normalizedRoot}/`) ? relativePath.slice(normalizedRoot.length + 1) : relativePath
+  return relativePath.startsWith(`${normalizedRoot}/`)
+    ? relativePath.slice(normalizedRoot.length + 1)
+    : relativePath
 }
 
 function sanitizeProjectName(value) {
@@ -594,7 +600,9 @@ function sanitizeProjectName(value) {
 }
 
 function normalizeRelativePath(value) {
-  return String(value || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  return String(value || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '')
 }
 
 function isSafeRelativePath(value) {
@@ -633,7 +641,8 @@ function detectFrameworks(paths, packageJson) {
   const names = new Set()
 
   if (dependencies.vue || paths.some((item) => item.endsWith('.vue'))) names.add('Vue')
-  if (dependencies.react || paths.some((item) => item.endsWith('.jsx') || item.endsWith('.tsx'))) names.add('React')
+  if (dependencies.react || paths.some((item) => item.endsWith('.jsx') || item.endsWith('.tsx')))
+    names.add('React')
   if (dependencies.next) names.add('Next.js')
   if (dependencies.nuxt) names.add('Nuxt')
   if (dependencies.vite || paths.some((item) => /^vite\.config\./.test(item))) names.add('Vite')

@@ -4,11 +4,13 @@ import {
   BUILTIN_PROMPT_TEMPLATES,
   BUILTIN_WORKFLOWS,
   buildPromptRuntimeConfig,
+  buildTemplatedUserPrompt,
   extractPromptVariables,
   normalizeAgent,
   normalizePromptTemplate,
   normalizeWorkflow,
   renderPromptTemplate,
+  wrapComposerTemplate,
 } from './promptEngineering'
 
 describe('promptEngineering', () => {
@@ -17,6 +19,23 @@ describe('promptEngineering', () => {
     expect(extractPromptVariables(content)).toEqual(['input', 'previous'])
     expect(renderPromptTemplate(content, { input: '需求', previous: '分析' })).toContain('请处理 需求')
     expect(renderPromptTemplate(content, { input: '需求', previous: '分析' })).toContain('参考 分析')
+  })
+
+  it('builds a real model prompt from the selected template and user input', () => {
+    expect(
+      buildTemplatedUserPrompt({ id: 't1', name: '需求分析', content: '请分析：{{input}}' }, '新增登录页'),
+    ).toBe('请分析：新增登录页')
+
+    expect(
+      buildTemplatedUserPrompt({ id: 't2', name: '代码审查', content: '你是代码审查专家。' }, '检查这段代码'),
+    ).toContain('用户输入：\n检查这段代码')
+  })
+
+  it('wrapComposerTemplate fills {{input}} or appends user text for fixed templates', () => {
+    expect(wrapComposerTemplate('说明：{{input}}', '你好')).toBe('说明：你好')
+    expect(wrapComposerTemplate('固定前缀\n\n---\n尾部', 'x')).toContain('固定前缀')
+    expect(wrapComposerTemplate('仅静态指令', '用户话')).toContain('仅静态指令')
+    expect(wrapComposerTemplate('仅静态指令', '用户话')).toContain('用户话')
   })
 
   it('normalizes templates with derived variables', () => {

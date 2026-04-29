@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildHeuristicSessionTags,
   buildSessionSummaryPrompt,
+  buildSessionTagsPrompt,
   exportSessionMarkdown,
   exportSessionsJson,
   normalizeTags,
+  parseAutoSessionTagsResponse,
   sessionMatchesQuery,
 } from './sessionManagement'
 import type { ChatSession } from '../stores/chat'
@@ -74,5 +77,34 @@ describe('sessionManagement', () => {
     expect(prompt).toContain('用户: 如何优化长列表？')
     expect(prompt).toContain('助手: 可以使用虚拟滚动。')
     expect(prompt).toContain('不要编造会话里没有的信息')
+  })
+
+  it('builds a session tags prompt and parses model output', () => {
+    const prompt = buildSessionTagsPrompt(session)
+    expect(prompt).toContain('生成 2～4 个')
+    expect(prompt).toContain('会话标题：Vue 性能优化')
+    expect(prompt).toContain('用户: 如何优化长列表？')
+    expect(parseAutoSessionTagsResponse('前端, 性能优化, Vue')).toEqual(['前端', '性能优化', 'Vue'])
+    expect(parseAutoSessionTagsResponse('```\n标签：Go, 并发\n```')).toEqual(['Go', '并发'])
+    expect(parseAutoSessionTagsResponse('说明文字无逗号\nVue, 性能')).toEqual(['Vue', '性能'])
+  })
+
+  it('builds heuristic tags from title and first user message', () => {
+    const s: ChatSession = {
+      id: 's2',
+      title: '推荐一些书',
+      tags: [],
+      createdAt: '2026-04-29T00:00:00.000Z',
+      updatedAt: '2026-04-29T00:00:00.000Z',
+      messages: [
+        {
+          id: 'u1',
+          role: 'user',
+          content: '推荐一些适合通勤的科幻小说',
+          createdAt: '2026-04-29T00:01:00.000Z',
+        },
+      ],
+    }
+    expect(buildHeuristicSessionTags(s).length).toBeGreaterThan(0)
   })
 })

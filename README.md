@@ -31,6 +31,13 @@ Configure provider API keys as server environment variables when possible:
 - `KIMI_API_KEY`
 - `QWEN_API_KEY`
 
+Optional external error monitoring:
+
+- Browser Sentry: `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`, `VITE_SENTRY_RELEASE`, `VITE_SENTRY_TRACES_SAMPLE_RATE`
+- Backend Sentry: `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `SENTRY_RELEASE`, `SENTRY_TRACES_SAMPLE_RATE`
+
+When DSNs are empty, the app keeps the local `/api/client-errors` fallback logging enabled and skips external uploads. Error reports are scrubbed for API-key-like values and bearer tokens before logging or forwarding.
+
 Then build and run:
 
 ```bash

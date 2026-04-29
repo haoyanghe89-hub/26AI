@@ -50,6 +50,12 @@ export interface PromptRuntimeConfig {
   useProjectContext?: boolean
 }
 
+export interface ActivePromptTemplate {
+  id: string
+  name: string
+  content: string
+}
+
 const BUILTIN_CREATED_AT = '2026-04-29T00:00:00.000Z'
 
 export const DEFAULT_AGENT_ID = 'agent-general-assistant'
@@ -155,6 +161,46 @@ export function renderPromptTemplate(content: string, values: Record<string, str
   return String(content || '').replace(/\{\{\s*([a-zA-Z_][\w-]*)\s*\}\}/g, (_, key: string) => {
     return values[key] ?? ''
   })
+}
+
+export function buildTemplatedUserPrompt(template: ActivePromptTemplate, userInput: string) {
+  const content = template.content.trim()
+  const input = userInput.trim()
+  if (!content) return input
+
+  if (/\{\{\s*(input|question|message|user_input)\s*\}\}/i.test(content)) {
+    return content.replace(/\{\{\s*(input|question|message|user_input)\s*\}\}/gi, input)
+  }
+
+  return `${content}\n\n用户输入：\n${input}`
+}
+
+/**
+ * 将主输入框内容与模板合并为发给模型的文本；界面与会话仍展示用户原文。
+ * - 含 {{input}} 时用用户输入（或仅有附件时的占位句）替换。
+ * - 已无占位符的模板正文后追加「---」与用户输入。
+ */
+export function wrapComposerTemplate(templateContent: string, userText: string): string {
+  const trimmedUser = userText.trim()
+  const inputFallback = trimmedUser || '请分析以下附件内容。'
+  const raw = String(templateContent || '')
+  const vars = extractPromptVariables(raw)
+
+  if (vars.includes('input')) {
+    return renderPromptTemplate(raw, { input: inputFallback })
+  }
+
+  if (!vars.length) {
+    const base = raw.trim()
+    if (!base) return inputFallback
+    return `${base}\n\n---\n${trimmedUser || inputFallback}`
+  }
+
+  const rendered = renderPromptTemplate(raw, { input: inputFallback })
+  if (/\{\{\s*[a-zA-Z_]/.test(rendered)) {
+    return `${rendered}\n\n---\n${trimmedUser || inputFallback}`
+  }
+  return rendered
 }
 
 export function normalizePromptTemplate(

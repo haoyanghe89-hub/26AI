@@ -4,7 +4,7 @@ import { getStoredString, setStoredString } from '../lib/clientStorage'
 type PanelSide = 'left' | 'preview' | 'right'
 
 const PANEL_HANDLE_WIDTH = 8
-const MAIN_MIN_WIDTH = 560
+const MAIN_MIN_WIDTH = 420
 
 function loadStoredWidth(_key: string, fallback: number) {
   return fallback
@@ -22,9 +22,9 @@ function persistPanelWidth(key: string, value: number) {
 function getPanelBounds(containerWidth: number) {
   const leftMin = Math.max(248, Math.round(containerWidth * 0.16))
   const leftMaxByRatio = Math.min(460, Math.round(containerWidth * 0.34))
-  const rightMin = Math.max(300, Math.round(containerWidth * 0.2))
+  const rightMin = Math.max(260, Math.round(containerWidth * 0.18))
   const rightMaxByRatio = Math.min(580, Math.round(containerWidth * 0.42))
-  const previewMin = Math.max(360, Math.round(containerWidth * 0.24))
+  const previewMin = Math.max(300, Math.round(containerWidth * 0.2))
   const previewMaxByRatio = Math.min(760, Math.round(containerWidth * 0.48))
   return { leftMin, leftMaxByRatio, rightMin, rightMaxByRatio, previewMin, previewMaxByRatio }
 }
@@ -59,20 +59,18 @@ export function useResizablePanels(
     const handleCount = isCodePreviewVisible.value ? 3 : 2
     const usable = total - MAIN_MIN_WIDTH - PANEL_HANDLE_WIDTH * handleCount
 
-    if (isCodePreviewVisible.value && usable <= leftMin + rightMin + previewMin) {
-      isCodePreviewVisible.value = false
-      onPreviewVisibilityChange?.(false)
-      clampPanelWidths()
-      return
-    }
+    const constrainedUsable = Math.max(
+      usable,
+      leftMin + rightMin + (isCodePreviewVisible.value ? previewMin : 0),
+    )
 
     const leftMax = Math.max(
       leftMin,
-      Math.min(leftMaxByRatio, usable - rightMin - (isCodePreviewVisible.value ? previewMin : 0)),
+      Math.min(leftMaxByRatio, constrainedUsable - rightMin - (isCodePreviewVisible.value ? previewMin : 0)),
     )
     const rightMax = Math.max(
       rightMin,
-      Math.min(rightMaxByRatio, usable - leftMin - (isCodePreviewVisible.value ? previewMin : 0)),
+      Math.min(rightMaxByRatio, constrainedUsable - leftMin - (isCodePreviewVisible.value ? previewMin : 0)),
     )
 
     leftSidebarWidth.value = Math.round(Math.min(Math.max(leftSidebarWidth.value, leftMin), leftMax))
@@ -82,7 +80,7 @@ export function useResizablePanels(
 
     const previewMax = Math.max(
       previewMin,
-      Math.min(previewMaxByRatio, usable - leftSidebarWidth.value - rightWorkspaceWidth.value),
+      Math.min(previewMaxByRatio, constrainedUsable - leftSidebarWidth.value - rightWorkspaceWidth.value),
     )
     previewPanelWidth.value = Math.round(Math.min(Math.max(previewPanelWidth.value, previewMin), previewMax))
 

@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { spawn } from 'node:child_process'
 import { createReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import path from 'node:path'
@@ -8,6 +9,8 @@ import {
   buildWorkspaceContext,
   deleteProject,
   getProjectTree,
+  getProjectFilePath,
+  getProjectFilesRoot,
   getWorkspaceStatus,
   getProjectStatus,
   importProject,
@@ -19,11 +22,18 @@ import {
   searchWorkspace,
   writeProjectFile,
 } from './workspace-index.mjs'
+import {
+  captureClientErrorReport,
+  captureServerError,
+  initServerErrorMonitoring,
+} from './error-monitoring.mjs'
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '127.0.0.1'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = path.resolve(__dirname, '../dist')
+
+initServerErrorMonitoring()
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
@@ -193,6 +203,21 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
+    const projectOpenFileMatch = req.url.match(/^\/api\/projects\/([^/]+)\/open-file(?:\?.*)?$/)
+    if (req.method === 'POST' && projectOpenFileMatch) {
+      const projectId = projectOpenFileMatch[1]
+      const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+      const filePath = url.searchParams.get('path') || ''
+      const body = await readJson(req)
+      const absolutePath = await getProjectFilePath(projectId, filePath)
+      const projectRoot = await getProjectFilesRoot(projectId)
+      if (!absolutePath) throw httpError(404, 'File not found')
+      if (!projectRoot) throw httpError(404, 'Project not found')
+      await openFileInExternalEditor(projectRoot, absolutePath, body?.editor)
+      sendJson(res, 200, { opened: true, editor: normalizeEditor(body?.editor), path: filePath })
+      return
+    }
+
     const projectDeleteMatch = req.url.match(/^\/api\/projects\/([^/]+)$/)
     if (req.method === 'DELETE' && projectDeleteMatch) {
       const deleted = await deleteProject(projectDeleteMatch[1])
@@ -224,6 +249,7 @@ const server = http.createServer(async (req, res) => {
     sendJson(res, 200, result)
   } catch (error) {
     const status = Number(error?.status || 500)
+    if (status >= 500) captureServerError(error, { route: req.url, status })
     sendJson(res, status, {
       error: error instanceof Error ? error.message : 'Unknown server error',
       details: error?.details,
@@ -518,31 +544,22 @@ function sendJson(res, status, payload) {
 }
 
 function logClientError(body) {
-  const message = scrubSensitiveText(String(body?.message || 'Unknown client error')).slice(0, 800)
-  const source = String(body?.source || 'client').slice(0, 80)
-  const component = body?.component ? String(body.component).slice(0, 120) : ''
-  const info = body?.info ? String(body.info).slice(0, 200) : ''
-  const stack = body?.stack ? scrubSensitiveText(String(body.stack)).slice(0, 4000) : ''
+  const payload = captureClientErrorReport(body)
 
   console.error(
     JSON.stringify({
       level: 'error',
       type: 'client-error',
-      source,
-      component,
-      info,
-      message,
-      stack,
-      createdAt: new Date().toISOString(),
+      source: payload.source,
+      component: payload.component,
+      info: payload.info,
+      message: payload.message,
+      stack: payload.stack,
+      url: payload.url,
+      userAgent: payload.userAgent,
+      createdAt: payload.createdAt,
     }),
   )
-}
-
-function scrubSensitiveText(value) {
-  return value
-    .replace(/sk-[A-Za-z0-9_-]{16,}/g, '[redacted-api-key]')
-    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, 'Bearer [redacted-token]')
-    .replace(/api[_-]?key["'\s:=]+[A-Za-z0-9._-]+/gi, 'apiKey=[redacted]')
 }
 
 async function sendStaticFile(req, res) {
@@ -599,6 +616,32 @@ function contentTypeFor(filePath) {
   if (extension === '.svg') return 'image/svg+xml'
   if (extension === '.webp') return 'image/webp'
   return 'application/octet-stream'
+}
+
+function normalizeEditor(value) {
+  return value === 'vscode' ? 'vscode' : 'cursor'
+}
+
+function openFileInExternalEditor(projectRoot, filePath, editor) {
+  const selectedEditor = normalizeEditor(editor)
+  const appName = selectedEditor === 'vscode' ? 'Visual Studio Code' : 'Cursor'
+  const command =
+    process.platform === 'darwin'
+      ? ['open', ['-n', '-a', appName, projectRoot, '--args', filePath]]
+      : selectedEditor === 'vscode'
+        ? ['code', ['--new-window', projectRoot, filePath]]
+        : ['cursor', ['--new-window', projectRoot, filePath]]
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command[0], command[1], {
+      detached: true,
+      stdio: 'ignore',
+    })
+
+    child.once('error', reject)
+    child.unref()
+    resolve()
+  })
 }
 
 function httpError(status, message, details) {
