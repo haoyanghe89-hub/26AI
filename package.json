@@ -16,6 +16,7 @@
     "prepare": "husky",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "test:watch": "vitest",
     "security:audit": "npm audit --audit-level=moderate --registry=https://registry.npmjs.org",
     "preview": "vite preview --host 0.0.0.0"
@@ -37,6 +38,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.59.1",
     "@types/prismjs": "^1.26.6",
     "@vue/test-utils": "^2.4.9",
     "eslint": "^10.2.1",

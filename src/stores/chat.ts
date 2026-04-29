@@ -9,7 +9,7 @@ import {
   setStoredString,
 } from '../lib/clientStorage'
 import { requestWithRetry } from '../lib/request'
-import { normalizeTags } from '../lib/sessionManagement'
+import { buildSessionSummaryPrompt, normalizeTags } from '../lib/sessionManagement'
 
 type Role = 'user' | 'assistant'
 export type ProviderId =
@@ -55,6 +55,10 @@ export interface ChatSession {
   id: string
   title: string
   tags: string[]
+  summary?: {
+    content: string
+    updatedAt: string
+  }
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -302,6 +306,13 @@ function normalizeSession(value: ChatSession): ChatSession {
   return {
     ...value,
     tags: normalizeTags(value.tags || []),
+    summary:
+      value.summary && typeof value.summary.content === 'string'
+        ? {
+            content: value.summary.content,
+            updatedAt: value.summary.updatedAt || value.updatedAt,
+          }
+        : undefined,
     messages: Array.isArray(value.messages) ? value.messages : [],
   }
 }
@@ -444,6 +455,7 @@ export const useChatStore = defineStore('chat', () => {
   const pendingFiles = ref<PreparedFile[]>([])
   const providerServerConfigured = ref<Record<string, boolean>>({})
   const isSending = ref(false)
+  const isSummarizingSession = ref(false)
   const isIndexingWorkspace = ref(false)
   const isImportingProject = ref(false)
   const isAnalyzingProject = ref(false)
@@ -726,7 +738,60 @@ export const useChatStore = defineStore('chat', () => {
     return true
   }
 
-  function callChatBackend(messages: ChatMessage[]) {
+  async function summarizeActiveSession() {
+    const session = activeSession.value
+    const summaryPrompt = buildSessionSummaryPrompt(session)
+
+    if (!isProviderReady.value || isSending.value || isSummarizingSession.value || !summaryPrompt.trim()) {
+      return false
+    }
+
+    isSummarizingSession.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await requestWithRetry(async () => {
+        const result = await callChatBackend(
+          [
+            {
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: summaryPrompt,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          { useWorkspaceContext: false },
+        )
+        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        return result
+      })
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null)
+        throw new Error(detail?.error || `总结失败：${response.status}`)
+      }
+
+      const data = await response.json()
+      const now = new Date().toISOString()
+      session.summary = {
+        content: String(data.content || '').trim() || '没有生成有效总结。',
+        updatedAt: now,
+      }
+      session.updatedAt = now
+      saveSessions()
+      return true
+    } catch (error) {
+      errorMessage.value = error instanceof Error ? error.message : '生成会话总结失败'
+      return false
+    } finally {
+      isSummarizingSession.value = false
+    }
+  }
+
+  function callChatBackend(messages: ChatMessage[], options: { useWorkspaceContext?: boolean } = {}) {
+    const useWorkspaceContext =
+      options.useWorkspaceContext ?? Boolean(activeProject.value || workspaceStatus.value.indexed)
+
     return fetch('/api/chat', {
       method: 'POST',
       headers: {
@@ -738,8 +803,8 @@ export const useChatStore = defineStore('chat', () => {
         apiKey: providerServerConfigured.value[selectedProviderId.value]
           ? undefined
           : apiKey.value.trim() || undefined,
-        projectId: activeProjectId.value || undefined,
-        useWorkspaceContext: Boolean(activeProject.value || workspaceStatus.value.indexed),
+        projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
+        useWorkspaceContext,
         messages: messages
           .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
           .map((message) => ({
@@ -1020,6 +1085,7 @@ export const useChatStore = defineStore('chat', () => {
     pendingFiles,
     providerServerConfigured,
     isSending,
+    isSummarizingSession,
     isIndexingWorkspace,
     isImportingProject,
     isAnalyzingProject,
@@ -1049,6 +1115,7 @@ export const useChatStore = defineStore('chat', () => {
     prepareFiles,
     removePendingFile,
     sendMessage,
+    summarizeActiveSession,
     refreshProviderServerConfig,
     refreshWorkspaceStatus,
     refreshProjects,

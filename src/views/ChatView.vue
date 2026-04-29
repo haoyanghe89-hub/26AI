@@ -13,6 +13,7 @@ import {
   Files,
   Close,
   Search,
+  MagicStick,
 } from '@element-plus/icons-vue'
 import { DynamicScroller, DynamicScrollerItem, type DynamicScrollerExposed } from 'vue-virtual-scroller'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
@@ -86,6 +87,9 @@ const activeSessionTagsText = computed({
   get: () => chat.activeSession.tags?.join(', ') || '',
   set: (value: string) => chat.setSessionTags(chat.activeSession.id, normalizeTags(value)),
 })
+const canSummarizeActiveSession = computed(
+  () => chat.activeSession.messages.length > 1 && chat.isProviderReady,
+)
 
 const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
 const activeFilePreviewLines = computed(() => {
@@ -261,6 +265,11 @@ function exportActiveSessionMarkdown() {
 function exportFilteredSessionsJson() {
   const sessions = filteredSessions.value.length ? filteredSessions.value : chat.sessions
   downloadText('twentys1x-sessions.json', exportSessionsJson(sessions), 'application/json;charset=utf-8')
+}
+
+async function summarizeActiveSession() {
+  const summarized = await chat.summarizeActiveSession()
+  if (summarized) scrollToBottom()
 }
 
 function downloadText(fileName: string, content: string, type: string) {
@@ -530,6 +539,23 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
           <span>当前会话标签</span>
           <el-input v-model="activeSessionTagsText" size="small" placeholder="用逗号分隔，例如 前端, 修复" />
         </label>
+        <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
+          <div class="session-summary-head">
+            <span>智能总结</span>
+            <el-button
+              size="small"
+              plain
+              :icon="MagicStick"
+              :loading="chat.isSummarizingSession"
+              :disabled="!canSummarizeActiveSession"
+              @click="summarizeActiveSession"
+            >
+              {{ chat.activeSession.summary ? '更新' : '生成' }}
+            </el-button>
+          </div>
+          <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
+          <p v-else>长会话可一键压缩成可回顾摘要。</p>
+        </div>
       </section>
 
       <nav class="sessions" aria-label="历史会话">
