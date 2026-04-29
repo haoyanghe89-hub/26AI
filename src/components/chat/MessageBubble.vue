@@ -24,6 +24,15 @@ const emit = defineEmits<{
   'copy-message': [messageId: string, content: ChatMessage['content']]
   'copy-code-block': [messageId: string, code: string, blockIndex: number]
 }>()
+
+function handleInlineEnter(event: Event | KeyboardEvent) {
+  if (!(event instanceof KeyboardEvent)) return
+  if (event.shiftKey) return
+  // 中文输入法选词阶段按回车不应触发提交
+  if (event.isComposing || event.keyCode === 229 || event.key === 'Process') return
+  event.preventDefault()
+  emit('submit-inline-edit')
+}
 </script>
 
 <template>
@@ -45,7 +54,7 @@ const emit = defineEmits<{
             :autosize="{ minRows: 2, maxRows: 10 }"
             class="inline-edit-input"
             @update:model-value="(value: string) => emit('update:editingContent', value)"
-            @keydown.enter.exact.prevent="emit('submit-inline-edit')"
+            @keydown.enter="handleInlineEnter"
           />
           <div class="inline-edit-actions">
             <el-button class="inline-cancel-btn" size="small" @click="emit('cancel-inline-edit')"

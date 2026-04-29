@@ -322,7 +322,11 @@ function savePromptWorkflow(value: Parameters<typeof chat.savePromptWorkflow>[0]
 }
 
 function handleEnter(event: Event | KeyboardEvent) {
-  if (event instanceof KeyboardEvent && event.shiftKey) return
+  if (event instanceof KeyboardEvent) {
+    if (event.shiftKey) return
+    // 中文输入法选词阶段按回车不应触发发送
+    if (event.isComposing || event.keyCode === 229 || event.key === 'Process') return
+  }
   event.preventDefault()
   submit()
 }

@@ -1894,6 +1894,60 @@ button {
   box-shadow: 0 8px 24px rgba(122, 54, 52, 0.08);
 }
 
+.inline-edit-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.inline-edit-input .el-textarea__inner {
+  background: linear-gradient(180deg, #f8faf7 0%, #f2f6f3 100%);
+  border-color: rgba(52, 96, 78, 0.18);
+  border-radius: 10px;
+  color: #17201a;
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+}
+
+.inline-edit-input .el-textarea__inner:focus {
+  border-color: rgba(52, 96, 78, 0.45);
+  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
+}
+
+.inline-cancel-btn {
+  --el-button-bg-color: #ffffff;
+  --el-button-border-color: rgba(52, 96, 78, 0.22);
+  --el-button-hover-bg-color: #eef4ef;
+  --el-button-hover-border-color: #34604e;
+  --el-button-active-bg-color: #dcebe2;
+  --el-button-active-border-color: #2d5848;
+  --el-button-text-color: #34604e;
+  --el-button-hover-text-color: #2d5848;
+}
+
+.inline-send-btn {
+  --el-button-bg-color: #34604e;
+  --el-button-border-color: #34604e;
+  --el-button-hover-bg-color: #3d6f5b;
+  --el-button-hover-border-color: #3d6f5b;
+  --el-button-active-bg-color: #2d5848;
+  --el-button-active-border-color: #2d5848;
+  --el-button-disabled-bg-color: #d9e8df;
+  --el-button-disabled-border-color: #d9e8df;
+  --el-button-disabled-text-color: #7a9788;
+  --el-button-text-color: #f8fbf7;
+  --el-button-hover-text-color: #f8fbf7;
+}
+
 .thinking {
   margin: 10px 0 0;
   font-size: 12px;
