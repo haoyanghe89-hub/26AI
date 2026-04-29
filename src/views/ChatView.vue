@@ -6,7 +6,6 @@ import {
   Download,
   Expand,
   Paperclip,
-  Plus,
   Promotion,
   Edit,
   CircleClose,
@@ -548,14 +547,12 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
   >
     <aside class="sidebar">
       <div class="brand">
-        <div class="logo-mark">T1</div>
+        <div class="logo-mark" style="cursor: pointer" @click="chat.newSession">T1</div>
         <div>
           <strong>Twentys1x</strong>
           <span>AI Studio</span>
         </div>
       </div>
-
-      <el-button class="new-chat" type="primary" :icon="Plus" @click="chat.newSession">新会话</el-button>
 
       <section class="project-panel" aria-label="项目">
         <div class="panel-title">
