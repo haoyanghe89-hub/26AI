@@ -1287,11 +1287,7 @@ button {
   font-weight: 800;
   letter-spacing: -0.035em;
   line-height: 1.2;
-  background: linear-gradient(145deg, #17201a 0%, #1f3328 40%, #34604e 72%, #8a6b38 100%);
-  background-clip: text;
-  -webkit-background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
+  color: #34604e;
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
