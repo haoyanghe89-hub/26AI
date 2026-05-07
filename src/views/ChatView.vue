@@ -76,6 +76,8 @@ const isWorkspaceCollapsed = ref(true)
 const isEditingFile = ref(false)
 const storedSessionManagerCollapsed = localStorage.getItem('twentys1x:session-manager-collapsed')
 const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
+const storedSidebarCollapsed = localStorage.getItem('twentys1x:left-sidebar-collapsed')
+const isSidebarCollapsed = ref(storedSidebarCollapsed === 'true')
 const isSummaryDialogVisible = ref(false)
 const summaryDraft = ref('')
 const copiedSummary = ref(false)
@@ -132,6 +134,8 @@ const {
 })
 const appShellViewStyle = computed(() => ({
   ...appShellStyle.value,
+  '--sidebar-left-width': isSidebarCollapsed.value ? '0px' : appShellStyle.value['--sidebar-left-width'],
+  '--sidebar-handle-width': isSidebarCollapsed.value ? '0px' : '8px',
   '--workspace-width': isWorkspaceCollapsed.value ? '0px' : appShellStyle.value['--workspace-width'],
   '--workspace-handle-width': isWorkspaceCollapsed.value ? '0px' : '8px',
 }))
@@ -198,6 +202,11 @@ function clearSessionFilters() {
   activeSessionTag.value = ''
 }
 
+function toggleSidebar() {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  localStorage.setItem('twentys1x:left-sidebar-collapsed', String(isSidebarCollapsed.value))
+}
+
 function selectSession(id: string) {
   chat.setActiveSession(id)
   scrollToBottom()
@@ -219,7 +228,8 @@ async function handleFiles(event: Event) {
 
 async function handleProjectFolder(event: Event) {
   const target = event.target as HTMLInputElement
-  await chat.importProjectFolder(Array.from(target.files || []))
+  const importedProject = await chat.importProjectFolder(Array.from(target.files || []))
+  if (importedProject) await openProjectWorkspace(importedProject.id)
   target.value = ''
 }
 
@@ -239,12 +249,19 @@ async function handleTreeNodeClick(node: any) {
 }
 
 async function selectProjectFromSidebar(projectId: string) {
-  chat.setActiveProject(projectId)
-  if (projectId) {
-    isWorkspaceCollapsed.value = false
-    await nextTick()
-    clampPanelWidths()
+  if (!projectId) {
+    chat.setActiveProject('')
+    return
   }
+  await openProjectWorkspace(projectId)
+}
+
+async function openProjectWorkspace(projectId: string) {
+  chat.setActiveProject(projectId)
+  isWorkspaceCollapsed.value = false
+  await chat.refreshActiveProjectTree()
+  await nextTick()
+  clampPanelWidths()
 }
 
 async function confirmDeleteProject(projectId: string, projectName: string) {
@@ -536,13 +553,27 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
     console.error('复制代码失败', err)
   }
 }
+
+async function regenerateMessage(messageId: string) {
+  stopGeneration()
+  cancelInlineEdit()
+
+  const regenerated = await chat.regenerateMessage(messageId)
+  if (regenerated) {
+    scrollToBottom()
+  }
+}
 </script>
 
 <template>
   <div
     ref="appShellEl"
     class="app-shell"
-    :class="{ 'is-resizing': isDraggingPanels, 'workspace-tree-hidden': isWorkspaceCollapsed }"
+    :class="{
+      'is-resizing': isDraggingPanels,
+      'workspace-tree-hidden': isWorkspaceCollapsed,
+      'is-sidebar-collapsed': isSidebarCollapsed,
+    }"
     :style="appShellViewStyle"
   >
     <aside class="sidebar">
@@ -771,6 +802,15 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
       />
     </aside>
 
+    <el-button
+      class="sidebar-toggle-button"
+      :icon="isSidebarCollapsed ? Expand : Fold"
+      :title="isSidebarCollapsed ? '展开左侧栏' : '收起左侧栏'"
+      :aria-label="isSidebarCollapsed ? '展开左侧栏' : '收起左侧栏'"
+      circle
+      @click="toggleSidebar"
+    />
+
     <el-dialog
       v-model="isSummaryDialogVisible"
       class="summary-dialog"
@@ -803,9 +843,19 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
       </template>
     </el-dialog>
 
-    <div class="panel-resizer left" title="拖拽调整左侧栏宽度" @mousedown="startResize('left', $event)"></div>
+    <div
+      v-if="!isSidebarCollapsed"
+      class="panel-resizer left"
+      title="拖拽调整左侧栏宽度"
+      @mousedown="startResize('left', $event)"
+    ></div>
 
-    <main id="main-content" class="chat-area" tabindex="-1">
+    <main
+      id="main-content"
+      class="chat-area"
+      :class="{ 'is-empty-chat': !chat.visibleMessages.length }"
+      tabindex="-1"
+    >
       <header class="topbar">
         <div>
           <!-- <p>当前会话</p> -->
@@ -851,6 +901,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
             @submit-inline-edit="submitInlineEdit"
             @copy-message="copyMessage"
             @copy-code-block="copyCodeBlock"
+            @regenerate-message="regenerateMessage"
           />
         </div>
       </div>

@@ -504,16 +504,36 @@ function dataUrlToGeminiImage(part) {
 
 function extractProviderText(provider, data) {
   if (provider.kind === 'gemini') {
-    return (
-      data.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || '没有收到有效回复。'
-    )
+    return normalizeProviderText(data.candidates?.[0]?.content?.parts)
   }
 
   if (provider.kind === 'claude') {
-    return data.content?.map((part) => part.text || '').join('') || '没有收到有效回复。'
+    return normalizeProviderText(data.content)
   }
 
-  return data.choices?.[0]?.message?.content || '没有收到有效回复。'
+  const message = data.choices?.[0]?.message || {}
+  return normalizeProviderText(message.content || message.reasoning_content || message.refusal)
+}
+
+function normalizeProviderText(value) {
+  if (typeof value === 'string') return value.trim() || '没有收到有效回复。'
+
+  if (Array.isArray(value)) {
+    const text = value
+      .map((part) => {
+        if (typeof part === 'string') return part
+        if (!part || typeof part !== 'object') return ''
+        if (typeof part.text === 'string') return part.text
+        if (typeof part.content === 'string') return part.content
+        if (typeof part.value === 'string') return part.value
+        return ''
+      })
+      .join('')
+      .trim()
+    return text || '没有收到有效回复。'
+  }
+
+  return '没有收到有效回复。'
 }
 
 async function readProviderResponse(response) {
@@ -659,25 +679,52 @@ function normalizeEditor(value) {
   return value === 'vscode' ? 'vscode' : 'cursor'
 }
 
-function openFileInExternalEditor(projectRoot, filePath, editor) {
+async function openFileInExternalEditor(projectRoot, filePath, editor) {
   const selectedEditor = normalizeEditor(editor)
-  const appName = selectedEditor === 'vscode' ? 'Visual Studio Code' : 'Cursor'
-  const command =
-    process.platform === 'darwin'
-      ? ['open', ['-n', '-a', appName, projectRoot, '--args', filePath]]
-      : selectedEditor === 'vscode'
-        ? ['code', ['--new-window', projectRoot, filePath]]
-        : ['cursor', ['--new-window', projectRoot, filePath]]
+  const commands = buildExternalEditorOpenCommands(projectRoot, filePath, selectedEditor)
 
+  for (const command of commands) {
+    try {
+      await spawnDetached(command, projectRoot)
+      return
+    } catch (error) {
+      if (command === commands.at(-1)) throw error
+    }
+  }
+}
+
+function buildExternalEditorOpenCommands(projectRoot, filePath, editor) {
+  const selectedEditor = normalizeEditor(editor)
+  const cliName = selectedEditor === 'vscode' ? 'code' : 'cursor'
+  const gotoTarget = `${filePath}:1:1`
+  const args = ['--new-window', '--goto', gotoTarget, projectRoot]
+
+  if (process.platform !== 'darwin') return [[cliName, args]]
+
+  const macAppCli =
+    selectedEditor === 'vscode'
+      ? '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+      : '/Applications/Cursor.app/Contents/Resources/app/bin/cursor'
+
+  return [
+    [macAppCli, args],
+    [cliName, args],
+  ]
+}
+
+function spawnDetached([command, args], cwd) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command[0], command[1], {
+    const child = spawn(command, args, {
+      cwd,
       detached: true,
       stdio: 'ignore',
     })
 
     child.once('error', reject)
-    child.unref()
-    resolve()
+    child.once('spawn', () => {
+      child.unref()
+      resolve()
+    })
   })
 }
 

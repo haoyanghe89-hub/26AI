@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import crypto from 'node:crypto'
 import path from 'node:path'
 
 const PROJECT_ROOT = process.cwd()
@@ -46,7 +47,7 @@ let cachedIndex
 let cachedProjects
 
 export async function listProjects() {
-  return loadProjects()
+  return dedupeImportedProjects(await loadProjects())
 }
 
 export async function importProject(payload) {
@@ -62,19 +63,31 @@ export async function importProject(payload) {
     .filter((file) => isIndexableFile(file.path))
     .filter((file) => Number(file.size || 0) <= MAX_FILE_BYTES)
     .slice(0, MAX_FILES)
+    .map((file) => ({
+      relativePath: stripCommonRoot(normalizeRelativePath(file.path), commonRoot),
+      text: String(file.text || ''),
+    }))
+
+  const importableFiles = acceptedFiles.filter((file) => file.text.trim())
+  const fingerprint = createProjectFingerprint(name, importableFiles)
+  const pathFingerprint = createProjectPathFingerprint(name, importableFiles)
+  const duplicateMatch = await findExistingImportedProject(fingerprint, pathFingerprint)
+  if (duplicateMatch) {
+    const projects = await loadProjects()
+    const duplicateIds = new Set([duplicateMatch.project.id, ...duplicateMatch.duplicateIds])
+    cachedProjects = [duplicateMatch.project, ...projects.filter((project) => !duplicateIds.has(project.id))]
+    await saveProjects(cachedProjects)
+    return duplicateMatch.project
+  }
 
   await fs.mkdir(filesDir, { recursive: true })
 
   const chunks = []
-  for (const file of acceptedFiles) {
-    const relativePath = stripCommonRoot(normalizeRelativePath(file.path), commonRoot)
-    const text = String(file.text || '')
-    if (!text.trim()) continue
-
-    const destination = path.join(filesDir, relativePath)
+  for (const file of importableFiles) {
+    const destination = path.join(filesDir, file.relativePath)
     await fs.mkdir(path.dirname(destination), { recursive: true })
-    await fs.writeFile(destination, text)
-    chunks.push(...chunkText(relativePath, text))
+    await fs.writeFile(destination, file.text)
+    chunks.push(...chunkText(file.relativePath, file.text))
   }
 
   const index = {
@@ -85,6 +98,8 @@ export async function importProject(payload) {
     importedAt,
     updatedAt: importedAt,
     fileCount: acceptedFiles.length,
+    fingerprint,
+    pathFingerprint,
     chunks,
   }
   await fs.writeFile(path.join(projectDir, 'index.json'), JSON.stringify(index, null, 2))
@@ -610,6 +625,148 @@ function isSafeRelativePath(value) {
   if (!normalized || normalized.includes('\0')) return false
   if (path.isAbsolute(normalized)) return false
   return !normalized.split('/').some((part) => part === '..')
+}
+
+async function findExistingImportedProject(fingerprint, pathFingerprint) {
+  if (!fingerprint && !pathFingerprint) return null
+
+  const projects = await dedupeImportedProjects(await loadProjects())
+  let projectMatch = null
+  const duplicateIds = []
+
+  for (const project of projects) {
+    const index = await loadProjectIndex(project.id)
+    if (!index) continue
+
+    const existingFingerprint = index.fingerprint || (await createStoredProjectFingerprint(index))
+    const existingPathFingerprint = index.pathFingerprint || (await createStoredProjectPathFingerprint(index))
+    if (existingFingerprint !== fingerprint && existingPathFingerprint !== pathFingerprint) continue
+
+    const summary = projectSummary({
+      ...index,
+      fingerprint: existingFingerprint,
+      pathFingerprint: existingPathFingerprint,
+    })
+
+    if (!projectMatch) projectMatch = summary
+    else duplicateIds.push(summary.id)
+  }
+
+  return projectMatch ? { project: projectMatch, duplicateIds } : null
+}
+
+async function dedupeImportedProjects(projects) {
+  const seenFingerprints = new Set()
+  const seenPathFingerprints = new Set()
+  const dedupedProjects = []
+  let changed = false
+
+  for (const project of projects) {
+    const index = await loadProjectIndex(project.id)
+    if (!index) {
+      dedupedProjects.push(project)
+      continue
+    }
+
+    const fingerprint = index.fingerprint || (await createStoredProjectFingerprint(index))
+    const pathFingerprint = index.pathFingerprint || (await createStoredProjectPathFingerprint(index))
+    if (
+      (fingerprint && seenFingerprints.has(fingerprint)) ||
+      (pathFingerprint && seenPathFingerprints.has(pathFingerprint))
+    ) {
+      changed = true
+      continue
+    }
+
+    if (fingerprint) seenFingerprints.add(fingerprint)
+    if (pathFingerprint) seenPathFingerprints.add(pathFingerprint)
+    const summary = projectSummary({
+      ...index,
+      fingerprint,
+      pathFingerprint,
+    })
+    dedupedProjects.push(summary)
+
+    if (summary.updatedAt !== project.updatedAt || summary.fileCount !== project.fileCount) changed = true
+  }
+
+  if (changed || dedupedProjects.length !== projects.length) {
+    cachedProjects = dedupedProjects
+    await saveProjects(dedupedProjects)
+  }
+
+  return dedupedProjects
+}
+
+async function createStoredProjectPathFingerprint(index) {
+  const filesRoot = await getProjectFilesRoot(index.id)
+  if (!filesRoot) return ''
+
+  const files = await collectFiles(filesRoot)
+  const projectFiles = files.map((filePath) => ({
+    relativePath: path.relative(filesRoot, filePath).replace(/\\/g, '/'),
+  }))
+
+  const pathFingerprint = createProjectPathFingerprint(index.root || index.name, projectFiles)
+  if (pathFingerprint) {
+    const currentIndex = (await loadProjectIndex(index.id)) || index
+    const updated = { ...currentIndex, pathFingerprint }
+    await fs.writeFile(path.join(PROJECTS_DIR, index.id, 'index.json'), JSON.stringify(updated, null, 2))
+  }
+  return pathFingerprint
+}
+
+async function createStoredProjectFingerprint(index) {
+  const filesRoot = await getProjectFilesRoot(index.id)
+  if (!filesRoot) return ''
+
+  const files = await collectFiles(filesRoot)
+  const projectFiles = []
+  for (const filePath of files) {
+    const text = await fs.readFile(filePath, 'utf8').catch(() => '')
+    if (!text.trim()) continue
+    projectFiles.push({
+      relativePath: path.relative(filesRoot, filePath).replace(/\\/g, '/'),
+      text,
+    })
+  }
+
+  const fingerprint = createProjectFingerprint(index.root || index.name, projectFiles)
+  if (fingerprint) {
+    const currentIndex = (await loadProjectIndex(index.id)) || index
+    const updated = { ...currentIndex, fingerprint }
+    await fs.writeFile(path.join(PROJECTS_DIR, index.id, 'index.json'), JSON.stringify(updated, null, 2))
+  }
+  return fingerprint
+}
+
+function createProjectFingerprint(name, files) {
+  if (!Array.isArray(files) || !files.length) return ''
+
+  const hash = crypto.createHash('sha256')
+  hash.update(`root:${sanitizeProjectName(name)}\n`)
+
+  for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(`path:${normalizeRelativePath(file.relativePath)}\n`)
+    hash.update(`size:${Buffer.byteLength(file.text, 'utf8')}\n`)
+    hash.update(file.text)
+    hash.update('\n')
+  }
+
+  return hash.digest('hex')
+}
+
+function createProjectPathFingerprint(name, files) {
+  if (!Array.isArray(files) || !files.length) return ''
+
+  const hash = crypto.createHash('sha256')
+  hash.update(`root:${sanitizeProjectName(name)}\n`)
+
+  for (const file of [...files].sort((a, b) => a.relativePath.localeCompare(b.relativePath))) {
+    hash.update(`path:${normalizeRelativePath(file.relativePath)}\n`)
+  }
+
+  return hash.digest('hex')
 }
 
 function projectSummary(index) {

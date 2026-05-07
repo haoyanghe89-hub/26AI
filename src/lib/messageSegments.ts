@@ -10,7 +10,7 @@ export interface MessageSegment {
 
 export function parseMessageSegments(content: MessageContent): MessageSegment[] {
   if (!content) return []
-  const text = typeof content === 'string' ? content : messagePreviewContent(content)
+  const text = typeof content === 'string' || Array.isArray(content) ? messagePreviewContent(content) : ''
   const segments: MessageSegment[] = []
 
   const regex = /```([a-zA-Z0-9+#-]*)[ \t]*\n([\s\S]*?)```/g

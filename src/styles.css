@@ -120,7 +120,7 @@ button {
   display: grid;
   grid-template-columns:
     var(--sidebar-left-width, 304px)
-    8px
+    var(--sidebar-handle-width, 8px)
     minmax(0, 1fr)
     var(--preview-handle-width, 0px)
     var(--preview-panel-width, 0px)
@@ -184,6 +184,35 @@ button {
   grid-column: 2;
 }
 
+.sidebar-toggle-button.el-button {
+  position: absolute;
+  top: 16px;
+  left: calc(var(--sidebar-left-width, 304px) + var(--sidebar-handle-width, 8px) + 16px);
+  z-index: 8;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(23, 32, 26, 0.1);
+  color: #1f2c25;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.65) inset,
+    0 10px 26px rgba(23, 32, 26, 0.08);
+  transition:
+    left 150ms var(--t1-ease),
+    background var(--t1-duration) var(--t1-ease),
+    border-color var(--t1-duration) var(--t1-ease),
+    color var(--t1-duration) var(--t1-ease),
+    box-shadow var(--t1-duration) var(--t1-ease);
+}
+
+.sidebar-toggle-button.el-button:hover,
+.sidebar-toggle-button.el-button:focus,
+.sidebar-toggle-button.el-button:focus-visible {
+  border-color: rgba(52, 96, 78, 0.26) !important;
+  color: #2d5848 !important;
+  background: rgba(248, 251, 247, 0.96) !important;
+}
+
 .panel-resizer.preview {
   grid-column: 4;
 }
@@ -199,6 +228,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  width: 100%;
+  min-width: 0;
   padding: 22px;
   border-right: 1px solid var(--t1-stroke);
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, rgba(244, 248, 244, 0.85) 100%);
@@ -208,6 +239,22 @@ button {
   height: 100vh;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity 180ms var(--t1-ease),
+    padding 180ms var(--t1-ease),
+    transform 180ms var(--t1-ease);
+}
+
+.app-shell.is-sidebar-collapsed .sidebar {
+  padding-right: 0;
+  padding-left: 0;
+  border-right-color: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-14px);
+  overflow: hidden;
 }
 
 .sidebar::-webkit-scrollbar {
@@ -1354,6 +1401,8 @@ button {
 }
 
 .messages {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   height: 100%;
   padding: 28px clamp(18px, 8vw, 96px) 40px;
@@ -1381,9 +1430,14 @@ button {
   position: relative;
   align-self: center;
   width: min(680px, 100%);
-  margin: auto 0;
-  padding: 48px 24px;
+  margin: auto;
+  padding: 0 24px;
   text-align: center;
+  transition: transform 180ms var(--t1-ease);
+}
+
+.chat-area.is-empty-chat .empty-state {
+  transform: translateY(-104px);
 }
 
 .empty-state::before {
@@ -1413,22 +1467,30 @@ button {
 .empty-logo {
   width: 72px;
   height: 72px;
-  margin: 0 auto 24px;
+  margin: 0 auto;
   font-size: 24px;
   border-radius: var(--t1-radius-md);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12) inset,
     0 20px 56px rgba(23, 32, 26, 0.2);
-  animation: empty-logo-float 5s var(--t1-ease) infinite;
+  animation: empty-logo-float 2.8s ease-in-out infinite;
 }
 
 @keyframes empty-logo-float {
-  0%,
-  100% {
+  0% {
     transform: translateY(0);
   }
+  25% {
+    transform: translateY(-5px);
+  }
   50% {
-    transform: translateY(-4px);
+    transform: translateY(0);
+  }
+  75% {
+    transform: translateY(3px);
+  }
+  100% {
+    transform: translateY(0);
   }
 }
 
@@ -1690,22 +1752,64 @@ button {
 /* 输入区域 */
 .composer-wrap {
   padding: 16px clamp(18px, 8vw, 96px) 28px;
-  border-top: 1px solid rgba(23, 32, 26, 0.07);
-  background: linear-gradient(180deg, rgba(252, 253, 250, 0.55) 0%, rgba(240, 244, 240, 0.85) 100%);
-  backdrop-filter: blur(24px) saturate(1.15);
-  -webkit-backdrop-filter: blur(24px) saturate(1.15);
-  box-shadow: 0 -12px 40px rgba(23, 32, 26, 0.04);
+  border-top: 0;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  transition:
+    background 180ms var(--t1-ease),
+    border-color 180ms var(--t1-ease),
+    box-shadow 180ms var(--t1-ease),
+    padding 180ms var(--t1-ease);
+}
+
+.chat-area.is-empty-chat .composer-wrap {
+  position: absolute;
+  top: calc(50% + 4px);
+  left: 50%;
+  width: min(980px, calc(100% - 64px));
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  transform: translateX(-50%);
 }
 
 .composer {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) 88px;
-  gap: 12px;
+  grid-template-columns: 48px minmax(0, 1fr) 96px;
+  grid-template-rows: minmax(58px, auto) 44px;
+  gap: 10px 12px;
   align-items: center;
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 0;
+  min-height: 140px;
+  padding: 22px 24px 20px;
+  border: 1px solid rgba(23, 32, 26, 0.08);
+  border-radius: 32px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 22px 58px rgba(23, 32, 26, 0.1);
+}
+
+.composer > .el-textarea {
+  grid-column: 1 / -1;
+  align-self: stretch;
+}
+
+.composer .icon-button {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.composer .send-button {
+  grid-column: 3;
+  grid-row: 2;
 }
 
 .composer-project-indicator {
@@ -1773,7 +1877,10 @@ button {
 }
 
 .composer:focus-within {
-  box-shadow: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 24px 62px rgba(23, 32, 26, 0.12),
+    0 0 0 3px rgba(52, 96, 78, 0.08);
 }
 
 .icon-button,
@@ -1854,30 +1961,40 @@ button {
 .composer textarea {
   width: 100%;
   max-height: 180px;
-  min-height: 44px;
-  resize: vertical;
-  border: 1px solid rgba(23, 32, 26, 0.14);
-  border-radius: var(--t1-radius-sm);
-  padding: 11px 14px;
+  height: 100% !important;
+  min-height: 58px;
+  resize: none;
+  border: 0;
+  padding: 0;
   color: #17201a;
-  background: rgba(255, 255, 255, 0.94);
+  background: transparent;
   outline: none;
-  line-height: 1.5;
+  box-shadow: none;
+  font-size: 18px;
+  line-height: 1.55;
   transition:
-    border-color var(--t1-duration) var(--t1-ease),
-    box-shadow var(--t1-duration) var(--t1-ease),
+    color var(--t1-duration) var(--t1-ease),
     background var(--t1-duration) var(--t1-ease);
+}
+
+.composer .el-textarea__inner,
+.composer .el-textarea__inner:hover,
+.composer .el-textarea__inner:focus,
+.composer .el-textarea__inner:focus-visible {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.composer textarea:focus {
+  background: transparent;
+  box-shadow: none;
 }
 
 .composer textarea::placeholder {
   color: #8a938d;
   font-weight: 500;
-}
-
-.composer textarea:focus {
-  border-color: rgba(52, 96, 78, 0.32);
-  background: #fff;
-  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
 }
 
 .error-message {
@@ -2616,6 +2733,14 @@ button {
     overflow-y: auto;
   }
 
+  .sidebar-toggle-button.el-button {
+    left: 16px;
+  }
+
+  .app-shell.is-sidebar-collapsed .sidebar {
+    display: none;
+  }
+
   .panel-resizer {
     display: none;
   }
@@ -2686,9 +2811,20 @@ button {
 
   .composer {
     grid-template-columns: 40px minmax(0, 1fr);
+    min-height: 148px;
+    padding: 18px;
+    border-radius: 24px;
   }
 
   .send-button {
-    grid-column: 1 / -1;
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+    width: 88px;
+  }
+
+  .chat-area.is-empty-chat .composer-wrap {
+    top: calc(50% + 10px);
+    width: calc(100% - 28px);
   }
 }

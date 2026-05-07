@@ -2,6 +2,9 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { spawn, type ChildProcess } from 'node:child_process'
 
+const BACKEND_PORT = process.env.AGENT_BACKEND_PORT || '8787'
+const BACKEND_HOST = process.env.AGENT_BACKEND_HOST || '127.0.0.1'
+
 function agentBackendPlugin() {
   let backend: ChildProcess | undefined
 
@@ -15,8 +18,8 @@ function agentBackendPlugin() {
         stdio: 'inherit',
         env: {
           ...process.env,
-          PORT: process.env.PORT || '8787',
-          HOST: process.env.HOST || '127.0.0.1',
+          PORT: BACKEND_PORT,
+          HOST: BACKEND_HOST,
         },
       })
 
@@ -50,7 +53,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8787',
+        target: `http://${BACKEND_HOST}:${BACKEND_PORT}`,
         changeOrigin: true,
       },
     },

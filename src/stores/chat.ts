@@ -1042,22 +1042,20 @@ export const useChatStore = defineStore('chat', () => {
       })),
       createdAt: new Date().toISOString(),
     }
-
-    session.messages.push(userMessage)
-    session.updatedAt = new Date().toISOString()
-    updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
-    pendingFiles.value = []
-    errorMessage.value = ''
-    isSending.value = true
-    saveSessions()
-
     const assistantMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'assistant',
       content: '',
       createdAt: new Date().toISOString(),
     }
-    session.messages.push(assistantMessage)
+
+    session.messages.push(userMessage, assistantMessage)
+    session.updatedAt = new Date().toISOString()
+    updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
+    pendingFiles.value = []
+    errorMessage.value = ''
+    isSending.value = true
+    saveSessions()
 
     let assistantHttpOk = false
     try {
@@ -1081,7 +1079,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const data = await response.json()
       assistantHttpOk = true
-      const reply = data.content || '没有收到有效回复。'
+      const reply = normalizeAssistantReply(data?.content)
       assistantMessage.content = reply
       session.updatedAt = new Date().toISOString()
     } catch (error) {
@@ -1094,6 +1092,75 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     return true
+  }
+
+  async function regenerateMessage(messageId: string) {
+    if (!isProviderReady.value || isSending.value) return false
+
+    const session = activeSession.value
+    const assistantIndex = session.messages.findIndex(
+      (message) => message.id === messageId && message.role === 'assistant',
+    )
+    if (assistantIndex < 1) return false
+
+    const promptMessages = session.messages.slice(0, assistantIndex)
+    if (!promptMessages.some((message) => message.role === 'user')) return false
+
+    const assistantMessage = session.messages[assistantIndex]
+    assistantMessage.content = ''
+    assistantMessage.createdAt = new Date().toISOString()
+    session.updatedAt = assistantMessage.createdAt
+    errorMessage.value = ''
+    isSending.value = true
+    saveSessions()
+
+    let assistantHttpOk = false
+    try {
+      const response = await requestWithRetry(async () => {
+        const runtime = buildPromptRuntimeConfig(activeAgent.value)
+        const result = await callChatBackend(promptMessages, {
+          runtime,
+          useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
+        })
+        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        return result
+      })
+
+      if (!response.ok) {
+        const detail = await response.json().catch(() => null)
+        throw new Error(detail?.error || `请求失败：${response.status}`)
+      }
+
+      const data = await response.json()
+      assistantHttpOk = true
+      assistantMessage.content = normalizeAssistantReply(data?.content)
+      session.updatedAt = new Date().toISOString()
+      return true
+    } catch (error) {
+      assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
+      errorMessage.value = error instanceof Error ? error.message : '未知错误'
+      return false
+    } finally {
+      isSending.value = false
+      saveSessions()
+      if (assistantHttpOk) void maybeInferSessionTags(session)
+    }
+  }
+
+  function normalizeAssistantReply(value: unknown) {
+    if (typeof value === 'string') return value.trim() || '没有收到有效回复。'
+    if (Array.isArray(value)) {
+      const text = value
+        .map((part) => {
+          if (typeof part === 'string') return part
+          if (part && typeof part === 'object' && 'text' in part) return String(part.text || '')
+          return ''
+        })
+        .join('')
+        .trim()
+      return text || '没有收到有效回复。'
+    }
+    return '没有收到有效回复。'
   }
 
   async function runPromptWorkflow(workflowId: string, input: string) {
@@ -1400,7 +1467,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   async function importProjectFolder(files: File[]) {
-    if (isImportingProject.value || !files.length) return
+    if (isImportingProject.value || !files.length) return null
 
     isImportingProject.value = true
     errorMessage.value = ''
@@ -1422,8 +1489,10 @@ export const useChatStore = defineStore('chat', () => {
       const project = data.project as ImportedProject
       projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
       setActiveProject(project.id)
+      return project
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : '导入项目失败'
+      return null
     } finally {
       isImportingProject.value = false
     }
@@ -1694,6 +1763,7 @@ export const useChatStore = defineStore('chat', () => {
     prepareFiles,
     removePendingFile,
     sendMessage,
+    regenerateMessage,
     runPromptWorkflow,
     summarizeActiveSession,
     refreshProviderServerConfig,

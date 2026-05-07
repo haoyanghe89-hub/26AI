@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { Check, CopyDocument, Edit } from '@element-plus/icons-vue'
+import { Check, CopyDocument, Edit, RefreshRight } from '@element-plus/icons-vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
+import { computed } from 'vue'
 import { parseMessageSegments } from '../../lib/messageSegments'
 import { type ChatMessage } from '../../stores/chat'
 import CodeBlock from './CodeBlock.vue'
 
-defineProps<{
+const props = defineProps<{
   message: ChatMessage
   isSending: boolean
   copiedMessageId: string | null
@@ -23,7 +24,21 @@ const emit = defineEmits<{
   'submit-inline-edit': []
   'copy-message': [messageId: string, content: ChatMessage['content']]
   'copy-code-block': [messageId: string, code: string, blockIndex: number]
+  'regenerate-message': [messageId: string]
 }>()
+
+const renderedContent = computed(() => {
+  if (hasContent(props.message.content)) return props.message.content
+  if (props.message.role === 'assistant' && !props.isSending) return '没有收到有效回复。'
+  return props.message.content
+})
+const messageSegments = computed(() => parseMessageSegments(renderedContent.value))
+const hasRenderableContent = computed(() => messageSegments.value.length > 0)
+
+function hasContent(content: ChatMessage['content']) {
+  if (typeof content === 'string') return content.trim().length > 0
+  return content.some((part) => part.type === 'text' && part.text.trim().length > 0)
+}
 
 function handleInlineEnter(event: Event | KeyboardEvent) {
   if (!(event instanceof KeyboardEvent)) return
@@ -74,7 +89,7 @@ function handleInlineEnter(event: Event | KeyboardEvent) {
       </template>
 
       <template v-else>
-        <template v-for="(segment, idx) in parseMessageSegments(message.content)" :key="idx">
+        <template v-for="(segment, idx) in messageSegments" :key="idx">
           <div v-if="segment.type === 'text'" class="message-content" v-html="segment.content"></div>
 
           <CodeBlock
@@ -91,9 +106,21 @@ function handleInlineEnter(event: Event | KeyboardEvent) {
           />
         </template>
 
-        <p v-if="isSending && message.role === 'assistant' && !message.content" class="thinking">思考中...</p>
+        <p v-if="isSending && message.role === 'assistant' && !hasRenderableContent" class="thinking">
+          思考中...
+        </p>
 
-        <div v-if="message.role === 'assistant' && message.content" class="message-actions">
+        <div v-if="message.role === 'assistant' && hasRenderableContent" class="message-actions">
+          <el-button
+            :icon="RefreshRight"
+            size="small"
+            text
+            :disabled="isSending"
+            aria-label="重新回复"
+            @click="emit('regenerate-message', message.id)"
+          >
+            重新回复
+          </el-button>
           <el-button
             :icon="copiedMessageId === message.id ? Check : CopyDocument"
             size="small"
