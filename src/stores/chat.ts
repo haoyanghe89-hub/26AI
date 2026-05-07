@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import {
   getSecureJson,
   getStoredJson,
@@ -60,16 +61,21 @@ export interface PreparedFile {
   type: string
   size: number
   hash: string
-  kind: 'image' | 'text'
+  kind: 'image' | 'text' | 'document' | 'audio' | 'video'
   dataUrl?: string
   text?: string
 }
+
+export type ChatAttachment = Pick<
+  PreparedFile,
+  'id' | 'name' | 'kind' | 'size' | 'type' | 'hash' | 'dataUrl' | 'text'
+>
 
 export interface ChatMessage {
   id: string
   role: Role
   content: MessageContent
-  attachments?: Array<Pick<PreparedFile, 'id' | 'name' | 'kind' | 'size' | 'type' | 'hash'>>
+  attachments?: ChatAttachment[]
   createdAt: string
 }
 
@@ -151,6 +157,14 @@ const MAX_ATTACHMENT_TEXT_CHARS = 20000
 const ALLOWED_ATTACHMENT_TYPES = new Set([
   'application/json',
   'application/pdf',
+  'audio/aac',
+  'audio/flac',
+  'audio/m4a',
+  'audio/mp3',
+  'audio/mpeg',
+  'audio/ogg',
+  'audio/wav',
+  'audio/webm',
   'image/gif',
   'image/jpeg',
   'image/png',
@@ -158,8 +172,22 @@ const ALLOWED_ATTACHMENT_TYPES = new Set([
   'text/csv',
   'text/markdown',
   'text/plain',
+  'video/mp4',
+  'video/ogg',
+  'video/quicktime',
+  'video/webm',
 ])
 const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
+  '.aac',
+  '.flac',
+  '.m4a',
+  '.mov',
+  '.mp3',
+  '.mp4',
+  '.ogg',
+  '.pdf',
+  '.wav',
+  '.webm',
   '.c',
   '.cpp',
   '.css',
@@ -334,8 +362,18 @@ function createSession(): ChatSession {
 }
 
 function normalizeSession(value: ChatSession): ChatSession {
+  const messages = Array.isArray(value.messages)
+    ? value.messages.map((message) => ({
+        ...message,
+        attachments: normalizeAttachments(message.attachments),
+      }))
+    : []
+  const title =
+    value.title === '新的会话' ? deriveSessionTitleFromMessages(messages, value.title) : value.title
+
   return {
     ...value,
+    title,
     tags: normalizeTags(value.tags || []),
     tagsInferAttempts:
       typeof value.tagsInferAttempts === 'number' && value.tagsInferAttempts >= 0
@@ -348,8 +386,40 @@ function normalizeSession(value: ChatSession): ChatSession {
             updatedAt: value.summary.updatedAt || value.updatedAt,
           }
         : undefined,
-    messages: Array.isArray(value.messages) ? value.messages : [],
+    messages,
   }
+}
+
+function deriveSessionTitleFromMessages(messages: ChatMessage[], fallback: string) {
+  const firstUserMessage = messages.find((message) => message.role === 'user')
+  if (!firstUserMessage) return fallback
+  const compact = messagePreviewContent(firstUserMessage.content).replace(/\s+/g, ' ').trim()
+  if (compact) return compact.slice(0, 24)
+  const firstAttachment = firstUserMessage.attachments?.[0]?.name
+  return firstAttachment ? firstAttachment.slice(0, 24) : fallback
+}
+
+function normalizeAttachments(value: ChatMessage['attachments']) {
+  if (!Array.isArray(value)) return undefined
+  const attachments = value
+    .filter((file) => file && typeof file.id === 'string' && typeof file.name === 'string')
+    .map((file) => ({
+      id: file.id,
+      name: file.name,
+      kind: isAttachmentKind(file.kind) ? file.kind : 'text',
+      size: Number(file.size || 0),
+      type: String(file.type || ''),
+      hash: String(file.hash || ''),
+      dataUrl: typeof file.dataUrl === 'string' ? file.dataUrl : undefined,
+      text: typeof file.text === 'string' ? file.text : undefined,
+    }))
+  return attachments.length ? attachments : undefined
+}
+
+function isAttachmentKind(value: unknown): value is PreparedFile['kind'] {
+  return (
+    value === 'image' || value === 'text' || value === 'document' || value === 'audio' || value === 'video'
+  )
 }
 
 function loadSessions(): ChatSession[] {
@@ -463,6 +533,27 @@ function readAsText(file: File) {
   })
 }
 
+async function extractPdfText(file: File) {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+  const pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise
+  const pageTexts: string[] = []
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+    if (pageTexts.join('\n\n').length >= MAX_ATTACHMENT_TEXT_CHARS) break
+    const page = await pdf.getPage(pageNumber)
+    const content = await page.getTextContent()
+    const text = content.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text) pageTexts.push(`[第 ${pageNumber} 页]\n${text}`)
+  }
+
+  return pageTexts.join('\n\n').slice(0, MAX_ATTACHMENT_TEXT_CHARS)
+}
+
 async function hashFile(file: File) {
   const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
   return Array.from(new Uint8Array(digest))
@@ -474,6 +565,20 @@ function isAllowedAttachment(file: File) {
   if (file.type && ALLOWED_ATTACHMENT_TYPES.has(file.type)) return true
   const extension = getFileExtension(file.name)
   return extension ? ALLOWED_ATTACHMENT_EXTENSIONS.has(extension) : false
+}
+
+function inferAttachmentKind(file: File): PreparedFile['kind'] {
+  const extension = getFileExtension(file.name)
+  if (file.type.startsWith('image/')) return 'image'
+  if (
+    file.type.startsWith('audio/') ||
+    ['.aac', '.flac', '.m4a', '.mp3', '.ogg', '.wav'].includes(extension)
+  ) {
+    return 'audio'
+  }
+  if (file.type.startsWith('video/') || ['.mov', '.mp4', '.webm'].includes(extension)) return 'video'
+  if (file.type === 'application/pdf' || extension === '.pdf') return 'document'
+  return 'text'
 }
 
 function getFileExtension(name: string) {
@@ -513,11 +618,36 @@ function replaceLastUserMessageContent(messages: ChatMessage[], content: Message
   return messages.map((message, index) => (index === lastUserIndex ? { ...message, content } : message))
 }
 
-function buildUserContent(text: string, files: PreparedFile[]): MessageContent {
+function appendAttachmentTextToContent(content: MessageContent, attachments: ChatAttachment[] = []) {
+  const extractedText = attachments
+    .filter((file) => file.text?.trim())
+    .map((file) => `\n\n[附件提取文本: ${file.name}]\n${file.text}`)
+    .join('')
+  if (!extractedText) return content
+  if (typeof content === 'string') return `${content}${extractedText}`
+  return [...content, { type: 'text' as const, text: extractedText }]
+}
+
+function enrichMessagesWithAttachmentText(messages: ChatMessage[]) {
+  return messages.map((message) => {
+    if (message.role !== 'user' || !message.attachments?.length) return message
+    return {
+      ...message,
+      content: appendAttachmentTextToContent(message.content, message.attachments),
+    }
+  })
+}
+
+function buildUserContent(
+  text: string,
+  files: PreparedFile[],
+  options: { includePreviewSummary?: boolean } = {},
+): MessageContent {
   const parts: MultiModalContent = []
   const trimmedText = text.trim()
   const textAttachments = files.filter((file) => file.kind === 'text')
   const imageAttachments = files.filter((file) => file.kind === 'image')
+  const previewAttachments = files.filter((file) => file.kind !== 'text' && file.kind !== 'image')
 
   let fullText = trimmedText
   if (textAttachments.length) {
@@ -525,6 +655,21 @@ function buildUserContent(text: string, files: PreparedFile[]): MessageContent {
       .map((file) => `\n\n[附件: ${file.name}]\n${file.text || ''}`)
       .join('')
     fullText = `${trimmedText || '请分析以下附件内容。'}${attachmentText}`
+  }
+  if (options.includePreviewSummary && previewAttachments.length) {
+    const attachmentSummary = previewAttachments
+      .map(
+        (file) =>
+          `\n- ${file.name}（${formatAttachmentKind(file.kind)}，${formatBytes(file.size)}，${file.type || 'unknown'}）`,
+      )
+      .join('')
+    fullText = `${fullText || '请参考我上传的附件。'}\n\n已上传可预览附件：${attachmentSummary}`
+
+    const extractedText = previewAttachments
+      .filter((file) => file.text?.trim())
+      .map((file) => `\n\n[附件提取文本: ${file.name}]\n${file.text}`)
+      .join('')
+    if (extractedText) fullText = `${fullText}${extractedText}`
   }
 
   if (fullText) parts.push({ type: 'text', text: fullText })
@@ -538,6 +683,26 @@ function buildUserContent(text: string, files: PreparedFile[]): MessageContent {
   }
 
   return parts.length === 1 && parts[0].type === 'text' ? parts[0].text : parts
+}
+
+function formatAttachmentKind(kind: PreparedFile['kind']) {
+  if (kind === 'document') return '文档'
+  if (kind === 'audio') return '音频'
+  if (kind === 'video') return '视频'
+  if (kind === 'image') return '图片'
+  return '文本'
+}
+
+function formatBytes(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
 }
 
 export function messagePreviewContent(content: MessageContent) {
@@ -971,16 +1136,29 @@ export const useChatStore = defineStore('chat', () => {
       }
 
       const hash = await hashFile(file)
+      const kind = inferAttachmentKind(file)
 
-      if (file.type.startsWith('image/')) {
+      if (kind !== 'text') {
+        const dataUrl = await readAsDataUrl(file)
+        const text =
+          kind === 'document'
+            ? await extractPdfText(file).catch((error) => {
+                errorMessage.value =
+                  error instanceof Error
+                    ? `${file.name} PDF 文本提取失败：${error.message}`
+                    : `${file.name} PDF 文本提取失败`
+                return ''
+              })
+            : ''
         prepared.push({
           id: crypto.randomUUID(),
           name: file.name,
-          type: file.type,
+          type: file.type || (kind === 'document' ? 'application/pdf' : 'application/octet-stream'),
           size: file.size,
           hash,
-          kind: 'image',
-          dataUrl: await readAsDataUrl(file),
+          kind,
+          dataUrl,
+          text,
         })
         continue
       }
@@ -1026,19 +1204,23 @@ export const useChatStore = defineStore('chat', () => {
     const session = activeSession.value
     const displayContent = buildUserContent(cleanText, files)
     const apiPayloadContent = template
-      ? buildUserContent(wrapComposerTemplate(template.content, cleanText), files)
-      : displayContent
+      ? buildUserContent(wrapComposerTemplate(template.content, cleanText), files, {
+          includePreviewSummary: true,
+        })
+      : buildUserContent(cleanText, files, { includePreviewSummary: true })
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: displayContent,
-      attachments: files.map(({ id, name, kind, size, type, hash }) => ({
+      attachments: files.map(({ id, name, kind, size, type, hash, dataUrl, text }) => ({
         id,
         name,
         kind,
         size,
         type,
         hash,
+        dataUrl,
+        text,
       })),
       createdAt: new Date().toISOString(),
     }
@@ -1049,9 +1231,9 @@ export const useChatStore = defineStore('chat', () => {
       createdAt: new Date().toISOString(),
     }
 
+    updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
     session.messages.push(userMessage, assistantMessage)
     session.updatedAt = new Date().toISOString()
-    updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
     pendingFiles.value = []
     errorMessage.value = ''
     isSending.value = true
@@ -1061,9 +1243,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await requestWithRetry(async () => {
         const runtime = buildPromptRuntimeConfig(activeAgent.value)
-        const messagesPayload = template
-          ? replaceLastUserMessageContent(session.messages, apiPayloadContent)
-          : session.messages
+        const messagesPayload = replaceLastUserMessageContent(session.messages, apiPayloadContent)
         const result = await callChatBackend(messagesPayload, {
           runtime,
           useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
@@ -1118,7 +1298,7 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await requestWithRetry(async () => {
         const runtime = buildPromptRuntimeConfig(activeAgent.value)
-        const result = await callChatBackend(promptMessages, {
+        const result = await callChatBackend(enrichMessagesWithAttachmentText(promptMessages), {
           runtime,
           useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
         })
@@ -1445,9 +1625,8 @@ export const useChatStore = defineStore('chat', () => {
       if (!response.ok) return
       const data = await response.json()
       projects.value = Array.isArray(data.projects) ? data.projects : []
-      if (!activeProjectId.value && projects.value.length) setActiveProject(projects.value[0].id)
       if (activeProjectId.value && !projects.value.some((project) => project.id === activeProjectId.value)) {
-        setActiveProject(projects.value[0]?.id || '')
+        setActiveProject('')
       }
     } catch {
       // 后端未启动时不阻塞聊天界面。

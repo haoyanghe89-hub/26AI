@@ -29,6 +29,7 @@
     "dompurify": "^3.4.1",
     "element-plus": "^2.13.7",
     "localforage": "^1.10.0",
+    "pdfjs-dist": "^5.7.284",
     "pinia": "^3.0.4",
     "prismjs": "^1.30.0",
     "typescript": "^5.9.3",

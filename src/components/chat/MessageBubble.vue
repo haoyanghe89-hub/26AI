@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { Check, CopyDocument, Edit, RefreshRight } from '@element-plus/icons-vue'
+import {
+  Check,
+  CopyDocument,
+  Document,
+  Edit,
+  Headset,
+  Picture,
+  RefreshRight,
+  VideoCamera,
+} from '@element-plus/icons-vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
+import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
 import { computed } from 'vue'
 import { parseMessageSegments } from '../../lib/messageSegments'
-import { type ChatMessage } from '../../stores/chat'
+import { type ChatAttachment, type ChatMessage } from '../../stores/chat'
 import CodeBlock from './CodeBlock.vue'
 
 const props = defineProps<{
@@ -25,6 +35,7 @@ const emit = defineEmits<{
   'copy-message': [messageId: string, content: ChatMessage['content']]
   'copy-code-block': [messageId: string, code: string, blockIndex: number]
   'regenerate-message': [messageId: string]
+  'open-attachment': [attachment: ChatAttachment]
 }>()
 
 const renderedContent = computed(() => {
@@ -48,6 +59,17 @@ function handleInlineEnter(event: Event | KeyboardEvent) {
   event.preventDefault()
   emit('submit-inline-edit')
 }
+
+function attachmentIcon(kind: ChatAttachment['kind']) {
+  if (kind === 'image') return Picture
+  if (kind === 'audio') return Headset
+  if (kind === 'video') return VideoCamera
+  return Document
+}
+
+function canPreviewAttachment(file: ChatAttachment) {
+  return Boolean(file.dataUrl) && file.kind !== 'text'
+}
 </script>
 
 <template>
@@ -55,7 +77,15 @@ function handleInlineEnter(event: Event | KeyboardEvent) {
     <div class="avatar">{{ message.role === 'user' ? '你' : 'T1' }}</div>
     <div class="message-bubble">
       <div v-if="message.attachments?.length" class="attachment-list compact">
-        <el-tag v-for="file in message.attachments" :key="file.id" size="small" effect="plain">
+        <el-tag
+          v-for="file in message.attachments"
+          :key="file.id"
+          size="small"
+          effect="plain"
+          :class="{ 'is-clickable': canPreviewAttachment(file) }"
+          @click="canPreviewAttachment(file) && emit('open-attachment', file)"
+        >
+          <el-icon><component :is="attachmentIcon(file.kind)" /></el-icon>
           {{ file.name }}
         </el-tag>
       </div>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import DOMPurify from 'dompurify'
 import {
   Delete,
@@ -57,7 +57,7 @@ import {
   sessionMatchesQuery,
 } from '../lib/sessionManagement'
 import type { PromptTemplate } from '../lib/promptEngineering'
-import { messagePreviewContent, type ProviderId, useChatStore } from '../stores/chat'
+import { messagePreviewContent, type ChatAttachment, type ProviderId, useChatStore } from '../stores/chat'
 import { useRoute, useRouter } from 'vue-router'
 
 const chat = useChatStore()
@@ -83,6 +83,8 @@ const summaryDraft = ref('')
 const copiedSummary = ref(false)
 const sessionSearchQuery = ref('')
 const activeSessionTag = ref('')
+const attachmentPreview = ref<ChatAttachment | null>(null)
+const attachmentPreviewUrl = ref('')
 
 // 气泡内联编辑状态
 const editingMessageId = ref<string | null>(null)
@@ -120,7 +122,9 @@ const activeFilePreviewLines = computed(() => {
   }))
 })
 const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
-const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath))
+const previewTitle = computed(() => attachmentPreview.value?.name || chat.activeFilePath || '未选择文件')
+const previewKind = computed(() => attachmentPreview.value?.kind || 'text')
+const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath || attachmentPreview.value))
 const {
   appShellStyle,
   isDraggingPanels,
@@ -182,6 +186,29 @@ watch(
   },
 )
 
+watch(attachmentPreview, async (attachment, _previous, onCleanup) => {
+  if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
+  attachmentPreviewUrl.value = ''
+  if (!attachment?.dataUrl || attachment.kind === 'text') return
+
+  let revoked = false
+  onCleanup(() => {
+    revoked = true
+  })
+
+  const blob = await fetch(attachment.dataUrl).then((response) => response.blob())
+  const objectUrl = URL.createObjectURL(blob)
+  if (revoked) {
+    URL.revokeObjectURL(objectUrl)
+    return
+  }
+  attachmentPreviewUrl.value = objectUrl
+})
+
+onUnmounted(() => {
+  if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
+})
+
 function scrollToBottom() {
   nextTick(() => {
     const el = messagesEl.value
@@ -241,9 +268,20 @@ async function analyzeProject() {
 async function handleTreeNodeClick(node: any) {
   if (node.isDirectory) return
   isEditingFile.value = false
+  attachmentPreview.value = null
   isWorkspaceCollapsed.value = false
   setCodePreviewVisible(true)
   await chat.loadProjectFile(node.path)
+  await nextTick()
+  clampPanelWidths()
+}
+
+async function openAttachmentPreview(attachment: ChatAttachment) {
+  if (!attachment.dataUrl || attachment.kind === 'text') return
+  attachmentPreview.value = attachment
+  isEditingFile.value = false
+  isWorkspaceCollapsed.value = false
+  setCodePreviewVisible(true)
   await nextTick()
   clampPanelWidths()
 }
@@ -466,6 +504,7 @@ function highlightCode(code: string, language: string) {
 }
 
 function closeCodePreview() {
+  attachmentPreview.value = null
   setCodePreviewVisible(false)
 }
 
@@ -902,6 +941,7 @@ async function regenerateMessage(messageId: string) {
             @copy-message="copyMessage"
             @copy-code-block="copyCodeBlock"
             @regenerate-message="regenerateMessage"
+            @open-attachment="openAttachmentPreview"
           />
         </div>
       </div>
@@ -998,15 +1038,15 @@ async function regenerateMessage(messageId: string) {
     <aside v-if="isCodePreviewVisible" class="code-preview-panel">
       <header class="code-preview-topbar">
         <div class="code-preview-title">
-          <p>代码预览</p>
-          <h3>{{ chat.activeFilePath || '未选择文件' }}</h3>
+          <p>{{ attachmentPreview ? '附件预览' : '代码预览' }}</p>
+          <h3>{{ previewTitle }}</h3>
         </div>
         <el-button
           class="panel-icon-button"
           text
           :icon="Refresh"
           :loading="chat.isLoadingFile"
-          :disabled="!chat.activeFilePath"
+          :disabled="!chat.activeFilePath || Boolean(attachmentPreview)"
           title="刷新当前文件"
           @click="chat.activeFilePath && chat.loadProjectFile(chat.activeFilePath, { force: true })"
         />
@@ -1020,7 +1060,34 @@ async function regenerateMessage(messageId: string) {
       </header>
 
       <section class="code-preview-body">
-        <div v-if="chat.activeFilePath" class="file-actions">
+        <div v-if="attachmentPreview" class="attachment-preview">
+          <iframe
+            v-if="previewKind === 'document'"
+            class="attachment-preview-frame"
+            :src="attachmentPreviewUrl"
+            :title="attachmentPreview.name"
+          ></iframe>
+          <audio
+            v-else-if="previewKind === 'audio'"
+            class="attachment-preview-media"
+            :src="attachmentPreviewUrl"
+            controls
+          ></audio>
+          <video
+            v-else-if="previewKind === 'video'"
+            class="attachment-preview-video"
+            :src="attachmentPreviewUrl"
+            controls
+          ></video>
+          <img
+            v-else-if="previewKind === 'image'"
+            class="attachment-preview-image"
+            :src="attachmentPreviewUrl"
+            :alt="attachmentPreview.name"
+          />
+        </div>
+
+        <div v-else-if="chat.activeFilePath" class="file-actions">
           <el-button
             size="small"
             type="primary"
@@ -1040,15 +1107,15 @@ async function regenerateMessage(messageId: string) {
           </el-button>
         </div>
 
-        <div v-if="chat.activeFilePath" class="code-preview line-numbered">
+        <div v-if="!attachmentPreview && chat.activeFilePath" class="code-preview line-numbered">
           <div v-for="line in activeFilePreviewLines" :key="line.number" class="code-line-row">
             <span class="line-number-gutter" aria-hidden="true">{{ line.number }}</span>
             <code :class="`code-line language-${activeFileLanguage}`" v-html="line.html"></code>
           </div>
         </div>
-        <div v-else class="code-empty">选择文件后在这里预览代码</div>
+        <div v-else-if="!attachmentPreview" class="code-empty">选择文件后在这里预览代码</div>
 
-        <pre v-if="chat.activeFileDiff" class="diff-preview">
+        <pre v-if="!attachmentPreview && chat.activeFileDiff" class="diff-preview">
           <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
         </pre>
       </section>
