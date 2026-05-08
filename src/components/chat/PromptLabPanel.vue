@@ -627,10 +627,11 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 <style scoped>
 .prompt-lab {
   display: grid;
+  flex-shrink: 0;
   gap: 0;
-  padding: 14px;
+  padding: 8px 10px;
   border: 1px solid rgba(23, 32, 26, 0.09);
-  border-radius: 14px;
+  border-radius: 12px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.76) 0%, rgba(245, 249, 245, 0.5) 100%),
     radial-gradient(ellipse at 12% 0%, rgba(52, 96, 78, 0.1), transparent 42%);
@@ -640,20 +641,20 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .prompt-lab:not(.is-collapsed) .t1-collapse-wrap {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .prompt-lab.is-collapsed {
-  padding: 10px 12px;
+  padding: 6px 8px;
 }
 
 .prompt-lab-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, auto) auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: 28px;
   border: 0;
   padding: 0;
   color: #5b675f;

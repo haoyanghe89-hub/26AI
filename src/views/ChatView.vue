@@ -78,6 +78,16 @@ const storedSessionManagerCollapsed = localStorage.getItem('twentys1x:session-ma
 const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
 const storedSidebarCollapsed = localStorage.getItem('twentys1x:left-sidebar-collapsed')
 const isSidebarCollapsed = ref(storedSidebarCollapsed === 'true')
+
+const PROJECT_PANEL_COLLAPSE_KEY = 'twentys1x:project-panel-collapsed'
+function readProjectPanelStored(): boolean | null {
+  const raw = localStorage.getItem(PROJECT_PANEL_COLLAPSE_KEY)
+  if (raw === 'true') return true
+  if (raw === 'false') return false
+  return null
+}
+const projectPanelUserToggled = ref(readProjectPanelStored() !== null)
+const isProjectPanelCollapsed = ref(readProjectPanelStored() ?? false)
 const isSummaryDialogVisible = ref(false)
 const summaryDraft = ref('')
 const copiedSummary = ref(false)
@@ -96,6 +106,14 @@ const canSend = computed(() => {
 
 // === 修改：优化无项目状态的显示文案 ===
 const activeProjectLabel = computed(() => chat.activeProject?.name || '普通对话')
+/** 侧栏折叠态下展示当前上下文与上传项目数 */
+const projectPanelMetaText = computed(() => {
+  const n = chat.projects.length
+  if (isProjectPanelCollapsed.value) {
+    return n ? `${activeProjectLabel.value} · ${n} 项目` : activeProjectLabel.value
+  }
+  return n ? `${n} 项目` : '未导入'
+})
 const activeProjectObjectLabel = computed(() =>
   chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '无项目关联',
 )
@@ -185,6 +203,15 @@ watch(
       chat.setActiveSession(sid)
     }
   },
+)
+
+watch(
+  () => chat.projects.length,
+  (n) => {
+    if (projectPanelUserToggled.value) return
+    isProjectPanelCollapsed.value = n > 2
+  },
+  { immediate: true },
 )
 
 watch(attachmentPreview, async (attachment, _previous, onCleanup) => {
@@ -423,6 +450,12 @@ function toggleSessionManager() {
   localStorage.setItem('twentys1x:session-manager-collapsed', String(isSessionManagerCollapsed.value))
 }
 
+function toggleProjectPanel() {
+  isProjectPanelCollapsed.value = !isProjectPanelCollapsed.value
+  projectPanelUserToggled.value = true
+  localStorage.setItem(PROJECT_PANEL_COLLAPSE_KEY, String(isProjectPanelCollapsed.value))
+}
+
 function openSummaryDialog() {
   summaryDraft.value = chat.activeSession.summary?.content || ''
   copiedSummary.value = false
@@ -625,72 +658,98 @@ async function regenerateMessage(messageId: string) {
         </div>
       </div>
 
-      <section class="project-panel" aria-label="项目">
-        <div class="panel-title">
-          <span>项目</span>
+      <section class="project-panel" :class="{ 'is-collapsed': isProjectPanelCollapsed }" aria-label="项目">
+        <div class="project-panel-toolbar">
+          <button
+            type="button"
+            class="project-panel-header"
+            :aria-expanded="!isProjectPanelCollapsed"
+            @click="toggleProjectPanel"
+          >
+            <span class="project-panel-title">
+              <el-icon><Files /></el-icon>
+              项目
+            </span>
+            <span class="project-panel-meta">{{ projectPanelMetaText }}</span>
+            <el-icon
+              class="project-panel-chevron t1-chevron"
+              :class="{ 'is-expanded': !isProjectPanelCollapsed }"
+            >
+              <ArrowDown />
+            </el-icon>
+          </button>
           <el-button
             class="panel-icon-button"
             :icon="FolderAdd"
             text
             title="导入项目文件夹"
             :loading="chat.isImportingProject"
-            @click="pickProjectFolder"
+            @click.stop="pickProjectFolder"
           />
         </div>
-        <div class="project-list">
-          <!-- === 新增：普通对话（取消关联） === -->
-          <button
-            type="button"
-            class="project-item"
-            :class="{ active: !chat.activeProjectId }"
-            @click="selectProjectFromSidebar('')"
-          >
-            <el-icon><Promotion /></el-icon>
-            <span>普通对话</span>
-            <small>不关联任何项目</small>
-          </button>
+        <div class="t1-collapse-wrap" :class="{ 'is-open': !isProjectPanelCollapsed }">
+          <div class="t1-collapse-inner">
+            <div class="project-panel-body">
+              <div class="project-list">
+                <button
+                  type="button"
+                  class="project-item"
+                  :class="{ active: !chat.activeProjectId }"
+                  @click="selectProjectFromSidebar('')"
+                >
+                  <el-icon><Promotion /></el-icon>
+                  <span>普通对话</span>
+                  <small>不关联任何项目</small>
+                </button>
 
-          <!-- 原有的项目列表循环 -->
-          <button
-            v-for="project in chat.projects"
-            :key="project.id"
-            type="button"
-            class="project-item"
-            :class="{ active: project.id === chat.activeProjectId }"
-            @click="selectProjectFromSidebar(project.id)"
-          >
-            <el-icon><Files /></el-icon>
-            <span>{{ project.name }}</span>
-            <small>{{ project.fileCount }} 文件</small>
-            <el-icon
-              class="delete-project"
-              title="删除项目"
-              @click.stop="confirmDeleteProject(project.id, project.name)"
-            >
-              <Delete />
-            </el-icon>
-          </button>
-          <button v-if="!chat.projects.length" type="button" class="project-empty" @click="pickProjectFolder">
-            导入一个项目文件夹
-          </button>
+                <button
+                  v-for="project in chat.projects"
+                  :key="project.id"
+                  type="button"
+                  class="project-item"
+                  :class="{ active: project.id === chat.activeProjectId }"
+                  @click="selectProjectFromSidebar(project.id)"
+                >
+                  <el-icon><Files /></el-icon>
+                  <span>{{ project.name }}</span>
+                  <small>{{ project.fileCount }} 文件</small>
+                  <el-icon
+                    class="delete-project"
+                    title="删除项目"
+                    @click.stop="confirmDeleteProject(project.id, project.name)"
+                  >
+                    <Delete />
+                  </el-icon>
+                </button>
+                <button
+                  v-if="!chat.projects.length"
+                  type="button"
+                  class="project-empty"
+                  @click="pickProjectFolder"
+                >
+                  导入一个项目文件夹
+                </button>
+              </div>
+              <el-button
+                class="analyze-project-button"
+                plain
+                :disabled="!chat.activeProject"
+                :loading="chat.isAnalyzingProject"
+                @click="analyzeProject"
+              >
+                分析项目框架
+              </el-button>
+              <input
+                ref="projectInputEl"
+                class="file-input"
+                type="file"
+                webkitdirectory
+                multiple
+                @change="handleProjectFolder"
+              />
+            </div>
+          </div>
         </div>
-        <el-button
-          class="analyze-project-button"
-          plain
-          :disabled="!chat.activeProject"
-          :loading="chat.isAnalyzingProject"
-          @click="analyzeProject"
-        >
-          分析项目框架
-        </el-button>
-        <input
-          ref="projectInputEl"
-          class="file-input"
-          type="file"
-          webkitdirectory
-          multiple
-          @change="handleProjectFolder"
-        />
       </section>
 
       <PromptLabPanel

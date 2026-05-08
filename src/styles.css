@@ -227,17 +227,18 @@ button {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
   width: 100%;
   min-width: 0;
-  padding: 22px;
+  min-height: 0;
+  padding: 14px 14px 16px;
   border-right: 1px solid var(--t1-stroke);
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, rgba(244, 248, 244, 0.85) 100%);
   backdrop-filter: blur(28px) saturate(1.2);
   -webkit-backdrop-filter: blur(28px) saturate(1.2);
   box-shadow: 4px 0 32px rgba(23, 32, 26, 0.04);
   height: 100vh;
-  overflow-y: auto;
+  overflow: hidden;
   scrollbar-gutter: stable;
   opacity: 1;
   transform: translateX(0);
@@ -272,16 +273,17 @@ button {
 
 .brand {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .logo-mark,
 .empty-logo {
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--t1-radius-sm);
   color: #f8fbf7;
@@ -299,7 +301,7 @@ button {
 
 .brand strong {
   display: block;
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 800;
   letter-spacing: -0.03em;
   color: #17201a;
@@ -441,7 +443,79 @@ button {
 
 .project-panel {
   display: grid;
-  gap: 10px;
+  flex-shrink: 0;
+  gap: 0;
+  padding: 8px;
+  border: 1px solid rgba(23, 32, 26, 0.07);
+  border-radius: var(--t1-radius-md);
+  background: rgba(255, 255, 255, 0.32);
+}
+
+.project-panel:not(.is-collapsed) .t1-collapse-wrap.is-open {
+  margin-top: 6px;
+}
+
+.project-panel.is-collapsed {
+  padding: 6px 8px;
+}
+
+.project-panel-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-panel-header {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  color: #5b675f;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-panel-title {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  color: #2f3a33;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+}
+
+.project-panel-title .el-icon {
+  flex-shrink: 0;
+  color: #34604e;
+}
+
+.project-panel-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: #8a918b;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-panel-chevron {
+  flex-shrink: 0;
+  color: #8a918b;
+  font-size: 12px;
+}
+
+.project-panel-body {
+  display: grid;
+  gap: 6px;
 }
 
 .panel-title {
@@ -464,7 +538,7 @@ button {
 
 .project-list {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .project-item,
@@ -472,10 +546,10 @@ button {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 42px;
-  padding: 9px 10px;
+  min-height: 34px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: var(--t1-radius-sm);
   color: #4b554f;
@@ -533,17 +607,19 @@ button {
 }
 
 .analyze-project-button.el-button {
-  min-height: 36px;
+  min-height: 32px;
   border-radius: var(--t1-radius-sm);
   font-weight: 750;
 }
 
 .sessions {
   display: flex;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
-  gap: 6px;
-  min-height: 160px;
+  gap: 4px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: 2px;
 }
@@ -559,19 +635,20 @@ button {
 
 .session-manager {
   display: grid;
+  flex-shrink: 0;
   gap: 0;
-  padding: 12px;
+  padding: 8px;
   border: 1px solid rgba(23, 32, 26, 0.07);
   border-radius: var(--t1-radius-md);
   background: rgba(255, 255, 255, 0.32);
 }
 
 .session-manager:not(.is-collapsed) .t1-collapse-wrap {
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .session-manager.is-collapsed {
-  padding: 10px 12px;
+  padding: 6px 8px;
 }
 
 .session-manager-header {
@@ -580,7 +657,7 @@ button {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: 28px;
   border: 0;
   padding: 0;
   color: #5b675f;
@@ -616,7 +693,7 @@ button {
 
 .session-manager-body {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .panel-title small {
@@ -688,8 +765,8 @@ button {
 
 .session-summary-card {
   display: grid;
-  gap: 8px;
-  padding: 10px;
+  gap: 6px;
+  padding: 8px;
   border: 1px solid rgba(52, 96, 78, 0.12);
   border-radius: var(--t1-radius-sm);
   background: rgba(248, 251, 247, 0.66);
@@ -731,7 +808,7 @@ button {
 
 .session-summary-card p {
   display: -webkit-box;
-  max-height: 58px;
+  max-height: 52px;
   margin: 0;
   overflow: hidden;
   color: #3f4b43;
@@ -782,8 +859,8 @@ button {
   align-items: center;
   box-sizing: border-box;
   width: 100%;
-  min-height: 42px;
-  padding: 8px 44px 8px 14px;
+  min-height: 36px;
+  padding: 6px 40px 6px 12px;
   cursor: pointer;
   border: 1px solid transparent;
   border-radius: var(--t1-radius-md);
@@ -805,7 +882,7 @@ button {
 .session-item.active {
   border-color: rgba(52, 96, 78, 0.25);
   border-left: 3px solid #34604e;
-  padding-left: 11px;
+  padding-left: 9px;
   background: linear-gradient(180deg, #fff 0%, #f6faf7 100%);
   box-shadow: var(--t1-shadow-md);
 }
@@ -823,9 +900,9 @@ button {
 .session-item-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  min-height: 26px;
+  min-height: 22px;
 }
 
 .session-title {
@@ -923,9 +1000,10 @@ button {
 /* 侧栏折叠面板：平滑展开 + 单箭头旋转（见 .t1-collapse-wrap / .t1-chevron） */
 .settings-panel {
   display: grid;
+  flex-shrink: 0;
   gap: 0;
   margin-top: 0;
-  padding: 12px;
+  padding: 8px;
   border-radius: var(--t1-radius-md);
   border: 1px solid rgba(23, 32, 26, 0.09);
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.55) 0%, rgba(248, 250, 246, 0.38) 100%);
@@ -933,11 +1011,11 @@ button {
 }
 
 .settings-panel:not(.is-collapsed) .t1-collapse-wrap {
-  margin-top: 12px;
+  margin-top: 8px;
 }
 
 .settings-panel.is-collapsed {
-  padding: 10px 12px;
+  padding: 6px 8px;
 }
 
 .settings-header {
@@ -946,7 +1024,7 @@ button {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 32px;
+  min-height: 28px;
   border: 0;
   padding: 0;
   color: #5b675f;
@@ -1008,7 +1086,7 @@ button {
 
 .settings-body {
   display: grid;
-  gap: 14px;
+  gap: 10px;
 }
 
 .local-model-box {
@@ -2827,15 +2905,19 @@ button {
 
   .sidebar {
     grid-column: auto;
+    height: auto;
     min-height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid rgba(23, 32, 26, 0.1);
   }
 
   .sessions {
+    flex: 0 1 auto;
     flex-direction: row;
-    min-height: auto;
+    min-height: 120px;
     overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .session-item {
