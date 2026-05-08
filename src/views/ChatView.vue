@@ -164,6 +164,7 @@ async function bootRouteSession() {
 onMounted(() => {
   void bootRouteSession()
   chat.refreshProviderServerConfig()
+  chat.refreshLocalModels()
   chat.refreshProjects()
 })
 
@@ -834,9 +835,19 @@ async function regenerateMessage(messageId: string) {
         :api-key="chat.apiKey"
         :model="chat.model"
         :current-model-options="chat.currentModelOptions"
+        :inference-mode="chat.inferenceMode"
+        :local-model="chat.localModel"
+        :local-model-options="chat.localModelOptions"
+        :local-model-status="chat.localModelStatus"
+        :hybrid-fallback-to-cloud="chat.hybridFallbackToCloud"
+        :is-refreshing-local-models="chat.isRefreshingLocalModels"
         @select-provider="selectProvider"
         @update-api-key="chat.setApiKey"
         @select-model="selectModel"
+        @select-inference-mode="chat.setInferenceMode"
+        @select-local-model="chat.setLocalModel"
+        @update-hybrid-fallback="chat.setHybridFallbackToCloud"
+        @refresh-local-models="chat.refreshLocalModels"
         @clear-history="confirmClear"
       />
     </aside>
@@ -903,7 +914,17 @@ async function regenerateMessage(messageId: string) {
         </div>
         <div class="topbar-actions">
           <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
-            {{ chat.isProviderReady ? `${chat.selectedProvider.name} 已就绪` : '等待 API Key' }}
+            {{
+              chat.isProviderReady
+                ? chat.inferenceMode === 'local'
+                  ? `本地 ${chat.localModel} 已就绪`
+                  : chat.inferenceMode === 'auto'
+                    ? '混合推理已就绪'
+                    : `${chat.selectedProvider.name} 已就绪`
+                : chat.inferenceMode === 'local'
+                  ? '等待本地模型'
+                  : '等待 API Key'
+            }}
           </el-tag>
           <el-button
             class="topbar-icon-button"
@@ -996,8 +1017,10 @@ async function regenerateMessage(messageId: string) {
             :autosize="{ minRows: 1, maxRows: 6 }"
             :placeholder="
               chat.activeProjectId
-                ? `向 ${chat.selectedProvider.name} 提问（当前项目：${activeProjectLabel}）...`
-                : `向 ${chat.selectedProvider.name} 提问...`
+                ? `向 ${
+                    chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name
+                  } 提问（当前项目：${activeProjectLabel}）...`
+                : `向 ${chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name} 提问...`
             "
             @keydown.enter="handleEnter"
           />

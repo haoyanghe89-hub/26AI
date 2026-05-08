@@ -147,6 +147,11 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'GET' && req.url === '/api/local-models') {
+      sendJson(res, 200, await getLocalModels())
+      return
+    }
+
     if (req.method === 'POST' && req.url === '/api/projects/import') {
       const body = await readJson(req)
       sendJson(res, 200, { project: await importProject(body) })
@@ -269,8 +274,11 @@ async function handleChat(body) {
   if (!provider) throw httpError(400, `Unsupported provider: ${providerId}`)
 
   const model = String(body?.model || '').trim()
+  const localProviderId = String(body?.localProviderId || 'ollama')
+  const localProvider = PROVIDERS[localProviderId]
+  if (!localProvider) throw httpError(400, `Unsupported local provider: ${localProviderId}`)
+  const localModel = String(body?.localModel || '').trim()
   const messages = Array.isArray(body?.messages) ? body.messages : []
-  const apiKey = getApiKey(provider, body?.apiKey)
   const activeProject = body?.projectId ? await getProjectStatus(body.projectId) : null
   if (body?.projectId && !activeProject) throw httpError(404, 'Active project not found')
   const workspaceHits =
@@ -292,23 +300,67 @@ async function handleChat(body) {
     : `${SYSTEM_PROMPT}\n\n${projectInstruction}`
   const runtimeSystemPrompt = requestSystemPrompt ? `${systemPrompt}\n\n${requestSystemPrompt}` : systemPrompt
   const temperature = normalizeTemperature(body?.temperature)
+  const inferenceMode = normalizeInferenceMode(body?.inferenceMode)
+  const target = resolveInferenceTarget({
+    inferenceMode,
+    cloudProviderId: providerId,
+    cloudModel: model,
+    localProviderId,
+    localModel,
+    messages,
+    hasWorkspaceContext: Boolean(workspaceContext),
+  })
+  const targetProvider = PROVIDERS[target.providerId]
+  const targetApiKey = getApiKey(targetProvider, target.providerId === providerId ? body?.apiKey : '')
+  let effectiveTarget = target
 
-  if (!model) throw httpError(400, 'model is required')
+  if (!target.model) throw httpError(400, 'model is required')
   if (!messages.length) throw httpError(400, 'messages are required')
-  if (provider.needsApiKey && !apiKey) {
-    throw httpError(400, `${provider.envKey} or apiKey is required`)
+  if (targetProvider.needsApiKey && !targetApiKey) {
+    throw httpError(400, `${targetProvider.envKey} or apiKey is required`)
   }
 
-  const response = await callProvider(providerId, provider, model, messages, apiKey, runtimeSystemPrompt, {
-    temperature,
-  }).catch((error) => {
+  const canFallbackToCloud =
+    inferenceMode === 'auto' &&
+    body?.hybridFallbackToCloud !== false &&
+    target.providerId === localProviderId &&
+    providerId !== localProviderId &&
+    Boolean(model)
+  const callCloudFallback = () => {
+    const fallbackApiKey = getApiKey(provider, body?.apiKey)
+    if (provider.needsApiKey && !fallbackApiKey)
+      throw httpError(400, `${provider.envKey} or apiKey is required`)
+    effectiveTarget = { providerId, model, reason: '本地模型不可用，已回退云端模型。' }
+    return callProvider(providerId, provider, model, messages, fallbackApiKey, runtimeSystemPrompt, {
+      temperature,
+    })
+  }
+
+  let response = await callProvider(
+    target.providerId,
+    targetProvider,
+    target.model,
+    messages,
+    targetApiKey,
+    runtimeSystemPrompt,
+    {
+      temperature,
+    },
+  ).catch(async (error) => {
+    if (canFallbackToCloud) return callCloudFallback()
+
     throw httpError(
       502,
       `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`,
     )
   })
 
-  const data = await readProviderResponse(response)
+  let data = await readProviderResponse(response)
+  if (!response.ok && canFallbackToCloud) {
+    response = await callCloudFallback()
+    data = await readProviderResponse(response)
+  }
+
   if (!response.ok) {
     throw httpError(
       response.status,
@@ -318,7 +370,8 @@ async function handleChat(body) {
   }
 
   return {
-    content: extractProviderText(provider, data),
+    content: extractProviderText(PROVIDERS[effectiveTarget.providerId], data),
+    inference: effectiveTarget,
     workspaceHits: workspaceHits.map(({ path, startLine, endLine, score }) => ({
       path,
       startLine,
@@ -329,10 +382,136 @@ async function handleChat(body) {
   }
 }
 
+async function getLocalModels() {
+  const ollamaBaseUrl = getOllamaBaseUrl()
+
+  try {
+    const [tagsResponse, versionResponse, psResponse] = await Promise.all([
+      fetchJson(`${ollamaBaseUrl}/api/tags`),
+      fetchJson(`${ollamaBaseUrl}/api/version`).catch(() => ({})),
+      fetchJson(`${ollamaBaseUrl}/api/ps`).catch(() => ({})),
+    ])
+    const running = new Set(
+      (Array.isArray(psResponse.models) ? psResponse.models : []).map((item) => item.name),
+    )
+    const models = (Array.isArray(tagsResponse.models) ? tagsResponse.models : []).map((item) =>
+      normalizeLocalModel(item, running),
+    )
+
+    return {
+      available: true,
+      version: String(versionResponse.version || ''),
+      models,
+      updatedAt: new Date().toISOString(),
+    }
+  } catch (error) {
+    return {
+      available: false,
+      version: '',
+      models: [],
+      error: error instanceof Error ? error.message : 'Ollama is not available',
+      updatedAt: new Date().toISOString(),
+    }
+  }
+}
+
+function getOllamaBaseUrl() {
+  if (process.env.OLLAMA_BASE_URL) return process.env.OLLAMA_BASE_URL.replace(/\/$/, '')
+  return 'http://localhost:11434'
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/json' },
+    signal: AbortSignal.timeout(2500),
+  })
+  const data = await readProviderResponse(response)
+  if (!response.ok) throw new Error(extractProviderErrorMessage(data) || `Request failed: ${response.status}`)
+  return data || {}
+}
+
+function normalizeLocalModel(item, running) {
+  const name = String(item?.name || item?.model || '').trim()
+  const details = item?.details && typeof item.details === 'object' ? item.details : {}
+
+  return {
+    name,
+    label: name,
+    size: Number(item?.size || 0),
+    digest: String(item?.digest || ''),
+    modifiedAt: String(item?.modified_at || ''),
+    running: running.has(name),
+    parameterSize: typeof details.parameter_size === 'string' ? details.parameter_size : '',
+    quantizationLevel: typeof details.quantization_level === 'string' ? details.quantization_level : '',
+  }
+}
+
 function callProvider(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
   if (provider.kind === 'gemini') return callGemini(provider, model, messages, apiKey, systemPrompt, options)
   if (provider.kind === 'claude') return callClaude(provider, model, messages, apiKey, systemPrompt, options)
   return callOpenAiCompatible(providerId, provider, model, messages, apiKey, systemPrompt, options)
+}
+
+function normalizeInferenceMode(value) {
+  return value === 'local' || value === 'auto' || value === 'cloud' ? value : 'cloud'
+}
+
+function resolveInferenceTarget({
+  inferenceMode,
+  cloudProviderId,
+  cloudModel,
+  localProviderId,
+  localModel,
+  messages,
+  hasWorkspaceContext,
+}) {
+  if (inferenceMode === 'local') {
+    return {
+      providerId: localProviderId,
+      model: localModel,
+      reason: '用户选择了本地模型推理。',
+    }
+  }
+
+  if (inferenceMode === 'auto' && localModel && shouldUseLocalModel(messages, hasWorkspaceContext)) {
+    return {
+      providerId: localProviderId,
+      model: localModel,
+      reason: '自动混合策略判定为短文本或隐私优先任务，使用本地模型。',
+    }
+  }
+
+  return {
+    providerId: cloudProviderId,
+    model: cloudModel,
+    reason:
+      inferenceMode === 'auto' ? '自动混合策略判定为复杂任务，使用云端模型。' : '用户选择了云端模型推理。',
+  }
+}
+
+function shouldUseLocalModel(messages, hasWorkspaceContext) {
+  const latestText = getLatestUserText(messages)
+  if (!latestText.trim()) return false
+  if (hasWorkspaceContext) return false
+  if (
+    messages.some(
+      (message) =>
+        Array.isArray(message?.content) && message.content.some((part) => part.type === 'image_url'),
+    )
+  ) {
+    return false
+  }
+
+  const complexPatterns = [
+    /架构|重构|调试|debug|性能|并发|安全|漏洞|审计|生产|部署|迁移|数据库|权限|鉴权/i,
+    /生成.*代码|实现.*功能|修复.*bug|完整.*方案/i,
+    /```|diff --git|stack trace|traceback|exception/i,
+  ]
+  if (complexPatterns.some((pattern) => pattern.test(latestText))) return false
+  if (latestText.length > 900) return false
+
+  const totalTextLength = messages.reduce((sum, message) => sum + messageToText(message?.content).length, 0)
+  return totalTextLength <= 2200
 }
 
 function getApiKey(provider, requestApiKey) {

@@ -1011,6 +1011,42 @@ button {
   gap: 14px;
 }
 
+.local-model-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(52, 96, 78, 0.12);
+  border-radius: var(--t1-radius-sm);
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.local-model-heading,
+.hybrid-fallback-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.local-model-heading > span,
+.hybrid-fallback-row > span {
+  color: #66706a;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.local-model-status {
+  margin: 0;
+  color: #8a918b;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.local-model-status.is-online {
+  color: #34604e;
+  font-weight: 700;
+}
+
 .settings-panel .el-button.is-plain {
   --el-button-bg-color: rgba(255, 255, 255, 0.65);
   --el-button-border-color: rgba(23, 32, 26, 0.12);

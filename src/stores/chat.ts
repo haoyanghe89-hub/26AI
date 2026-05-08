@@ -45,6 +45,7 @@ export type ProviderId =
   | 'kimi'
   | 'qwen'
   | 'ollama'
+export type InferenceMode = 'cloud' | 'local' | 'auto'
 type MultiModalContent = Array<
   | { type: 'text'; text: string }
   | {
@@ -109,6 +110,25 @@ export interface AiProvider {
   needsApiKey: boolean
 }
 
+export interface LocalModel {
+  name: string
+  label: string
+  size: number
+  digest: string
+  modifiedAt: string
+  running: boolean
+  parameterSize?: string
+  quantizationLevel?: string
+}
+
+export interface LocalModelStatus {
+  available: boolean
+  version: string
+  models: LocalModel[]
+  error: string
+  updatedAt: string | null
+}
+
 export interface WorkspaceStatus {
   indexed: boolean
   root: string
@@ -149,6 +169,9 @@ const STORAGE_KEYS = {
   activeNormalAgent: 'twentys1x:active-normal-agent',
   activeProjectAgent: 'twentys1x:active-project-agent',
   promptWorkflows: 'twentys1x:prompt-workflows',
+  inferenceMode: 'twentys1x:inference-mode',
+  localModel: 'twentys1x:local-model',
+  hybridFallback: 'twentys1x:hybrid-fallback',
 }
 
 const MAX_MESSAGE_CHARS = 12000
@@ -333,6 +356,8 @@ export const AI_PROVIDERS: AiProvider[] = [
 const DEFAULT_PROVIDER: ProviderId = 'kimi'
 const DEFAULT_MODEL = 'kimi-k2.6'
 const DEFAULT_PROJECT_AGENT_ID = 'agent-frontend-engineer'
+const DEFAULT_INFERENCE_MODE: InferenceMode = 'cloud'
+const DEFAULT_LOCAL_MODEL = 'qwen2.5'
 
 function getProvider(id: ProviderId) {
   return (
@@ -347,6 +372,10 @@ function getDefaultModel(providerId: ProviderId) {
 
 function normalizeProviderId(value: string | null): ProviderId {
   return AI_PROVIDERS.some((provider) => provider.id === value) ? (value as ProviderId) : DEFAULT_PROVIDER
+}
+
+function normalizeInferenceMode(value: string | null): InferenceMode {
+  return value === 'local' || value === 'auto' || value === 'cloud' ? value : DEFAULT_INFERENCE_MODE
 }
 
 function createSession(): ChatSession {
@@ -725,6 +754,11 @@ export const useChatStore = defineStore('chat', () => {
     kimi: localStorage.getItem(STORAGE_KEYS.model) || DEFAULT_MODEL,
   })
   const selectedProviderId = ref<ProviderId>(normalizeProviderId(localStorage.getItem(STORAGE_KEYS.provider)))
+  const inferenceMode = ref<InferenceMode>(
+    normalizeInferenceMode(localStorage.getItem(STORAGE_KEYS.inferenceMode)),
+  )
+  const localModel = ref(localStorage.getItem(STORAGE_KEYS.localModel) || DEFAULT_LOCAL_MODEL)
+  const hybridFallbackToCloud = ref(localStorage.getItem(STORAGE_KEYS.hybridFallback) !== 'false')
   const sessions = ref<ChatSession[]>(loadSessions())
   const activeSessionId = ref(localStorage.getItem(STORAGE_KEYS.activeSession) || sessions.value[0].id)
   const promptTemplates = ref<PromptTemplate[]>(loadPromptTemplates())
@@ -740,6 +774,14 @@ export const useChatStore = defineStore('chat', () => {
   const promptWorkflows = ref<PromptWorkflow[]>(loadPromptWorkflows())
   const pendingFiles = ref<PreparedFile[]>([])
   const providerServerConfigured = ref<Record<string, boolean>>({})
+  const localModelStatus = ref<LocalModelStatus>({
+    available: false,
+    version: '',
+    models: [],
+    error: '',
+    updatedAt: null,
+  })
+  const isRefreshingLocalModels = ref(false)
   const isSending = ref(false)
   const isRunningWorkflow = ref(false)
   const isSummarizingSession = ref(false)
@@ -770,16 +812,41 @@ export const useChatStore = defineStore('chat', () => {
   const providers = computed(() => AI_PROVIDERS)
   const selectedProvider = computed(() => getProvider(selectedProviderId.value))
   const currentModelOptions = computed(() => selectedProvider.value.models)
+  const localModelOptions = computed<ProviderModel[]>(() => {
+    const remoteModels = localModelStatus.value.models.map((item) => ({
+      label: item.label,
+      value: item.name,
+      hint: [
+        item.parameterSize,
+        item.quantizationLevel,
+        item.running ? '运行中' : '',
+        item.size ? formatBytes(item.size) : '',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+    }))
+    const defaults = getProvider('ollama').models
+    const merged = new Map<string, ProviderModel>()
+    for (const item of [...defaults, ...remoteModels]) merged.set(item.value, item)
+    return Array.from(merged.values())
+  })
   const apiKey = computed(() => providerApiKeys.value[selectedProviderId.value] || '')
   const model = computed(
     () => providerModels.value[selectedProviderId.value] || getDefaultModel(selectedProviderId.value),
   )
-  const isProviderReady = computed(
+  const effectiveLocalModel = computed(() => localModel.value.trim() || DEFAULT_LOCAL_MODEL)
+  const isLocalInferenceReady = computed(() => Boolean(effectiveLocalModel.value.trim()))
+  const isCloudProviderReady = computed(
     () =>
       !selectedProvider.value.needsApiKey ||
       Boolean(providerServerConfigured.value[selectedProviderId.value]) ||
       Boolean(apiKey.value.trim()),
   )
+  const isProviderReady = computed(() => {
+    if (inferenceMode.value === 'local') return isLocalInferenceReady.value
+    if (inferenceMode.value === 'auto') return isCloudProviderReady.value || isLocalInferenceReady.value
+    return isCloudProviderReady.value
+  })
 
   const activeSession = computed(() => {
     return sessions.value.find((session) => session.id === activeSessionId.value) || sessions.value[0]
@@ -855,6 +922,22 @@ export const useChatStore = defineStore('chat', () => {
     persist(STORAGE_KEYS.provider, providerId)
   }
 
+  function setInferenceMode(value: InferenceMode) {
+    inferenceMode.value = normalizeInferenceMode(value)
+    errorMessage.value = ''
+    persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
+  }
+
+  function setLocalModel(value: string) {
+    localModel.value = value.trim() || DEFAULT_LOCAL_MODEL
+    persist(STORAGE_KEYS.localModel, localModel.value)
+  }
+
+  function setHybridFallbackToCloud(value: boolean) {
+    hybridFallbackToCloud.value = Boolean(value)
+    persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
+  }
+
   async function hydrateClientState() {
     if (hasHydratedClientState.value) return
     hasHydratedClientState.value = true
@@ -863,6 +946,9 @@ export const useChatStore = defineStore('chat', () => {
       storedApiKeys,
       storedModels,
       storedProvider,
+      storedInferenceMode,
+      storedLocalModel,
+      storedHybridFallback,
       storedSessions,
       storedActiveSession,
       storedActiveProject,
@@ -876,6 +962,9 @@ export const useChatStore = defineStore('chat', () => {
       getSecureJson<Record<string, string>>(STORAGE_KEYS.apiKeys, providerApiKeys.value),
       hydrateJsonRecord(STORAGE_KEYS.models, providerModels.value),
       getStoredString(STORAGE_KEYS.provider),
+      getStoredString(STORAGE_KEYS.inferenceMode),
+      getStoredString(STORAGE_KEYS.localModel),
+      getStoredString(STORAGE_KEYS.hybridFallback),
       hydrateSessions(sessions.value),
       getStoredString(STORAGE_KEYS.activeSession),
       getStoredString(STORAGE_KEYS.activeProject),
@@ -890,6 +979,10 @@ export const useChatStore = defineStore('chat', () => {
     providerApiKeys.value = { ...providerApiKeys.value, ...storedApiKeys }
     providerModels.value = { ...providerModels.value, ...storedModels }
     selectedProviderId.value = normalizeProviderId(storedProvider || selectedProviderId.value)
+    inferenceMode.value = normalizeInferenceMode(storedInferenceMode || inferenceMode.value)
+    localModel.value = storedLocalModel || localModel.value
+    hybridFallbackToCloud.value =
+      storedHybridFallback === null ? hybridFallbackToCloud.value : storedHybridFallback !== 'false'
     sessions.value = storedSessions
     promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
       normalizePromptTemplate(
@@ -930,6 +1023,9 @@ export const useChatStore = defineStore('chat', () => {
     saveCustomAgents()
     savePromptWorkflows()
     persist(STORAGE_KEYS.provider, selectedProviderId.value)
+    persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
+    persist(STORAGE_KEYS.localModel, localModel.value)
+    persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
     persist(STORAGE_KEYS.activeSession, activeSessionId.value)
     persist(STORAGE_KEYS.activeProject, activeProjectId.value)
     persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
@@ -1576,6 +1672,10 @@ export const useChatStore = defineStore('chat', () => {
         providerId: selectedProviderId.value,
         model:
           options.runtime?.model?.trim() || model.value.trim() || getDefaultModel(selectedProviderId.value),
+        inferenceMode: inferenceMode.value,
+        localProviderId: 'ollama',
+        localModel: effectiveLocalModel.value,
+        hybridFallbackToCloud: hybridFallbackToCloud.value,
         temperature: options.runtime?.temperature,
         systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
         // 始终允许前端当前输入的 key 覆盖服务端环境变量，便于失效 key 的即时修复。
@@ -1616,6 +1716,37 @@ export const useChatStore = defineStore('chat', () => {
       )
     } catch {
       // 后端未启动时仍允许用户使用本地填写的 API Key。
+    }
+  }
+
+  async function refreshLocalModels() {
+    if (isRefreshingLocalModels.value) return
+    isRefreshingLocalModels.value = true
+
+    try {
+      const response = await fetch('/api/local-models')
+      const data = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(data?.error || `本地模型刷新失败：${response.status}`)
+
+      localModelStatus.value = {
+        available: Boolean(data.available),
+        version: String(data.version || ''),
+        models: Array.isArray(data.models) ? data.models : [],
+        error: '',
+        updatedAt: String(data.updatedAt || new Date().toISOString()),
+      }
+
+      const firstModel = localModelStatus.value.models[0]?.name
+      if (firstModel && !localModel.value.trim()) setLocalModel(firstModel)
+    } catch (error) {
+      localModelStatus.value = {
+        ...localModelStatus.value,
+        available: false,
+        error: error instanceof Error ? error.message : '本地模型刷新失败',
+        updatedAt: new Date().toISOString(),
+      }
+    } finally {
+      isRefreshingLocalModels.value = false
     }
   }
 
@@ -1885,9 +2016,16 @@ export const useChatStore = defineStore('chat', () => {
     selectedProviderId,
     selectedProvider,
     currentModelOptions,
+    localModelOptions,
     apiKey,
     model,
+    inferenceMode,
+    localModel,
+    hybridFallbackToCloud,
+    localModelStatus,
     isProviderReady,
+    isCloudProviderReady,
+    isLocalInferenceReady,
     sessions,
     activeSessionId,
     activeSession,
@@ -1900,6 +2038,7 @@ export const useChatStore = defineStore('chat', () => {
     allSessionTags,
     pendingFiles,
     providerServerConfigured,
+    isRefreshingLocalModels,
     isSending,
     isRunningWorkflow,
     isSummarizingSession,
@@ -1923,8 +2062,11 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage,
     hydrateClientState,
     setProvider,
+    setInferenceMode,
     setApiKey,
     setModel,
+    setLocalModel,
+    setHybridFallbackToCloud,
     newSession,
     deleteSession,
     renameSession,
@@ -1946,6 +2088,7 @@ export const useChatStore = defineStore('chat', () => {
     runPromptWorkflow,
     summarizeActiveSession,
     refreshProviderServerConfig,
+    refreshLocalModels,
     refreshWorkspaceStatus,
     refreshProjects,
     indexCurrentWorkspace,
