@@ -10,3 +10,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+interface Window {
+  MonacoEnvironment?: {
+    getWorker(workerId: string, label: string): Worker
+  }
+}

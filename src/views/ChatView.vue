@@ -20,6 +20,10 @@ import {
   CopyDocument,
   Check,
   Refresh,
+  VideoPlay,
+  DocumentChecked,
+  Cpu,
+  SwitchButton,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
@@ -30,6 +34,12 @@ import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElTag from 'element-plus/es/components/tag/index.mjs'
 import ElTree from 'element-plus/es/components/tree/index.mjs'
 import Prism from 'prismjs'
+import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
+import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
+import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
+import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
+import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
+import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import 'prismjs/components/prism-clike'
 import 'prismjs/components/prism-markup'
 import 'prismjs/components/prism-css'
@@ -58,9 +68,11 @@ import {
 } from '../lib/sessionManagement'
 import type { PromptTemplate } from '../lib/promptEngineering'
 import { messagePreviewContent, type ChatAttachment, type ProviderId, useChatStore } from '../stores/chat'
+import { useAuthStore } from '../stores/auth'
 import { useRoute, useRouter } from 'vue-router'
 
 const chat = useChatStore()
+const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
 const input = ref('')
@@ -95,6 +107,23 @@ const sessionSearchQuery = ref('')
 const activeSessionTag = ref('')
 const attachmentPreview = ref<ChatAttachment | null>(null)
 const attachmentPreviewUrl = ref('')
+const monacoEditorEl = ref<HTMLElement | null>(null)
+let monacoEditor: monaco.editor.IStandaloneCodeEditor | null = null
+let monacoChangeDisposable: monaco.IDisposable | null = null
+const codeRunStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
+const codeRunLogs = ref<string[]>([])
+const codeRunPreviewHtml = ref('')
+const copiedDebugOutput = ref(false)
+
+window.MonacoEnvironment = {
+  getWorker(_workerId, label) {
+    if (label === 'json') return new jsonWorker()
+    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
+    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
+    if (label === 'typescript' || label === 'javascript') return new tsWorker()
+    return new editorWorker()
+  },
+}
 
 // 气泡内联编辑状态
 const editingMessageId = ref<string | null>(null)
@@ -131,13 +160,17 @@ const canSummarizeActiveSession = computed(
   () => chat.activeSession.messages.length > 1 && chat.isProviderReady,
 )
 
-const activeFileLanguage = computed(() => detectPrismLanguage(chat.activeFilePath))
-const activeFilePreviewLines = computed(() => {
-  const lines = String(chat.activeFileContent || '').split('\n')
-  return lines.map((line, index) => ({
-    number: index + 1,
-    html: highlightCode(line, activeFileLanguage.value) || '&nbsp;',
-  }))
+const activeFileMonacoLanguage = computed(() => detectMonacoLanguage(chat.activeFilePath))
+const hasEditedFileChanges = computed(() => chat.editedFileContent !== chat.activeFileContent)
+const canRunActiveFile = computed(() => {
+  if (!chat.activeFilePath) return false
+  return ['javascript', 'typescript', 'html', 'css'].includes(activeFileMonacoLanguage.value)
+})
+const codeRunStatusLabel = computed(() => {
+  if (codeRunStatus.value === 'running') return '运行中'
+  if (codeRunStatus.value === 'success') return '已完成'
+  if (codeRunStatus.value === 'error') return '有错误'
+  return '未运行'
 })
 const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
 const previewTitle = computed(() => attachmentPreview.value?.name || chat.activeFilePath || '未选择文件')
@@ -170,6 +203,7 @@ function syncSessionQueryParam() {
 }
 
 async function bootRouteSession() {
+  await auth.hydrate()
   await chat.hydrateClientState()
   const raw = route.query.session
   const sid = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.length ? (raw[0] as string) : ''
@@ -179,11 +213,17 @@ async function bootRouteSession() {
   syncSessionQueryParam()
 }
 
+async function logout() {
+  await auth.logout()
+  await router.replace('/login')
+}
+
 onMounted(() => {
   void bootRouteSession()
   chat.refreshProviderServerConfig()
   chat.refreshLocalModels()
   chat.refreshProjects()
+  window.addEventListener('message', handleCodeRunnerMessage)
 })
 
 watch(
@@ -235,6 +275,33 @@ watch(attachmentPreview, async (attachment, _previous, onCleanup) => {
 
 onUnmounted(() => {
   if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
+  window.removeEventListener('message', handleCodeRunnerMessage)
+  disposeMonacoEditor()
+})
+
+watch(
+  [() => isCodePreviewVisible.value, () => attachmentPreview.value, () => chat.activeFilePath],
+  () => {
+    if (isCodePreviewVisible.value && !attachmentPreview.value && chat.activeFilePath) {
+      void nextTick(ensureMonacoEditor)
+      return
+    }
+    disposeMonacoEditor()
+  },
+  { flush: 'post' },
+)
+
+watch(
+  () => chat.editedFileContent,
+  (content) => {
+    if (!monacoEditor || monacoEditor.getValue() === content) return
+    monacoEditor.setValue(content)
+  },
+)
+
+watch(activeFileMonacoLanguage, (language) => {
+  const model = monacoEditor?.getModel()
+  if (model) monaco.editor.setModelLanguage(model, language)
 })
 
 function scrollToBottom() {
@@ -296,6 +363,7 @@ async function analyzeProject() {
 async function handleTreeNodeClick(node: any) {
   if (node.isDirectory) return
   isEditingFile.value = false
+  resetCodeRunner()
   attachmentPreview.value = null
   isWorkspaceCollapsed.value = false
   setCodePreviewVisible(true)
@@ -308,6 +376,7 @@ async function openAttachmentPreview(attachment: ChatAttachment) {
   if (!attachment.dataUrl || attachment.kind === 'text') return
   attachmentPreview.value = attachment
   isEditingFile.value = false
+  resetCodeRunner()
   isWorkspaceCollapsed.value = false
   setCodePreviewVisible(true)
   await nextTick()
@@ -500,33 +569,33 @@ function getFileExtension(name: string) {
   return extension.toLowerCase()
 }
 
-function detectPrismLanguage(filePath: string) {
+function detectMonacoLanguage(filePath: string) {
   const extension = getFileExtension(filePath || '')
   const languageByExt: Record<string, string> = {
     js: 'javascript',
-    jsx: 'jsx',
+    jsx: 'javascript',
     ts: 'typescript',
-    tsx: 'tsx',
+    tsx: 'typescript',
     mjs: 'javascript',
     cjs: 'javascript',
-    vue: 'markup',
-    html: 'markup',
-    xml: 'markup',
-    svg: 'markup',
+    vue: 'html',
+    html: 'html',
+    xml: 'xml',
+    svg: 'html',
     css: 'css',
     scss: 'scss',
     sass: 'scss',
-    less: 'css',
+    less: 'less',
     json: 'json',
     yml: 'yaml',
     yaml: 'yaml',
     md: 'markdown',
-    sh: 'bash',
-    bash: 'bash',
+    sh: 'shell',
+    bash: 'shell',
     py: 'python',
     sql: 'sql',
   }
-  return languageByExt[extension] || 'markup'
+  return languageByExt[extension] || 'plaintext'
 }
 
 function highlightCode(code: string, language: string) {
@@ -537,8 +606,64 @@ function highlightCode(code: string, language: string) {
   return DOMPurify.sanitize(Prism.highlight(safeCode, grammar, language))
 }
 
+function ensureMonacoEditor() {
+  if (!monacoEditorEl.value || attachmentPreview.value || !chat.activeFilePath) return
+  if (monacoEditor) {
+    monacoEditor.layout()
+    return
+  }
+
+  monaco.editor.defineTheme('twentys1x-light', {
+    base: 'vs',
+    inherit: true,
+    rules: [
+      { token: 'comment', foreground: '8b948e' },
+      { token: 'keyword', foreground: '5a5f32' },
+      { token: 'string', foreground: '456846' },
+      { token: 'number', foreground: '7a6234' },
+      { token: 'type', foreground: '2f5a4c' },
+    ],
+    colors: {
+      'editor.background': '#ffffff',
+      'editor.foreground': '#1f2a23',
+      'editorLineNumber.foreground': '#8f9691',
+      'editor.lineHighlightBackground': '#f5f8f4',
+      'editor.selectionBackground': '#c9decf',
+      'editorCursor.foreground': '#2d5848',
+    },
+  })
+
+  monacoEditor = monaco.editor.create(monacoEditorEl.value, {
+    value: chat.editedFileContent,
+    language: activeFileMonacoLanguage.value,
+    theme: 'twentys1x-light',
+    automaticLayout: true,
+    fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace",
+    fontSize: 12,
+    lineHeight: 19,
+    minimap: { enabled: false },
+    scrollBeyondLastLine: false,
+    tabSize: 2,
+    wordWrap: 'off',
+    renderWhitespace: 'selection',
+    fixedOverflowWidgets: true,
+  })
+  monacoChangeDisposable = monacoEditor.onDidChangeModelContent(() => {
+    chat.editedFileContent = monacoEditor?.getValue() || ''
+    chat.activeFileDiff = ''
+  })
+}
+
+function disposeMonacoEditor() {
+  monacoChangeDisposable?.dispose()
+  monacoChangeDisposable = null
+  monacoEditor?.dispose()
+  monacoEditor = null
+}
+
 function closeCodePreview() {
   attachmentPreview.value = null
+  resetCodeRunner()
   setCodePreviewVisible(false)
 }
 
@@ -625,6 +750,155 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
   } catch (err) {
     console.error('复制代码失败', err)
   }
+}
+
+async function saveActiveFileFromMonaco() {
+  const saved = await chat.applyActiveFileWrite()
+  if (saved) isEditingFile.value = false
+}
+
+async function previewActiveFileDiffFromMonaco() {
+  await chat.previewActiveFileDiff()
+}
+
+async function runActiveCode() {
+  if (!canRunActiveFile.value || codeRunStatus.value === 'running') return
+
+  codeRunStatus.value = 'running'
+  codeRunLogs.value = ['启动浏览器沙箱...']
+  codeRunPreviewHtml.value = ''
+
+  try {
+    const language = activeFileMonacoLanguage.value
+    const source = chat.editedFileContent
+    const runnableSource = language === 'typescript' ? await transpileTypeScriptForBrowser(source) : source
+    codeRunPreviewHtml.value = buildCodeRunnerHtml(runnableSource, language)
+  } catch (error) {
+    codeRunStatus.value = 'error'
+    codeRunLogs.value.push(
+      formatRunnerMessage('error', error instanceof Error ? error.message : String(error)),
+    )
+  }
+}
+
+async function transpileTypeScriptForBrowser(source: string) {
+  const ts = await import('typescript')
+  const output = ts.transpileModule(source, {
+    compilerOptions: {
+      jsx: ts.JsxEmit.ReactJSX,
+      module: ts.ModuleKind.ESNext,
+      target: ts.ScriptTarget.ES2020,
+      isolatedModules: true,
+      esModuleInterop: true,
+    },
+    reportDiagnostics: true,
+  })
+  const diagnostics = output.diagnostics || []
+  const blocking = diagnostics.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+  if (blocking.length) {
+    throw new Error(
+      blocking.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('\n'),
+    )
+  }
+  return output.outputText
+}
+
+function buildCodeRunnerHtml(source: string, language: string) {
+  const escapedSource = JSON.stringify(source)
+  const closeScript = '</' + 'script>'
+  if (language === 'html') return buildHtmlRunner(source)
+  if (language === 'css') {
+    return buildHtmlRunner(
+      `<!doctype html><style>${source}</style><main class="runner-css-preview">CSS 已注入页面</main>`,
+    )
+  }
+  return `<!doctype html>
+<html>
+<head><meta charset="utf-8"><style>${runnerBaseCss()}</style></head>
+<body>
+  <main id="app">代码运行中...</main>
+  <script>${runnerBridgeScript()}${closeScript}
+  <script type="module">
+    const source = ${escapedSource};
+    const blob = new Blob([source], { type: 'text/javascript' });
+    import(URL.createObjectURL(blob))
+      .then(() => window.__twentys1xDone())
+      .catch((error) => window.__twentys1xFail(error));
+  ${closeScript}
+</body>
+</html>`
+}
+
+function buildHtmlRunner(html: string) {
+  const bridge = `<script>${runnerBridgeScript()}${'</' + 'script>'}`
+  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${bridge}</body>`)
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${runnerBaseCss()}</style></head><body>${html}${bridge}</body></html>`
+}
+
+function runnerBridgeScript() {
+  return `
+const send = (type, payload) => parent.postMessage({ source: 'twentys1x-code-runner', type, payload }, '*');
+const format = (items) => items.map((item) => {
+  if (item instanceof Error) return item.stack || item.message;
+  if (typeof item === 'string') return item;
+  try { return JSON.stringify(item, null, 2); } catch { return String(item); }
+}).join(' ');
+['log', 'info', 'warn', 'error'].forEach((level) => {
+  const original = console[level].bind(console);
+  console[level] = (...items) => {
+    original(...items);
+    send('log', { level, message: format(items) });
+  };
+});
+window.__twentys1xDone = () => send('done', {});
+window.__twentys1xFail = (error) => send('error', { message: error?.stack || error?.message || String(error) });
+window.addEventListener('error', (event) => send('error', { message: event.error?.stack || event.message }));
+window.addEventListener('unhandledrejection', (event) => send('error', { message: event.reason?.stack || event.reason?.message || String(event.reason) }));
+send('ready', {});
+`
+}
+
+function runnerBaseCss() {
+  return 'body{margin:0;padding:18px;font:14px/1.5 system-ui,sans-serif;color:#1f2a23;background:#fff}.runner-css-preview{padding:18px;border:1px dashed #9eb2a4;border-radius:8px;color:#456846}'
+}
+
+function handleCodeRunnerMessage(event: MessageEvent) {
+  const data = event.data
+  if (!data || data.source !== 'twentys1x-code-runner') return
+  if (data.type === 'ready') {
+    codeRunLogs.value.push(formatRunnerMessage('info', '沙箱已就绪'))
+    return
+  }
+  if (data.type === 'log') {
+    codeRunLogs.value.push(formatRunnerMessage(data.payload?.level || 'log', data.payload?.message || ''))
+    return
+  }
+  if (data.type === 'done') {
+    codeRunStatus.value = 'success'
+    codeRunLogs.value.push(formatRunnerMessage('info', '执行完成'))
+    return
+  }
+  if (data.type === 'error') {
+    codeRunStatus.value = 'error'
+    codeRunLogs.value.push(formatRunnerMessage('error', data.payload?.message || '执行失败'))
+  }
+}
+
+function formatRunnerMessage(level: string, message: string) {
+  return `[${level}] ${message}`
+}
+
+function resetCodeRunner() {
+  codeRunStatus.value = 'idle'
+  codeRunLogs.value = []
+  codeRunPreviewHtml.value = ''
+}
+
+async function copyDebugOutput() {
+  if (!codeRunLogs.value.length) return
+  await navigator.clipboard.writeText(codeRunLogs.value.join('\n'))
+  copiedDebugOutput.value = true
+  setTimeout(() => (copiedDebugOutput.value = false), 2000)
 }
 
 async function regenerateMessage(messageId: string) {
@@ -972,6 +1246,10 @@ async function regenerateMessage(messageId: string) {
           <!-- <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div> -->
         </div>
         <div class="topbar-actions">
+          <div v-if="auth.currentUser" class="topbar-user" :title="auth.currentUser.phone">
+            <span class="topbar-user-avatar">{{ auth.currentUser.avatarText }}</span>
+            <span class="topbar-user-name">{{ auth.currentUser.name }}</span>
+          </div>
           <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
             {{
               chat.isProviderReady
@@ -992,6 +1270,14 @@ async function regenerateMessage(messageId: string) {
             :aria-label="isWorkspaceCollapsed ? '展开文件树' : '收起文件树'"
             circle
             @click="toggleWorkspaceTree"
+          />
+          <el-button
+            class="topbar-icon-button"
+            :icon="SwitchButton"
+            title="退出登录"
+            aria-label="退出登录"
+            circle
+            @click="logout"
           />
         </div>
       </header>
@@ -1173,27 +1459,72 @@ async function regenerateMessage(messageId: string) {
           <el-button
             size="small"
             type="primary"
+            :icon="DocumentChecked"
+            :loading="chat.isApplyingFileWrite"
+            :disabled="!hasEditedFileChanges"
+            @click="saveActiveFileFromMonaco"
+          >
+            保存
+          </el-button>
+          <el-button
+            size="small"
+            plain
+            :loading="chat.isPreviewingFileDiff"
+            :disabled="!hasEditedFileChanges"
+            @click="previewActiveFileDiffFromMonaco"
+          >
+            Diff
+          </el-button>
+          <el-button
+            size="small"
+            plain
+            :icon="VideoPlay"
+            :loading="codeRunStatus === 'running'"
+            :disabled="!canRunActiveFile"
+            @click="runActiveCode"
+          >
+            运行
+          </el-button>
+          <el-button
+            size="small"
+            plain
             :icon="Edit"
             :loading="chat.isOpeningExternalEditor"
             @click="chat.openActiveFileInEditor('cursor')"
           >
             Cursor
           </el-button>
-          <el-button
-            size="small"
-            plain
-            :disabled="chat.isOpeningExternalEditor"
-            @click="chat.openActiveFileInEditor('vscode')"
-          >
-            VS Code
-          </el-button>
         </div>
 
-        <div v-if="!attachmentPreview && chat.activeFilePath" class="code-preview line-numbered">
-          <div v-for="line in activeFilePreviewLines" :key="line.number" class="code-line-row">
-            <span class="line-number-gutter" aria-hidden="true">{{ line.number }}</span>
-            <code :class="`code-line language-${activeFileLanguage}`" v-html="line.html"></code>
-          </div>
+        <div v-if="!attachmentPreview && chat.activeFilePath" class="code-workbench">
+          <div ref="monacoEditorEl" class="monaco-editor-host" aria-label="Monaco 代码编辑器"></div>
+          <section class="code-runner-panel" :class="`status-${codeRunStatus}`">
+            <header class="code-runner-header">
+              <span class="code-runner-title">
+                <el-icon><Cpu /></el-icon>
+                调试
+              </span>
+              <span class="code-runner-status">{{ codeRunStatusLabel }}</span>
+              <el-button
+                class="panel-icon-button"
+                text
+                :icon="CopyDocument"
+                :disabled="!codeRunLogs.length"
+                :title="copiedDebugOutput ? '已复制' : '复制调试输出'"
+                @click="copyDebugOutput"
+              />
+            </header>
+            <iframe
+              v-if="codeRunPreviewHtml"
+              class="code-runner-frame"
+              sandbox="allow-scripts"
+              :srcdoc="codeRunPreviewHtml"
+              title="代码运行沙箱"
+            ></iframe>
+            <pre
+              class="code-runner-log"
+            ><code>{{ codeRunLogs.length ? codeRunLogs.join('\n') : '运行 JS/TS/HTML/CSS 后，日志和错误会显示在这里。' }}</code></pre>
+          </section>
         </div>
         <div v-else-if="!attachmentPreview" class="code-empty">选择文件后在这里预览代码</div>
 
