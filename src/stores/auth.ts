@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { getSecureJson, getStoredJson, setSecureJson, setStoredJson } from '../lib/clientStorage'
+import { getStoredJson, setStoredJson } from '../lib/clientStorage'
 
 export type AuthProvider = 'account' | 'phone' | 'wechat' | 'qq'
 
@@ -14,178 +14,142 @@ export interface AuthUser {
   createdAt: string
 }
 
-interface AccountRecord {
-  id: string
-  username: string
-  phone: string
-  passwordHash: string
-  salt: string
-  createdAt: string
-  linkedProviders: AuthProvider[]
+type SmsPurpose = 'login' | 'register'
+
+interface AuthResponse {
+  user: AuthUser
+  token: string
+  expiresInSeconds: number
 }
 
-interface SmsChallenge {
-  phone: string
-  code: string
-  expiresAt: number
-  purpose: 'login' | 'register'
+export interface AuthCapabilities {
+  accountPassword: boolean
+  phoneSms: boolean
+  oauth: Record<'wechat' | 'qq', boolean>
 }
 
 const STORAGE_KEYS = {
-  accounts: 'twentys1x:auth-accounts',
   currentUser: 'twentys1x:auth-current-user',
+  token: 'twentys1x:auth-token',
 }
 
-const SMS_CODE_TTL_MS = 5 * 60 * 1000
+export const AUTH_TOKEN_STORAGE_KEY = STORAGE_KEYS.token
+const DEFAULT_CAPABILITIES: AuthCapabilities = {
+  accountPassword: true,
+  phoneSms: false,
+  oauth: {
+    wechat: false,
+    qq: false,
+  },
+}
 
 export const useAuthStore = defineStore('auth', () => {
   const currentUser = ref<AuthUser | null>(null)
-  const accounts = ref<AccountRecord[]>([])
-  const smsChallenge = ref<SmsChallenge | null>(null)
+  const token = ref('')
+  const capabilities = ref<AuthCapabilities>(DEFAULT_CAPABILITIES)
   const isHydrated = ref(false)
 
-  const isAuthenticated = computed(() => Boolean(currentUser.value))
+  const isAuthenticated = computed(() => Boolean(currentUser.value && token.value))
 
   async function hydrate() {
     if (isHydrated.value) return
-    const [storedAccounts, storedUser] = await Promise.all([
-      getSecureJson<AccountRecord[]>(STORAGE_KEYS.accounts, []),
-      getStoredJson<AuthUser | null>(STORAGE_KEYS.currentUser, null),
-    ])
-    accounts.value = storedAccounts
-    currentUser.value = storedUser
+
+    token.value = readToken()
+    currentUser.value = await getStoredJson<AuthUser | null>(STORAGE_KEYS.currentUser, null)
+    await refreshCapabilities()
+    if (token.value) {
+      try {
+        const data = await authRequest<{ user: AuthUser }>('/api/auth/me', { method: 'GET' })
+        currentUser.value = data.user
+        await setStoredJson(STORAGE_KEYS.currentUser, data.user)
+      } catch {
+        await clearAuthState()
+      }
+    } else {
+      currentUser.value = null
+    }
+
     isHydrated.value = true
   }
 
-  async function requestSmsCode(phone: string, purpose: SmsChallenge['purpose']) {
-    const normalizedPhone = normalizePhone(phone)
-    if (!isValidMainlandPhone(normalizedPhone)) {
-      throw new Error('请输入有效的 11 位手机号')
-    }
-
-    const code = String(Math.floor(100000 + Math.random() * 900000))
-    smsChallenge.value = {
-      phone: normalizedPhone,
-      code,
+  async function requestSmsCode(phone: string, purpose: SmsPurpose) {
+    const data = await publicAuthRequest<{ sent: boolean }>('/api/auth/sms', {
+      phone,
       purpose,
-      expiresAt: Date.now() + SMS_CODE_TTL_MS,
-    }
-    return code
+    })
+    return data.sent
   }
 
   async function loginWithPhone(phone: string, code: string) {
-    const normalizedPhone = normalizePhone(phone)
-    verifySmsChallenge(normalizedPhone, code, 'login')
-
-    const existing = accounts.value.find((account) => account.phone === normalizedPhone)
-    if (existing) {
-      await setCurrentUser(recordToUser(existing, 'phone'))
-      return
-    }
-
-    const createdAt = new Date().toISOString()
-    const account: AccountRecord = {
-      id: createId('usr'),
-      username: `手机用户${normalizedPhone.slice(-4)}`,
-      phone: normalizedPhone,
-      passwordHash: '',
-      salt: '',
-      createdAt,
-      linkedProviders: ['phone'],
-    }
-    accounts.value = [...accounts.value, account]
-    await persistAccounts()
-    await setCurrentUser(recordToUser(account, 'phone'))
+    await applyAuthResponse(
+      await publicAuthRequest<AuthResponse>('/api/auth/phone-login', {
+        phone,
+        code,
+      }),
+    )
   }
 
-  async function registerWithAccount(username: string, phone: string, code: string, password: string) {
-    const normalizedUsername = username.trim()
-    const normalizedPhone = normalizePhone(phone)
-    if (normalizedUsername.length < 3) throw new Error('账号至少需要 3 个字符')
-    if (password.length < 6) throw new Error('密码至少需要 6 位')
-    verifySmsChallenge(normalizedPhone, code, 'register')
-    if (accounts.value.some((account) => account.username === normalizedUsername)) {
-      throw new Error('这个账号名已被注册')
-    }
-    if (accounts.value.some((account) => account.phone === normalizedPhone)) {
-      throw new Error('这个手机号已关联其他账号')
-    }
-
-    const salt = createId('salt')
-    const account: AccountRecord = {
-      id: createId('usr'),
-      username: normalizedUsername,
-      phone: normalizedPhone,
-      passwordHash: await hashPassword(password, salt),
-      salt,
-      createdAt: new Date().toISOString(),
-      linkedProviders: ['account', 'phone'],
-    }
-    accounts.value = [...accounts.value, account]
-    await persistAccounts()
-    await setCurrentUser(recordToUser(account, 'account'))
+  async function registerWithAccount(username: string, password: string) {
+    await applyAuthResponse(
+      await publicAuthRequest<AuthResponse>('/api/auth/register', {
+        username,
+        password,
+      }),
+    )
   }
 
   async function loginWithAccount(identifier: string, password: string) {
-    const normalizedIdentifier = identifier.trim()
-    const account = accounts.value.find(
-      (candidate) =>
-        candidate.username === normalizedIdentifier ||
-        candidate.phone === normalizePhone(normalizedIdentifier),
+    await applyAuthResponse(
+      await publicAuthRequest<AuthResponse>('/api/auth/login', {
+        identifier,
+        password,
+      }),
     )
-    if (!account?.passwordHash || !account.salt) throw new Error('账号或密码不正确')
-
-    const passwordHash = await hashPassword(password, account.salt)
-    if (passwordHash !== account.passwordHash) throw new Error('账号或密码不正确')
-    await setCurrentUser(recordToUser(account, 'account'))
   }
 
   async function loginWithQr(provider: Extract<AuthProvider, 'wechat' | 'qq'>) {
-    const linkedPhone = `13${String(Math.floor(100000000 + Math.random() * 900000000)).slice(0, 9)}`
-    const createdAt = new Date().toISOString()
-    const account: AccountRecord = {
-      id: createId('usr'),
-      username: provider === 'wechat' ? '微信用户' : 'QQ 用户',
-      phone: linkedPhone,
-      passwordHash: '',
-      salt: '',
-      createdAt,
-      linkedProviders: [provider],
-    }
-    accounts.value = [...accounts.value, account]
-    await persistAccounts()
-    await setCurrentUser(recordToUser(account, provider))
+    window.location.assign(`/api/auth/oauth/${provider}/start`)
+  }
+
+  async function completeOAuthLogin(ticket: string) {
+    await applyAuthResponse(await publicAuthRequest<AuthResponse>('/api/auth/oauth/complete', { ticket }))
   }
 
   async function logout() {
+    try {
+      if (token.value) await authRequest('/api/auth/logout', { method: 'POST' })
+    } finally {
+      await clearAuthState()
+    }
+  }
+
+  async function applyAuthResponse(response: AuthResponse) {
+    token.value = response.token
+    currentUser.value = response.user
+    writeToken(response.token)
+    await setStoredJson(STORAGE_KEYS.currentUser, response.user)
+  }
+
+  async function clearAuthState() {
+    token.value = ''
     currentUser.value = null
+    writeToken('')
     await setStoredJson(STORAGE_KEYS.currentUser, null)
   }
 
-  async function persistAccounts() {
-    await setSecureJson(STORAGE_KEYS.accounts, accounts.value)
-  }
-
-  async function setCurrentUser(user: AuthUser) {
-    currentUser.value = user
-    await setStoredJson(STORAGE_KEYS.currentUser, user)
-  }
-
-  function verifySmsChallenge(phone: string, code: string, purpose: SmsChallenge['purpose']) {
-    if (
-      !smsChallenge.value ||
-      smsChallenge.value.phone !== phone ||
-      smsChallenge.value.purpose !== purpose ||
-      smsChallenge.value.expiresAt < Date.now()
-    ) {
-      throw new Error('验证码已过期，请重新获取')
+  async function refreshCapabilities() {
+    try {
+      capabilities.value = normalizeCapabilities(
+        await authRequest<AuthCapabilities>('/api/auth/capabilities', { method: 'GET' }),
+      )
+    } catch {
+      capabilities.value = DEFAULT_CAPABILITIES
     }
-    if (smsChallenge.value.code !== code.trim()) throw new Error('验证码不正确')
-    smsChallenge.value = null
   }
 
   return {
     currentUser,
+    capabilities,
     isAuthenticated,
     hydrate,
     requestSmsCode,
@@ -193,38 +157,49 @@ export const useAuthStore = defineStore('auth', () => {
     registerWithAccount,
     loginWithAccount,
     loginWithQr,
+    completeOAuthLogin,
     logout,
   }
 })
 
-function recordToUser(record: AccountRecord, provider: AuthProvider): AuthUser {
+async function publicAuthRequest<T>(url: string, body: Record<string, unknown>): Promise<T> {
+  return authRequest<T>(url, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+async function authRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
+  const authToken = readToken()
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...init.headers,
+    },
+  })
+  const data = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(data?.error || `认证请求失败：${response.status}`)
+  return data as T
+}
+
+function readToken() {
+  return localStorage.getItem(STORAGE_KEYS.token) || ''
+}
+
+function writeToken(value: string) {
+  if (value) localStorage.setItem(STORAGE_KEYS.token, value)
+  else localStorage.removeItem(STORAGE_KEYS.token)
+}
+
+function normalizeCapabilities(value: AuthCapabilities | null | undefined): AuthCapabilities {
   return {
-    id: record.id,
-    name: record.username,
-    phone: record.phone,
-    provider,
-    avatarText: record.username.slice(0, 1).toUpperCase(),
-    linkedProviders: Array.from(new Set([...record.linkedProviders, provider])),
-    createdAt: record.createdAt,
+    accountPassword: value?.accountPassword !== false,
+    phoneSms: Boolean(value?.phoneSms),
+    oauth: {
+      wechat: Boolean(value?.oauth?.wechat),
+      qq: Boolean(value?.oauth?.qq),
+    },
   }
-}
-
-function normalizePhone(phone: string) {
-  return phone.replace(/\D/g, '')
-}
-
-function isValidMainlandPhone(phone: string) {
-  return /^1[3-9]\d{9}$/.test(phone)
-}
-
-function createId(prefix: string) {
-  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`
-}
-
-async function hashPassword(password: string, salt: string) {
-  const data = new TextEncoder().encode(`${salt}:${password}`)
-  const hash = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(hash))
-    .map((byte) => byte.toString(16).padStart(2, '0'))
-    .join('')
 }

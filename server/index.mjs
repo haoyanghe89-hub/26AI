@@ -27,6 +27,18 @@ import {
   captureServerError,
   initServerErrorMonitoring,
 } from './error-monitoring.mjs'
+import {
+  authenticateRequest,
+  completeOAuthTicket,
+  getAuthCapabilities,
+  handleOAuthCallback,
+  loginWithAccount,
+  loginWithDevQr,
+  loginWithPhone,
+  registerWithAccount,
+  requestSmsCode,
+  startOAuthLogin,
+} from './auth.mjs'
 
 const PORT = Number(process.env.PORT || 8787)
 const HOST = process.env.HOST || '127.0.0.1'
@@ -104,35 +116,45 @@ const server = http.createServer(async (req, res) => {
   setCorsHeaders(res)
 
   try {
+    const routePath = getRoutePath(req)
     if (req.method === 'OPTIONS') {
       res.writeHead(204)
       res.end()
       return
     }
 
-    if (req.method === 'GET' && req.url === '/health') {
+    if (req.method === 'GET' && routePath === '/health') {
       sendJson(res, 200, { ok: true })
       return
     }
 
-    if (req.method === 'POST' && req.url === '/api/client-errors') {
+    if (req.method === 'POST' && routePath === '/api/client-errors') {
       const body = await readJson(req, 64 * 1024)
       logClientError(body)
       sendJson(res, 202, { accepted: true })
       return
     }
 
-    if (req.method === 'GET' && req.url === '/api/workspace/status') {
+    if (routePath.startsWith('/api/auth/')) {
+      await handleAuthRoute(req, res, routePath)
+      return
+    }
+
+    if (routePath.startsWith('/api/')) {
+      req.user = await authenticateRequest(req)
+    }
+
+    if (req.method === 'GET' && routePath === '/api/workspace/status') {
       sendJson(res, 200, await getWorkspaceStatus())
       return
     }
 
-    if (req.method === 'GET' && req.url === '/api/projects') {
+    if (req.method === 'GET' && routePath === '/api/projects') {
       sendJson(res, 200, { projects: await listProjects() })
       return
     }
 
-    if (req.method === 'GET' && req.url === '/api/providers') {
+    if (req.method === 'GET' && routePath === '/api/providers') {
       sendJson(res, 200, {
         providers: Object.fromEntries(
           Object.entries(PROVIDERS).map(([id, provider]) => [
@@ -147,30 +169,30 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    if (req.method === 'GET' && req.url === '/api/local-models') {
+    if (req.method === 'GET' && routePath === '/api/local-models') {
       sendJson(res, 200, await getLocalModels())
       return
     }
 
-    if (req.method === 'POST' && req.url === '/api/projects/import') {
+    if (req.method === 'POST' && routePath === '/api/projects/import') {
       const body = await readJson(req)
       sendJson(res, 200, { project: await importProject(body) })
       return
     }
 
-    if (req.method === 'POST' && req.url === '/api/workspace/index') {
+    if (req.method === 'POST' && routePath === '/api/workspace/index') {
       sendJson(res, 200, await indexWorkspace())
       return
     }
 
-    if (req.method === 'POST' && req.url === '/api/workspace/search') {
+    if (req.method === 'POST' && routePath === '/api/workspace/search') {
       const body = await readJson(req)
       const results = await searchWorkspace(body?.query, Number(body?.limit || 8))
       sendJson(res, 200, { results })
       return
     }
 
-    const projectAnalyzeMatch = req.url.match(/^\/api\/projects\/([^/]+)\/analyze$/)
+    const projectAnalyzeMatch = routePath.match(/^\/api\/projects\/([^/]+)\/analyze$/)
     if (req.method === 'POST' && projectAnalyzeMatch) {
       const analysis = await analyzeProject(projectAnalyzeMatch[1])
       if (!analysis) throw httpError(404, 'Project not found')
@@ -178,7 +200,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    const projectTreeMatch = req.url.match(/^\/api\/projects\/([^/]+)\/tree$/)
+    const projectTreeMatch = routePath.match(/^\/api\/projects\/([^/]+)\/tree$/)
     if (req.method === 'GET' && projectTreeMatch) {
       const tree = await getProjectTree(projectTreeMatch[1])
       if (!tree) throw httpError(404, 'Project not found')
@@ -186,7 +208,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    const projectFileMatch = req.url.match(/^\/api\/projects\/([^/]+)\/file(?:\?.*)?$/)
+    const projectFileMatch = routePath.match(/^\/api\/projects\/([^/]+)\/file$/)
     if (projectFileMatch) {
       const projectId = projectFileMatch[1]
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
@@ -210,7 +232,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
 
-    const projectOpenFileMatch = req.url.match(/^\/api\/projects\/([^/]+)\/open-file(?:\?.*)?$/)
+    const projectOpenFileMatch = routePath.match(/^\/api\/projects\/([^/]+)\/open-file$/)
     if (req.method === 'POST' && projectOpenFileMatch) {
       const projectId = projectOpenFileMatch[1]
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
@@ -225,7 +247,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    const projectDeleteMatch = req.url.match(/^\/api\/projects\/([^/]+)$/)
+    const projectDeleteMatch = routePath.match(/^\/api\/projects\/([^/]+)$/)
     if (req.method === 'DELETE' && projectDeleteMatch) {
       const deleted = await deleteProject(projectDeleteMatch[1])
       if (!deleted) throw httpError(404, 'Project not found')
@@ -233,7 +255,7 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    const projectSearchMatch = req.url.match(/^\/api\/projects\/([^/]+)\/search$/)
+    const projectSearchMatch = routePath.match(/^\/api\/projects\/([^/]+)\/search$/)
     if (req.method === 'POST' && projectSearchMatch) {
       const body = await readJson(req)
       const results = await searchProject(projectSearchMatch[1], body?.query, Number(body?.limit || 8))
@@ -241,19 +263,27 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
-    if (req.method !== 'POST' || req.url !== '/api/chat') {
-      if (req.method === 'GET' || req.method === 'HEAD') {
-        await sendStaticFile(req, res)
-        return
+    if (req.method === 'POST' && routePath === '/api/chat') {
+      const body = await readJson(req)
+      console.log(
+        `[chat] stream=${Boolean(body?.stream)} provider=${body?.providerId} model=${body?.model} messages=${body?.messages?.length || 0}`,
+      )
+      if (body?.stream) {
+        await handleStreamChat(req, res, body)
+      } else {
+        const result = await handleChat(body)
+        sendJson(res, 200, result)
       }
-
-      sendJson(res, 404, { error: 'Not found' })
       return
     }
 
-    const body = await readJson(req)
-    const result = await handleChat(body)
-    sendJson(res, 200, result)
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      await sendStaticFile(req, res)
+      return
+    }
+
+    sendJson(res, 404, { error: 'Not found' })
+    return
   } catch (error) {
     const status = Number(error?.status || 500)
     if (status >= 500) captureServerError(error, { route: req.url, status })
@@ -269,85 +299,43 @@ server.listen(PORT, HOST, () => {
 })
 
 async function handleChat(body) {
-  const providerId = String(body?.providerId || '')
-  const provider = PROVIDERS[providerId]
-  if (!provider) throw httpError(400, `Unsupported provider: ${providerId}`)
+  const ctx = await buildChatRequest(body)
+  let effectiveTarget = ctx.target
 
-  const model = String(body?.model || '').trim()
-  const localProviderId = String(body?.localProviderId || 'ollama')
-  const localProvider = PROVIDERS[localProviderId]
-  if (!localProvider) throw httpError(400, `Unsupported local provider: ${localProviderId}`)
-  const localModel = String(body?.localModel || '').trim()
-  const messages = Array.isArray(body?.messages) ? body.messages : []
-  const activeProject = body?.projectId ? await getProjectStatus(body.projectId) : null
-  if (body?.projectId && !activeProject) throw httpError(404, 'Active project not found')
-  const workspaceHits =
-    body?.useWorkspaceContext === false
-      ? []
-      : activeProject
-        ? await searchProject(activeProject.id, getLatestUserText(messages), 6)
-        : await searchWorkspace(getLatestUserText(messages), 6)
-  const workspaceContext = buildWorkspaceContext(workspaceHits)
-  const currentOperationObject = activeProject
-    ? `当前操作对象：项目「${activeProject.name}」（projectId: ${activeProject.id}）`
-    : '当前操作对象：宿主工作区（未选中导入项目）'
-  const projectInstruction = activeProject
-    ? `${currentOperationObject}。当前正在查看和操作的项目是「${activeProject.name}」（projectId: ${activeProject.id}）。所有项目分析、文件路径引用、修改建议和工具操作都必须默认针对这个项目；不要把后端宿主项目或其他导入项目当成当前目标。`
-    : `${currentOperationObject}。当前未选择导入项目；只有在用户明确要求时才分析宿主工作区。`
-  const requestSystemPrompt = String(body?.systemPrompt || '').trim()
-  const systemPrompt = workspaceContext
-    ? `${SYSTEM_PROMPT}\n\n${projectInstruction}\n\n你可以使用以下项目检索上下文回答问题。上下文来自当前项目索引，优先根据这些片段给出有文件路径依据的回答；如果上下文不足，请明确说明。\n\n${workspaceContext}`
-    : `${SYSTEM_PROMPT}\n\n${projectInstruction}`
-  const runtimeSystemPrompt = requestSystemPrompt ? `${systemPrompt}\n\n${requestSystemPrompt}` : systemPrompt
-  const temperature = normalizeTemperature(body?.temperature)
-  const inferenceMode = normalizeInferenceMode(body?.inferenceMode)
-  const target = resolveInferenceTarget({
-    inferenceMode,
-    cloudProviderId: providerId,
-    cloudModel: model,
-    localProviderId,
-    localModel,
-    messages,
-    hasWorkspaceContext: Boolean(workspaceContext),
-  })
-  const targetProvider = PROVIDERS[target.providerId]
-  const targetApiKey = getApiKey(targetProvider, target.providerId === providerId ? body?.apiKey : '')
-  let effectiveTarget = target
-
-  if (!target.model) throw httpError(400, 'model is required')
-  if (!messages.length) throw httpError(400, 'messages are required')
-  if (targetProvider.needsApiKey && !targetApiKey) {
-    throw httpError(400, `${targetProvider.envKey} or apiKey is required`)
-  }
-
-  const canFallbackToCloud =
-    inferenceMode === 'auto' &&
-    body?.hybridFallbackToCloud !== false &&
-    target.providerId === localProviderId &&
-    providerId !== localProviderId &&
-    Boolean(model)
   const callCloudFallback = () => {
-    const fallbackApiKey = getApiKey(provider, body?.apiKey)
-    if (provider.needsApiKey && !fallbackApiKey)
-      throw httpError(400, `${provider.envKey} or apiKey is required`)
-    effectiveTarget = { providerId, model, reason: '本地模型不可用，已回退云端模型。' }
-    return callProvider(providerId, provider, model, messages, fallbackApiKey, runtimeSystemPrompt, {
-      temperature,
-    })
+    const fallbackApiKey = getApiKey(ctx.provider, body?.apiKey)
+    if (ctx.provider.needsApiKey && !fallbackApiKey)
+      throw httpError(400, `${ctx.provider.envKey} or apiKey is required`)
+    effectiveTarget = {
+      providerId: ctx.providerId,
+      model: ctx.model,
+      reason: '本地模型不可用，已回退云端模型。',
+    }
+    return callProvider(
+      ctx.providerId,
+      ctx.provider,
+      ctx.model,
+      ctx.messages,
+      fallbackApiKey,
+      ctx.runtimeSystemPrompt,
+      {
+        temperature: ctx.temperature,
+      },
+    )
   }
 
   let response = await callProvider(
-    target.providerId,
-    targetProvider,
-    target.model,
-    messages,
-    targetApiKey,
-    runtimeSystemPrompt,
+    ctx.target.providerId,
+    ctx.targetProvider,
+    ctx.target.model,
+    ctx.messages,
+    ctx.targetApiKey,
+    ctx.runtimeSystemPrompt,
     {
-      temperature,
+      temperature: ctx.temperature,
     },
   ).catch(async (error) => {
-    if (canFallbackToCloud) return callCloudFallback()
+    if (ctx.canFallbackToCloud) return callCloudFallback()
 
     throw httpError(
       502,
@@ -356,7 +344,7 @@ async function handleChat(body) {
   })
 
   let data = await readProviderResponse(response)
-  if (!response.ok && canFallbackToCloud) {
+  if (!response.ok && ctx.canFallbackToCloud) {
     response = await callCloudFallback()
     data = await readProviderResponse(response)
   }
@@ -372,13 +360,93 @@ async function handleChat(body) {
   return {
     content: extractProviderText(PROVIDERS[effectiveTarget.providerId], data),
     inference: effectiveTarget,
-    workspaceHits: workspaceHits.map(({ path, startLine, endLine, score }) => ({
+    workspaceHits: ctx.workspaceHits.map(({ path, startLine, endLine, score }) => ({
       path,
       startLine,
       endLine,
       score,
     })),
     raw: data,
+  }
+}
+
+async function handleAuthRoute(req, res, routePath) {
+  const oauthStartMatch = routePath.match(/^\/api\/auth\/oauth\/([^/]+)\/start$/)
+  if (req.method === 'GET' && oauthStartMatch) {
+    redirect(res, startOAuthLogin(req, oauthStartMatch[1]))
+    return
+  }
+
+  const oauthCallbackMatch = routePath.match(/^\/api\/auth\/oauth\/([^/]+)\/callback$/)
+  if (req.method === 'GET' && oauthCallbackMatch) {
+    redirect(res, await handleOAuthCallback(req, oauthCallbackMatch[1]))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/oauth/complete') {
+    sendJson(res, 200, await completeOAuthTicket(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'GET' && routePath === '/api/auth/capabilities') {
+    sendJson(res, 200, getAuthCapabilities())
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/sms') {
+    sendJson(res, 200, await requestSmsCode(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/phone-login') {
+    sendJson(res, 200, await loginWithPhone(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/register') {
+    sendJson(res, 200, await registerWithAccount(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/login') {
+    sendJson(res, 200, await loginWithAccount(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/qr-dev') {
+    sendJson(res, 200, await loginWithDevQr(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'GET' && routePath === '/api/auth/me') {
+    sendJson(res, 200, { user: await authenticateRequest(req) })
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/logout') {
+    sendJson(res, 200, { loggedOut: true })
+    return
+  }
+
+  throw httpError(404, 'Not found')
+}
+
+function validateChatBody(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw httpError(400, 'Invalid JSON body')
+  }
+
+  const messages = Array.isArray(body.messages) ? body.messages : []
+  if (!messages.length) throw httpError(400, 'messages are required')
+  if (messages.length > 60) throw httpError(400, 'messages exceeds limit')
+
+  for (const message of messages) {
+    if (message?.role !== 'user' && message?.role !== 'assistant') {
+      throw httpError(400, 'message role is invalid')
+    }
+    if (typeof message.content !== 'string' && !Array.isArray(message.content)) {
+      throw httpError(400, 'message content is invalid')
+    }
   }
 }
 
@@ -768,6 +836,10 @@ function readJson(req, maxBytes = 40 * 1024 * 1024) {
   })
 }
 
+function getRoutePath(req) {
+  return new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`).pathname
+}
+
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
@@ -777,6 +849,11 @@ function setCorsHeaders(res) {
 function sendJson(res, status, payload) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(payload))
+}
+
+function redirect(res, location) {
+  res.writeHead(302, { Location: location })
+  res.end()
 }
 
 function logClientError(body) {
@@ -912,4 +989,353 @@ function httpError(status, message, details) {
   error.status = status
   error.details = details
   return error
+}
+
+async function buildChatRequest(body) {
+  validateChatBody(body)
+  const providerId = String(body?.providerId || '')
+  const provider = PROVIDERS[providerId]
+  if (!provider) throw httpError(400, `Unsupported provider: ${providerId}`)
+
+  const model = String(body?.model || '').trim()
+  const localProviderId = String(body?.localProviderId || 'ollama')
+  const localProvider = PROVIDERS[localProviderId]
+  if (!localProvider) throw httpError(400, `Unsupported local provider: ${localProviderId}`)
+  const localModel = String(body?.localModel || '').trim()
+  const messages = Array.isArray(body?.messages) ? body.messages : []
+  const activeProject = body?.projectId ? await getProjectStatus(body.projectId) : null
+  if (body?.projectId && !activeProject) throw httpError(404, 'Active project not found')
+  const workspaceHits =
+    body?.useWorkspaceContext === false
+      ? []
+      : activeProject
+        ? await searchProject(activeProject.id, getLatestUserText(messages), 6)
+        : await searchWorkspace(getLatestUserText(messages), 6)
+  const workspaceContext = buildWorkspaceContext(workspaceHits)
+  const currentOperationObject = activeProject
+    ? `当前操作对象：项目「${activeProject.name}」（projectId: ${activeProject.id}）`
+    : '当前操作对象：宿主工作区（未选中导入项目）'
+  const projectInstruction = activeProject
+    ? `${currentOperationObject}。当前正在查看和操作的项目是「${activeProject.name}」（projectId: ${activeProject.id}）。所有项目分析、文件路径引用、修改建议和工具操作都必须默认针对这个项目；不要把后端宿主项目或其他导入项目当成当前目标。`
+    : `${currentOperationObject}。当前未选择导入项目；只有在用户明确要求时才分析宿主工作区。`
+  const requestSystemPrompt = String(body?.systemPrompt || '').trim()
+  const systemPrompt = workspaceContext
+    ? `${SYSTEM_PROMPT}\n\n${projectInstruction}\n\n你可以使用以下项目检索上下文回答问题。上下文来自当前项目索引，优先根据这些片段给出有文件路径依据的回答；如果上下文不足，请明确说明。\n\n${workspaceContext}`
+    : `${SYSTEM_PROMPT}\n\n${projectInstruction}`
+  const runtimeSystemPrompt = requestSystemPrompt ? `${systemPrompt}\n\n${requestSystemPrompt}` : systemPrompt
+  const temperature = normalizeTemperature(body?.temperature)
+  const inferenceMode = normalizeInferenceMode(body?.inferenceMode)
+  const target = resolveInferenceTarget({
+    inferenceMode,
+    cloudProviderId: providerId,
+    cloudModel: model,
+    localProviderId,
+    localModel,
+    messages,
+    hasWorkspaceContext: Boolean(workspaceContext),
+  })
+  const targetProvider = PROVIDERS[target.providerId]
+  const targetApiKey = getApiKey(targetProvider, target.providerId === providerId ? body?.apiKey : '')
+
+  if (!target.model) throw httpError(400, 'model is required')
+  if (!messages.length) throw httpError(400, 'messages are required')
+  if (targetProvider.needsApiKey && !targetApiKey) {
+    throw httpError(400, `${targetProvider.envKey} or apiKey is required`)
+  }
+
+  const canFallbackToCloud =
+    inferenceMode === 'auto' &&
+    body?.hybridFallbackToCloud !== false &&
+    target.providerId === localProviderId &&
+    providerId !== localProviderId &&
+    Boolean(model)
+
+  return {
+    providerId,
+    provider,
+    model,
+    messages,
+    workspaceHits,
+    temperature,
+    runtimeSystemPrompt,
+    target,
+    targetProvider,
+    targetApiKey,
+    canFallbackToCloud,
+  }
+}
+
+async function handleStreamChat(req, res, body) {
+  const ctx = await buildChatRequest(body)
+  let effectiveTarget = ctx.target
+
+  const callCloudFallbackStream = () => {
+    const fallbackApiKey = getApiKey(ctx.provider, body?.apiKey)
+    if (ctx.provider.needsApiKey && !fallbackApiKey)
+      throw httpError(400, `${ctx.provider.envKey} or apiKey is required`)
+    effectiveTarget = {
+      providerId: ctx.providerId,
+      model: ctx.model,
+      reason: '本地模型不可用，已回退云端模型。',
+    }
+    return callProviderStream(
+      ctx.providerId,
+      ctx.provider,
+      ctx.model,
+      ctx.messages,
+      fallbackApiKey,
+      ctx.runtimeSystemPrompt,
+      {
+        temperature: ctx.temperature,
+      },
+    )
+  }
+
+  let response
+  try {
+    response = await callProviderStream(
+      ctx.target.providerId,
+      ctx.targetProvider,
+      ctx.target.model,
+      ctx.messages,
+      ctx.targetApiKey,
+      ctx.runtimeSystemPrompt,
+      {
+        temperature: ctx.temperature,
+      },
+    )
+  } catch (error) {
+    if (ctx.canFallbackToCloud) {
+      try {
+        response = await callCloudFallbackStream()
+      } catch (fallbackError) {
+        sendStreamError(
+          res,
+          `Provider network error: ${fallbackError instanceof Error ? fallbackError.message : 'request failed'}`,
+        )
+        return
+      }
+    } else {
+      sendStreamError(
+        res,
+        `Provider network error: ${error instanceof Error ? error.message : 'request failed'}`,
+      )
+      return
+    }
+  }
+
+  if (!response.ok) {
+    const data = await readProviderResponse(response).catch(() => null)
+    sendStreamError(res, extractProviderErrorMessage(data) || `Provider request failed: ${response.status}`)
+    return
+  }
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+
+  res.write(
+    `event: start\ndata: ${JSON.stringify({
+      inference: effectiveTarget,
+      workspaceHits: ctx.workspaceHits.map(({ path, startLine, endLine, score }) => ({
+        path,
+        startLine,
+        endLine,
+        score,
+      })),
+    })}\n\n`,
+  )
+
+  const parser = createSseParser()
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const events = parser.push(decoder.decode(value, { stream: true }))
+      for (const { event, data } of events) {
+        const delta = extractStreamDelta(ctx.targetProvider.kind, event, data)
+        if (delta.text) {
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.text })}\n\n`)
+        }
+      }
+    }
+
+    const events = parser.flush()
+    for (const { event, data } of events) {
+      const delta = extractStreamDelta(ctx.targetProvider.kind, event, data)
+      if (delta.text) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.text })}\n\n`)
+      }
+    }
+  } catch (streamError) {
+    sendStreamError(res, `Stream error: ${streamError instanceof Error ? streamError.message : 'unknown'}`)
+    return
+  }
+
+  res.write(`event: done\ndata: {}\n\n`)
+  res.end()
+}
+
+function sendStreamError(res, message) {
+  res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`)
+  res.write(`event: done\ndata: {}\n\n`)
+  res.end()
+}
+
+function callProviderStream(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
+  if (provider.kind === 'gemini')
+    return callGeminiStream(provider, model, messages, apiKey, systemPrompt, options)
+  if (provider.kind === 'claude')
+    return callClaudeStream(provider, model, messages, apiKey, systemPrompt, options)
+  return callOpenAiCompatibleStream(providerId, provider, model, messages, apiKey, systemPrompt, options)
+}
+
+function callOpenAiCompatibleStream(
+  providerId,
+  provider,
+  model,
+  messages,
+  apiKey,
+  systemPrompt,
+  options = {},
+) {
+  const requestedTemperature = typeof options.temperature === 'number' ? options.temperature : undefined
+  const effectiveTemperature = providerId === 'kimi' && model === 'kimi-k2.6' ? 0.6 : requestedTemperature
+
+  const body = {
+    model,
+    stream: true,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+    ],
+    ...(typeof effectiveTemperature === 'number' ? { temperature: effectiveTemperature } : {}),
+    ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
+  }
+
+  return fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+function callClaudeStream(provider, model, messages, apiKey, systemPrompt, options = {}) {
+  return fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      stream: true,
+      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+      system: systemPrompt,
+      messages: messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role,
+          content: toClaudeContent(message.content),
+        })),
+    }),
+  })
+}
+
+function callGeminiStream(provider, model, messages, apiKey, systemPrompt, options = {}) {
+  const geminiModel = encodeURIComponent(model)
+  return fetch(`${provider.endpoint}/${geminiModel}:streamGenerateContent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      ...(typeof options.temperature === 'number'
+        ? { generationConfig: { temperature: options.temperature } }
+        : {}),
+      contents: messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: toGeminiParts(message.content),
+        })),
+    }),
+  })
+}
+
+function createSseParser() {
+  let buffer = ''
+  let currentEvent = null
+  return {
+    push(chunk) {
+      buffer += chunk
+      const events = []
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (trimmed === '') {
+          currentEvent = null
+          continue
+        }
+        if (trimmed.startsWith('event:')) {
+          currentEvent = trimmed.slice(6).trim()
+        } else if (trimmed.startsWith('data:')) {
+          events.push({ event: currentEvent || 'message', data: trimmed.slice(5).trim() })
+          currentEvent = null
+        }
+      }
+      return events
+    },
+    flush() {
+      const events = this.push('\n\n')
+      buffer = ''
+      currentEvent = null
+      return events
+    },
+  }
+}
+
+function extractStreamDelta(providerKind, eventName, data) {
+  if (data === '[DONE]') return { done: true }
+  try {
+    const json = JSON.parse(data)
+    if (providerKind === 'gemini') {
+      const text = json.candidates?.[0]?.content?.parts?.map((part) => part.text || '').join('') || ''
+      return { text }
+    }
+    if (providerKind === 'claude') {
+      if (eventName === 'content_block_delta') {
+        return { text: json.delta?.text || '' }
+      }
+      if (eventName === 'message_stop') {
+        return { done: true }
+      }
+      return { text: '' }
+    }
+    const text = json.choices?.[0]?.delta?.content || json.choices?.[0]?.delta?.reasoning_content || ''
+    return { text }
+  } catch {
+    return { text: '' }
+  }
 }

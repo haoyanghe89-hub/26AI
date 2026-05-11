@@ -24,6 +24,7 @@ import {
   DocumentChecked,
   Cpu,
   SwitchButton,
+  Plus,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
@@ -90,6 +91,7 @@ const storedSessionManagerCollapsed = localStorage.getItem('twentys1x:session-ma
 const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
 const storedSidebarCollapsed = localStorage.getItem('twentys1x:left-sidebar-collapsed')
 const isSidebarCollapsed = ref(storedSidebarCollapsed === 'true')
+const isMobileLayout = ref(false)
 
 const PROJECT_PANEL_COLLAPSE_KEY = 'twentys1x:project-panel-collapsed'
 function readProjectPanelStored(): boolean | null {
@@ -223,7 +225,9 @@ onMounted(() => {
   chat.refreshProviderServerConfig()
   chat.refreshLocalModels()
   chat.refreshProjects()
+  syncMobileLayout()
   window.addEventListener('message', handleCodeRunnerMessage)
+  window.addEventListener('resize', syncMobileLayout)
 })
 
 watch(
@@ -276,6 +280,7 @@ watch(attachmentPreview, async (attachment, _previous, onCleanup) => {
 onUnmounted(() => {
   if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
   window.removeEventListener('message', handleCodeRunnerMessage)
+  window.removeEventListener('resize', syncMobileLayout)
   disposeMonacoEditor()
 })
 
@@ -331,6 +336,7 @@ function toggleSidebar() {
 
 function selectSession(id: string) {
   chat.setActiveSession(id)
+  if (isMobileLayout.value) isSidebarCollapsed.value = true
   scrollToBottom()
 }
 
@@ -386,17 +392,29 @@ async function openAttachmentPreview(attachment: ChatAttachment) {
 async function selectProjectFromSidebar(projectId: string) {
   if (!projectId) {
     chat.setActiveProject('')
+    if (isMobileLayout.value) isSidebarCollapsed.value = true
     return
   }
   await openProjectWorkspace(projectId)
+  if (isMobileLayout.value) isSidebarCollapsed.value = true
 }
 
 async function openProjectWorkspace(projectId: string) {
   chat.setActiveProject(projectId)
-  isWorkspaceCollapsed.value = false
+  isWorkspaceCollapsed.value = isMobileLayout.value ? true : false
   await chat.refreshActiveProjectTree()
   await nextTick()
   clampPanelWidths()
+}
+
+function syncMobileLayout() {
+  const isMobile = window.matchMedia('(max-width: 860px)').matches
+  if (isMobileLayout.value === isMobile) return
+  isMobileLayout.value = isMobile
+  if (isMobile) {
+    isSidebarCollapsed.value = true
+    isWorkspaceCollapsed.value = true
+  }
 }
 
 async function confirmDeleteProject(projectId: string, projectName: string) {
@@ -1185,6 +1203,13 @@ async function regenerateMessage(messageId: string) {
       />
     </aside>
 
+    <div
+      v-if="isMobileLayout"
+      class="mobile-sidebar-backdrop"
+      :class="{ 'is-visible': !isSidebarCollapsed }"
+      @click="toggleSidebar"
+    ></div>
+
     <el-button
       class="sidebar-toggle-button"
       :icon="isSidebarCollapsed ? Expand : Fold"
@@ -1246,6 +1271,15 @@ async function regenerateMessage(messageId: string) {
           <!-- <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div> -->
         </div>
         <div class="topbar-actions">
+          <el-button
+            v-if="isMobileLayout"
+            class="topbar-icon-button mobile-new-chat-btn"
+            :icon="Plus"
+            title="新建会话"
+            aria-label="新建会话"
+            circle
+            @click="chat.newSession"
+          />
           <div v-if="auth.currentUser" class="topbar-user" :title="auth.currentUser.phone">
             <span class="topbar-user-avatar">{{ auth.currentUser.avatarText }}</span>
             <span class="topbar-user-name">{{ auth.currentUser.name }}</span>

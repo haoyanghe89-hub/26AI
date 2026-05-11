@@ -55,6 +55,7 @@ export default defineConfig({
       '/api': {
         target: `http://${BACKEND_HOST}:${BACKEND_PORT}`,
         changeOrigin: true,
+        xfwd: true,
       },
     },
   },

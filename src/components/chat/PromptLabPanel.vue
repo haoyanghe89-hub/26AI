@@ -21,6 +21,7 @@ import {
   exportPromptAssetJson,
   extractPromptVariables,
   renderPromptTemplate,
+  type AgentKnowledge,
   type CustomAgent,
   type PromptTemplate,
   type PromptWorkflow,
@@ -174,8 +175,27 @@ function openAgentDialog(agent?: CustomAgent) {
     model: agent?.model || '',
     temperature: agent?.temperature ?? 0.7,
     useProjectContext: agent?.useProjectContext ?? true,
+    knowledgeBase: agent?.knowledgeBase?.length ? agent.knowledgeBase.map((k) => ({ ...k })) : [],
+    memory: agent?.memory || '',
   })
   agentDialogVisible.value = true
+}
+
+function agentKnowledgeItems(): AgentKnowledge[] {
+  if (!Array.isArray(agentDraft.knowledgeBase)) agentDraft.knowledgeBase = []
+  return agentDraft.knowledgeBase as AgentKnowledge[]
+}
+
+function createKnowledgeItem(): AgentKnowledge {
+  return { id: crypto.randomUUID(), title: '', content: '' }
+}
+
+function addKnowledgeItem() {
+  agentKnowledgeItems().push(createKnowledgeItem())
+}
+
+function removeKnowledgeItem(index: number) {
+  agentDraft.knowledgeBase = agentKnowledgeItems().filter((_, i) => i !== index)
 }
 
 function saveAgentDraft() {
@@ -346,14 +366,24 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                 <small>{{ activeAgent.model || '当前模型' }} · T {{ activeAgent.temperature }}</small>
               </div>
               <p>{{ activeAgent.description || '无描述' }}</p>
-              <div class="agent-context-row" :class="{ disabled: !isProjectContextActive }">
-                {{
-                  isProjectContextActive
-                    ? '项目上下文已开启'
-                    : hasActiveProject
-                      ? '项目上下文未启用'
-                      : '普通对话模式'
-                }}
+              <div class="agent-meta-row">
+                <div class="agent-context-row" :class="{ disabled: !isProjectContextActive }">
+                  {{
+                    isProjectContextActive
+                      ? '项目上下文已开启'
+                      : hasActiveProject
+                        ? '项目上下文未启用'
+                        : '普通对话模式'
+                  }}
+                </div>
+                <div v-if="activeAgent.knowledgeBase?.length" class="agent-kb-badge">
+                  <el-icon><Collection /></el-icon>
+                  {{ activeAgent.knowledgeBase.length }} 条知识
+                </div>
+                <div v-if="activeAgent.memory" class="agent-memory-badge">
+                  <el-icon><Collection /></el-icon>
+                  有记忆
+                </div>
               </div>
               <div class="prompt-lab-actions">
                 <el-button size="small" plain :icon="Edit" @click="openAgentDialog(activeAgent)">
@@ -509,10 +539,44 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
       <el-input
         v-model="agentDraft.systemPrompt"
         type="textarea"
-        :rows="9"
+        :rows="6"
         resize="vertical"
         placeholder="输入这个 Agent 的系统提示词"
       />
+      <div class="memory-section">
+        <div class="memory-section-head">
+          <strong>长期记忆</strong>
+          <span v-if="agentDraft.memory" class="memory-hint">已记录 {{ agentDraft.memory.length }} 字</span>
+          <span v-else class="memory-hint">对话中自动提取用户偏好</span>
+        </div>
+        <el-input
+          v-model="agentDraft.memory"
+          type="textarea"
+          :rows="4"
+          resize="vertical"
+          placeholder="可手动编辑，也可由系统在对话中自动提取。每次对话后会自动更新。"
+        />
+      </div>
+      <div class="kb-section">
+        <div class="kb-section-head">
+          <strong>知识库</strong>
+          <span>{{ agentKnowledgeItems().length }} 条</span>
+          <el-button size="small" plain :icon="Plus" @click="addKnowledgeItem">添加</el-button>
+        </div>
+        <div v-for="(item, idx) in agentKnowledgeItems()" :key="item.id" class="kb-item">
+          <div class="kb-item-head">
+            <el-input v-model="item.title" size="small" placeholder="知识标题" />
+            <el-button size="small" plain @click="removeKnowledgeItem(idx)">删除</el-button>
+          </div>
+          <el-input
+            v-model="item.content"
+            type="textarea"
+            :rows="3"
+            resize="vertical"
+            placeholder="知识内容，回答时作为参考上下文注入"
+          />
+        </div>
+      </div>
     </div>
     <template #footer>
       <el-button @click="agentDialogVisible = false">取消</el-button>
@@ -953,5 +1017,114 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 :global(.personalization-dialog--wide .el-dialog__body) {
   max-height: min(68vh, 720px);
   overflow-y: auto;
+}
+
+.agent-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.agent-kb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #34604e;
+  background: rgba(52, 96, 78, 0.1);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.agent-kb-badge .el-icon {
+  font-size: 12px;
+}
+
+.agent-memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: #7a6234;
+  background: rgba(122, 98, 52, 0.1);
+  font-size: 11px;
+  font-weight: 780;
+}
+
+.agent-memory-badge .el-icon {
+  font-size: 12px;
+}
+
+.memory-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(52, 96, 78, 0.12);
+  border-radius: 10px;
+  background: rgba(52, 96, 78, 0.05);
+}
+
+.memory-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.memory-section-head strong {
+  color: #17201a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.memory-hint {
+  color: #8a918b;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.kb-section {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(23, 32, 26, 0.08);
+  border-radius: 10px;
+  background: rgba(248, 251, 247, 0.72);
+}
+
+.kb-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-section-head strong {
+  color: #17201a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.kb-section-head span {
+  color: #8a918b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.kb-item {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgba(23, 32, 26, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kb-item-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+  align-items: center;
 }
 </style>

@@ -9,7 +9,7 @@ import {
   setStoredJson,
   setStoredString,
 } from '../lib/clientStorage'
-import { requestWithRetry } from '../lib/request'
+import { authFetch, requestWithRetry } from '../lib/request'
 import {
   BUILTIN_AGENTS,
   BUILTIN_PROMPT_TEMPLATES,
@@ -783,6 +783,7 @@ export const useChatStore = defineStore('chat', () => {
   })
   const isRefreshingLocalModels = ref(false)
   const isSending = ref(false)
+  const abortController = ref<AbortController | null>(null)
   const isRunningWorkflow = ref(false)
   const isSummarizingSession = ref(false)
   const isIndexingWorkspace = ref(false)
@@ -1333,38 +1334,51 @@ export const useChatStore = defineStore('chat', () => {
     pendingFiles.value = []
     errorMessage.value = ''
     isSending.value = true
+    abortController.value = new AbortController()
     saveSessions()
+
+    // 从 reactive 数组中重新获取 assistantMessage 的 proxy 引用，
+    // 否则直接修改局部变量无法触发 Vue 响应式更新。
+    const reactiveAssistant = session.messages[session.messages.length - 1] as ChatMessage
 
     let assistantHttpOk = false
     try {
-      const response = await requestWithRetry(async () => {
-        const runtime = buildPromptRuntimeConfig(activeAgent.value)
-        const messagesPayload = replaceLastUserMessageContent(session.messages, apiPayloadContent)
-        const result = await callChatBackend(messagesPayload, {
+      const runtime = buildPromptRuntimeConfig(activeAgent.value)
+      const stream = streamChat(
+        replaceLastUserMessageContent(session.messages, apiPayloadContent),
+        {
           runtime,
           useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
-        })
-        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
-        return result
-      })
+        },
+        abortController.value.signal,
+      )
 
-      if (!response.ok) {
-        const detail = await response.json().catch(() => null)
-        throw new Error(detail?.error || `请求失败：${response.status}`)
+      for await (const event of stream) {
+        if (event.type === 'start') {
+          assistantHttpOk = true
+        } else if (event.type === 'delta') {
+          reactiveAssistant.content = (reactiveAssistant.content as string) + event.content
+        } else if (event.type === 'error') {
+          throw new Error(event.error)
+        }
       }
 
-      const data = await response.json()
-      assistantHttpOk = true
-      const reply = normalizeAssistantReply(data?.content)
-      assistantMessage.content = reply
       session.updatedAt = new Date().toISOString()
     } catch (error) {
-      assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
-      errorMessage.value = error instanceof Error ? error.message : '未知错误'
+      if ((error as Error).name === 'AbortError') {
+        reactiveAssistant.content = (reactiveAssistant.content as string) || '生成已停止。'
+      } else {
+        reactiveAssistant.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
+        errorMessage.value = error instanceof Error ? error.message : '未知错误'
+      }
     } finally {
       isSending.value = false
+      abortController.value = null
       saveSessions()
-      if (assistantHttpOk) void maybeInferSessionTags(session)
+      if (assistantHttpOk) {
+        void maybeInferSessionTags(session)
+        void maybeExtractAgentMemory(session)
+      }
     }
 
     return true
@@ -1388,55 +1402,178 @@ export const useChatStore = defineStore('chat', () => {
     session.updatedAt = assistantMessage.createdAt
     errorMessage.value = ''
     isSending.value = true
+    abortController.value = new AbortController()
     saveSessions()
 
     let assistantHttpOk = false
     try {
-      const response = await requestWithRetry(async () => {
-        const runtime = buildPromptRuntimeConfig(activeAgent.value)
-        const result = await callChatBackend(enrichMessagesWithAttachmentText(promptMessages), {
+      const runtime = buildPromptRuntimeConfig(activeAgent.value)
+      const stream = streamChat(
+        enrichMessagesWithAttachmentText(promptMessages),
+        {
           runtime,
           useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
-        })
-        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
-        return result
-      })
+        },
+        abortController.value.signal,
+      )
 
-      if (!response.ok) {
-        const detail = await response.json().catch(() => null)
-        throw new Error(detail?.error || `请求失败：${response.status}`)
+      for await (const event of stream) {
+        if (event.type === 'start') {
+          assistantHttpOk = true
+        } else if (event.type === 'delta') {
+          assistantMessage.content = (assistantMessage.content as string) + event.content
+        } else if (event.type === 'error') {
+          throw new Error(event.error)
+        }
       }
 
-      const data = await response.json()
-      assistantHttpOk = true
-      assistantMessage.content = normalizeAssistantReply(data?.content)
       session.updatedAt = new Date().toISOString()
       return true
     } catch (error) {
-      assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
-      errorMessage.value = error instanceof Error ? error.message : '未知错误'
+      if ((error as Error).name === 'AbortError') {
+        assistantMessage.content = (assistantMessage.content as string) || '生成已停止。'
+      } else {
+        assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
+        errorMessage.value = error instanceof Error ? error.message : '未知错误'
+      }
       return false
     } finally {
       isSending.value = false
+      abortController.value = null
       saveSessions()
-      if (assistantHttpOk) void maybeInferSessionTags(session)
+      if (assistantHttpOk) {
+        void maybeInferSessionTags(session)
+        void maybeExtractAgentMemory(session)
+      }
     }
   }
 
-  function normalizeAssistantReply(value: unknown) {
-    if (typeof value === 'string') return value.trim() || '没有收到有效回复。'
-    if (Array.isArray(value)) {
-      const text = value
-        .map((part) => {
-          if (typeof part === 'string') return part
-          if (part && typeof part === 'object' && 'text' in part) return String(part.text || '')
-          return ''
-        })
-        .join('')
-        .trim()
-      return text || '没有收到有效回复。'
+  type StreamEvent =
+    | { type: 'start'; inference: unknown; workspaceHits: unknown[] }
+    | { type: 'delta'; content: string }
+    | { type: 'done' }
+    | { type: 'error'; error: string }
+
+  function createSseParser() {
+    let buffer = ''
+    let currentEvent = ''
+    return {
+      push(chunk: string): Array<{ event: string; data: string }> {
+        buffer += chunk
+        const events: Array<{ event: string; data: string }> = []
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim()
+          if (line === '') {
+            currentEvent = ''
+            continue
+          }
+          if (line.startsWith('event:')) {
+            currentEvent = line.slice(6).trim()
+          } else if (line.startsWith('data:')) {
+            events.push({ event: currentEvent || 'message', data: line.slice(5).trim() })
+            currentEvent = ''
+          }
+        }
+        return events
+      },
+      flush(): Array<{ event: string; data: string }> {
+        const events = this.push('\n\n')
+        buffer = ''
+        currentEvent = ''
+        return events
+      },
     }
-    return '没有收到有效回复。'
+  }
+
+  async function* streamChat(
+    messages: ChatMessage[],
+    options: { useWorkspaceContext?: boolean; runtime?: PromptRuntimeConfig },
+    signal: AbortSignal,
+  ): AsyncGenerator<StreamEvent> {
+    const useWorkspaceContext =
+      options.useWorkspaceContext ?? Boolean(activeProject.value || workspaceStatus.value.indexed)
+
+    const response = await authFetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        providerId: selectedProviderId.value,
+        model:
+          options.runtime?.model?.trim() || model.value.trim() || getDefaultModel(selectedProviderId.value),
+        inferenceMode: inferenceMode.value,
+        localProviderId: 'ollama',
+        localModel: effectiveLocalModel.value,
+        hybridFallbackToCloud: hybridFallbackToCloud.value,
+        temperature: options.runtime?.temperature,
+        systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
+        apiKey: apiKey.value.trim() || undefined,
+        projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
+        useWorkspaceContext,
+        stream: true,
+        messages: messages
+          .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+          .map((message) => ({ role: message.role, content: message.content })),
+      }),
+      signal,
+    })
+
+    if (!response.ok) {
+      const detail = await response.json().catch(() => null)
+      throw new Error(detail?.error || `请求失败：${response.status}`)
+    }
+
+    if (!response.body) {
+      throw new Error('浏览器不支持流式响应')
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder()
+    const parser = createSseParser()
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const events = parser.push(decoder.decode(value, { stream: true }))
+        for (const { event, data } of events) {
+          if (event === 'start') {
+            const parsed = JSON.parse(data)
+            yield { type: 'start', inference: parsed.inference, workspaceHits: parsed.workspaceHits || [] }
+          } else if (event === 'delta') {
+            const parsed = JSON.parse(data)
+            yield { type: 'delta', content: String(parsed.content || '') }
+          } else if (event === 'done') {
+            yield { type: 'done' }
+          } else if (event === 'error') {
+            const parsed = JSON.parse(data)
+            yield { type: 'error', error: String(parsed.error || '未知错误') }
+          }
+        }
+      }
+
+      const events = parser.flush()
+      for (const { event, data } of events) {
+        if (event === 'delta') {
+          const parsed = JSON.parse(data)
+          yield { type: 'delta', content: String(parsed.content || '') }
+        } else if (event === 'done') {
+          yield { type: 'done' }
+        }
+      }
+    } finally {
+      reader.releaseLock()
+    }
+  }
+
+  function stop() {
+    if (abortController.value) {
+      abortController.value.abort()
+      abortController.value = null
+    }
   }
 
   async function runPromptWorkflow(workflowId: string, input: string) {
@@ -1606,6 +1743,90 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
+  async function maybeExtractAgentMemory(session: ChatSession) {
+    const agent = activeAgent.value
+    if (!agent || agent.isBuiltin) return
+    if (session.messages.length < 4) return
+    if (!isProviderReady.value) return
+
+    const transcript = session.messages
+      .slice(-6)
+      .map((message) => {
+        const speaker = message.role === 'user' ? '用户' : '助手'
+        const text =
+          typeof message.content === 'string'
+            ? message.content
+            : message.content
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('\n')
+        return `${speaker}: ${text.trim()}`
+      })
+      .join('\n\n')
+
+    const memoryPrompt = [
+      '请根据以下最近几轮对话，提取关于该用户的长期偏好、习惯和已确认决策。',
+      '要求：',
+      '1. 只输出对未来对话有直接帮助的事实性信息。',
+      '2. 不要重复对话原文，用简洁的条目式总结。',
+      '3. 如果用户明确表达了技术偏好（如框架、库、风格）、设计习惯、业务规则或已确认的方案，请记录下来。',
+      '4. 如果对话中没有新的值得记忆的信息，请输出「无」。',
+      '5. 总字数不超过 300 字。',
+      '',
+      '对话内容：',
+      transcript,
+      '',
+      '请输出记忆条目：',
+    ].join('\n')
+
+    try {
+      const response = await requestWithRetry(async () => {
+        const result = await callChatBackend(
+          [
+            {
+              id: crypto.randomUUID(),
+              role: 'user',
+              content: memoryPrompt,
+              createdAt: new Date().toISOString(),
+            },
+          ],
+          {
+            useWorkspaceContext: false,
+            runtime: {
+              temperature: 0.3,
+              systemPrompt:
+                '你是一台记忆提取引擎。你的任务是从对话中提取用户的长期偏好和已确认决策，输出简洁的条目式记忆。禁止解释、禁止寒暄、禁止输出对话原文。',
+            },
+          },
+        )
+        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        return result
+      })
+
+      if (!response.ok) return
+
+      const data = await response.json()
+      const extracted = String(data.content || '').trim()
+      if (!extracted || extracted === '无' || extracted.startsWith('无')) return
+
+      const existingMemory = agent.memory || ''
+      const merged = existingMemory
+        ? `${existingMemory}\n\n【${new Date().toLocaleDateString('zh-CN')} 更新】\n${extracted}`
+        : extracted
+
+      const normalizedMemory = merged.slice(0, 4000)
+      if (normalizedMemory === existingMemory) return
+
+      const updatedAgent = normalizeAgent({ ...agent, memory: normalizedMemory })
+      customAgents.value = customAgents.value.map((item) =>
+        item.id === updatedAgent.id ? updatedAgent : item,
+      )
+      saveCustomAgents()
+    } catch {
+      // 记忆提取失败不打断主流程
+    }
+  }
+
   async function summarizeActiveSession() {
     const session = activeSession.value
     const summaryPrompt = buildSessionSummaryPrompt(session)
@@ -1663,7 +1884,7 @@ export const useChatStore = defineStore('chat', () => {
     const useWorkspaceContext =
       options.useWorkspaceContext ?? Boolean(activeProject.value || workspaceStatus.value.indexed)
 
-    return fetch('/api/chat', {
+    return authFetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -1694,7 +1915,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshWorkspaceStatus() {
     try {
-      const response = await fetch('/api/workspace/status')
+      const response = await authFetch('/api/workspace/status')
       if (!response.ok) return
       workspaceStatus.value = await response.json()
     } catch {
@@ -1704,7 +1925,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshProviderServerConfig() {
     try {
-      const response = await fetch('/api/providers')
+      const response = await authFetch('/api/providers')
       if (!response.ok) return
       const data = await response.json()
       const providers = data?.providers && typeof data.providers === 'object' ? data.providers : {}
@@ -1724,7 +1945,7 @@ export const useChatStore = defineStore('chat', () => {
     isRefreshingLocalModels.value = true
 
     try {
-      const response = await fetch('/api/local-models')
+      const response = await authFetch('/api/local-models')
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `本地模型刷新失败：${response.status}`)
 
@@ -1752,7 +1973,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function refreshProjects() {
     try {
-      const response = await fetch('/api/projects')
+      const response = await authFetch('/api/projects')
       if (!response.ok) return
       const data = await response.json()
       projects.value = Array.isArray(data.projects) ? data.projects : []
@@ -1788,7 +2009,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const firstPath = projectFiles[0].path
       const name = firstPath.split('/')[0] || '导入项目'
-      const response = await fetch('/api/projects/import', {
+      const response = await authFetch('/api/projects/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, files: projectFiles }),
@@ -1816,7 +2037,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/analyze`, { method: 'POST' })
+      const response = await authFetch(`/api/projects/${project.id}/analyze`, { method: 'POST' })
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `分析失败：${response.status}`)
 
@@ -1847,7 +2068,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/tree`)
+      const response = await authFetch(`/api/projects/${project.id}/tree`)
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `获取目录树失败：${response.status}`)
       activeProjectTree.value = Array.isArray(data.tree) ? data.tree : []
@@ -1871,7 +2092,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`)
+      const response = await authFetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`)
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `读取文件失败：${response.status}`)
       activeFilePath.value = path
@@ -1893,7 +2114,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`,
         {
           method: 'PUT',
@@ -1921,7 +2142,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/projects/${project.id}/file?path=${encodeURIComponent(activeFilePath.value)}`,
         {
           method: 'PUT',
@@ -1952,7 +2173,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(
+      const response = await authFetch(
         `/api/projects/${project.id}/open-file?path=${encodeURIComponent(activeFilePath.value)}`,
         {
           method: 'POST',
@@ -1977,7 +2198,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch(`/api/projects/${projectId}`, { method: 'DELETE' })
+      const response = await authFetch(`/api/projects/${projectId}`, { method: 'DELETE' })
       const data = await response.json().catch(() => null)
       if (!response.ok) throw new Error(data?.error || `删除失败：${response.status}`)
       projects.value = projects.value.filter((project) => project.id !== projectId)
@@ -1996,7 +2217,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     try {
-      const response = await fetch('/api/workspace/index', {
+      const response = await authFetch('/api/workspace/index', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -2085,6 +2306,7 @@ export const useChatStore = defineStore('chat', () => {
     removePendingFile,
     sendMessage,
     regenerateMessage,
+    stop,
     runPromptWorkflow,
     summarizeActiveSession,
     refreshProviderServerConfig,

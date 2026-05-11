@@ -12,6 +12,12 @@ export interface PromptTemplate {
   updatedAt: string
 }
 
+export interface AgentKnowledge {
+  id: string
+  title: string
+  content: string
+}
+
 export interface CustomAgent {
   id: string
   name: string
@@ -20,6 +26,9 @@ export interface CustomAgent {
   model: string
   temperature: number
   useProjectContext: boolean
+  knowledgeBase: AgentKnowledge[]
+  /** 跨会话长期记忆，每次对话时自动拼入 systemPrompt */
+  memory: string
   isBuiltin: boolean
   createdAt: string
   updatedAt: string
@@ -96,6 +105,8 @@ export const BUILTIN_AGENTS: CustomAgent[] = [
     model: '',
     temperature: 0.7,
     useProjectContext: true,
+    knowledgeBase: [],
+    memory: '',
   }),
   createBuiltinAgent({
     id: 'agent-frontend-engineer',
@@ -106,6 +117,21 @@ export const BUILTIN_AGENTS: CustomAgent[] = [
     model: '',
     temperature: 0.45,
     useProjectContext: true,
+    knowledgeBase: [
+      {
+        id: 'kb-vue-style-guide',
+        title: 'Vue 3 团队规范',
+        content:
+          '1. 组件名使用 PascalCase，文件名为多词 kebab-case。\n2. 优先使用 Composition API + <script setup>。\n3. Props 必须定义类型和默认值。\n4. 事件名使用 kebab-case，emit 需明确定义。\n5. 样式 scoped，全局样式放在 assets/styles。',
+      },
+      {
+        id: 'kb-ts-patterns',
+        title: 'TypeScript 常用模式',
+        content:
+          '1. 优先使用 interface 定义对象类型，type 定义联合/交叉类型。\n2. 避免 any，使用 unknown + 类型守卫。\n3. 函数返回类型显式标注。\n4. 使用 satisfies 替代 as 做类型收窄。\n5. 工具类型统一放在 types/ 目录。',
+      },
+    ],
+    memory: '',
   }),
   createBuiltinAgent({
     id: 'agent-product-strategist',
@@ -116,6 +142,15 @@ export const BUILTIN_AGENTS: CustomAgent[] = [
     model: '',
     temperature: 0.65,
     useProjectContext: true,
+    knowledgeBase: [
+      {
+        id: 'kb-prd-template',
+        title: 'PRD 标准结构',
+        content:
+          '一份完整 PRD 应包含：\n1. 背景与目标（Why）\n2. 用户故事与场景（Who & When）\n3. 功能范围与边界（What & What Not）\n4. 流程图与原型说明\n5. 数据埋点与指标\n6. 验收标准（Given-When-Then）\n7. 风险与依赖\n8. 上线 checklist',
+      },
+    ],
+    memory: '',
   }),
 ]
 
@@ -231,6 +266,11 @@ export function normalizePromptTemplate(
 export function normalizeAgent(value: Partial<CustomAgent>, fallback?: CustomAgent): CustomAgent {
   const now = new Date().toISOString()
   const temperature = Number(value.temperature ?? fallback?.temperature ?? 0.7)
+  const rawKb = Array.isArray(value.knowledgeBase)
+    ? value.knowledgeBase
+    : Array.isArray(fallback?.knowledgeBase)
+      ? fallback.knowledgeBase
+      : []
   return {
     id: String(value.id || fallback?.id || crypto.randomUUID()),
     name: String(value.name || fallback?.name || '未命名 Agent')
@@ -243,6 +283,20 @@ export function normalizeAgent(value: Partial<CustomAgent>, fallback?: CustomAge
     model: String(value.model ?? fallback?.model ?? '').trim(),
     temperature: Number.isFinite(temperature) ? Math.min(2, Math.max(0, temperature)) : 0.7,
     useProjectContext: Boolean(value.useProjectContext ?? fallback?.useProjectContext ?? true),
+    knowledgeBase: rawKb
+      .filter((k) => k && typeof k === 'object')
+      .map((k) => ({
+        id: String(k.id || crypto.randomUUID()),
+        title: String(k.title || '未命名知识')
+          .trim()
+          .slice(0, 60),
+        content: String(k.content || '')
+          .trim()
+          .slice(0, 20000),
+      })),
+    memory: String(value.memory ?? fallback?.memory ?? '')
+      .trim()
+      .slice(0, 4000),
     isBuiltin: Boolean(value.isBuiltin ?? fallback?.isBuiltin ?? false),
     createdAt: String(value.createdAt || fallback?.createdAt || now),
     updatedAt: now,
@@ -277,8 +331,21 @@ export function normalizeWorkflow(value: Partial<PromptWorkflow>, fallback?: Pro
 
 export function buildPromptRuntimeConfig(agent: CustomAgent | null): PromptRuntimeConfig {
   if (!agent) return {}
+  let systemPrompt = agent.systemPrompt
+  const kb = agent.knowledgeBase
+  if (kb?.length) {
+    const kbSection = kb.map((k) => `【知识库: ${k.title}】\n${k.content}`).join('\n\n')
+    systemPrompt = systemPrompt
+      ? `${systemPrompt}\n\n你在回答时可以参考以下知识库内容，若知识库与用户问题无关则忽略：\n\n${kbSection}`
+      : `你在回答时可以参考以下知识库内容，若知识库与用户问题无关则忽略：\n\n${kbSection}`
+  }
+  if (agent.memory) {
+    systemPrompt = systemPrompt
+      ? `${systemPrompt}\n\n【关于该用户的长期记忆】\n${agent.memory}\n\n请在回答时尊重以上用户偏好与历史决策，不要重复询问已确认的事项。`
+      : `【关于该用户的长期记忆】\n${agent.memory}\n\n请在回答时尊重以上用户偏好与历史决策，不要重复询问已确认的事项。`
+  }
   return {
-    systemPrompt: agent.systemPrompt,
+    systemPrompt,
     model: agent.model,
     temperature: agent.temperature,
     useProjectContext: agent.useProjectContext,

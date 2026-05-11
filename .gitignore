@@ -17,5 +17,6 @@ dist
 
 # 本地/调试
 *.local
+data/auth/
 data/workspace-index.json
 data/projects/
