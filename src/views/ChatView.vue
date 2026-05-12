@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import DOMPurify from 'dompurify'
 import {
   Delete,
@@ -10,6 +11,7 @@ import {
   Edit,
   CircleClose,
   FolderAdd,
+  Folder,
   Files,
   Close,
   Fold,
@@ -25,8 +27,10 @@ import {
   Cpu,
   SwitchButton,
   Plus,
+  Tools,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
+import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElDialog from 'element-plus/es/components/dialog/index.mjs'
@@ -71,18 +75,20 @@ import type { PromptTemplate } from '../lib/promptEngineering'
 import { messagePreviewContent, type ChatAttachment, type ProviderId, useChatStore } from '../stores/chat'
 import { useAuthStore } from '../stores/auth'
 import { useRoute, useRouter } from 'vue-router'
+import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
+import { localeOptions, setLocale, type AppLocale } from '../i18n'
 
 const chat = useChatStore()
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { t, locale } = useI18n()
 const input = ref('')
 /** 当前会话输入区生效的模板（发送时套用到模型，界面仍显示用户原文） */
 const activeComposerTemplate = ref<Pick<PromptTemplate, 'id' | 'name' | 'content'> | null>(null)
 const appShellEl = ref<HTMLElement | null>(null)
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
-const projectInputEl = ref<HTMLInputElement | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
 const isWorkspaceCollapsed = ref(true)
@@ -136,17 +142,17 @@ const canSend = computed(() => {
 })
 
 // === 修改：优化无项目状态的显示文案 ===
-const activeProjectLabel = computed(() => chat.activeProject?.name || '普通对话')
+const activeProjectLabel = computed(() => chat.activeProject?.name || t('chat.normalChat'))
 /** 侧栏折叠态下展示当前上下文与上传项目数 */
 const projectPanelMetaText = computed(() => {
   const n = chat.projects.length
   if (isProjectPanelCollapsed.value) {
-    return n ? `${activeProjectLabel.value} · ${n} 项目` : activeProjectLabel.value
+    return n ? `${activeProjectLabel.value} · ${n} ${t('chat.project')}` : activeProjectLabel.value
   }
-  return n ? `${n} 项目` : '未导入'
+  return n ? `${n} ${t('chat.project')}` : t('chat.noProject')
 })
 const activeProjectObjectLabel = computed(() =>
-  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : '无项目关联',
+  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : t('chat.noProjectRelation'),
 )
 const filteredSessions = computed(() =>
   chat.sessions.filter((session) => {
@@ -169,13 +175,15 @@ const canRunActiveFile = computed(() => {
   return ['javascript', 'typescript', 'html', 'css'].includes(activeFileMonacoLanguage.value)
 })
 const codeRunStatusLabel = computed(() => {
-  if (codeRunStatus.value === 'running') return '运行中'
-  if (codeRunStatus.value === 'success') return '已完成'
-  if (codeRunStatus.value === 'error') return '有错误'
-  return '未运行'
+  if (codeRunStatus.value === 'running') return t('chat.runStatusRunning')
+  if (codeRunStatus.value === 'success') return t('chat.runStatusSuccess')
+  if (codeRunStatus.value === 'error') return t('chat.runStatusError')
+  return t('chat.runStatusIdle')
 })
 const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
-const previewTitle = computed(() => attachmentPreview.value?.name || chat.activeFilePath || '未选择文件')
+const previewTitle = computed(
+  () => attachmentPreview.value?.name || chat.activeFilePath || t('chat.chooseFilePreview'),
+)
 const previewKind = computed(() => attachmentPreview.value?.kind || 'text')
 const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath || attachmentPreview.value))
 const {
@@ -320,8 +328,17 @@ function pickFiles() {
   fileInputEl.value?.click()
 }
 
-function pickProjectFolder() {
-  projectInputEl.value?.click()
+async function pickProjectFolder() {
+  const importedProject = await chat.pickAndImportProjectFolder()
+  if (importedProject) {
+    await openProjectWorkspace(importedProject.id)
+    ElMessage({
+      message: t('chat.projectImported', { name: importedProject.name, count: importedProject.fileCount }),
+      type: 'success',
+      duration: 3000,
+      plain: true,
+    })
+  }
 }
 
 function clearSessionFilters() {
@@ -351,13 +368,6 @@ function selectModel(value: string) {
 async function handleFiles(event: Event) {
   const target = event.target as HTMLInputElement
   await chat.prepareFiles(Array.from(target.files || []))
-  target.value = ''
-}
-
-async function handleProjectFolder(event: Event) {
-  const target = event.target as HTMLInputElement
-  const importedProject = await chat.importProjectFolder(Array.from(target.files || []))
-  if (importedProject) await openProjectWorkspace(importedProject.id)
   target.value = ''
 }
 
@@ -419,11 +429,11 @@ function syncMobileLayout() {
 
 async function confirmDeleteProject(projectId: string, projectName: string) {
   await ElMessageBox.confirm(
-    `<div class="military-dialog-content"><p>删除后会移除本地导入副本与索引。</p><p class="emphasis">当前操作对象：${escapeHtml(projectName)}（${escapeHtml(projectId)}）</p></div>`,
-    '删除项目',
+    `<div class="military-dialog-content"><p>${t('chat.deleteProjectDesc')}</p><p class="emphasis">${t('chat.dialogActiveObject', { target: `${escapeHtml(projectName)}（${escapeHtml(projectId)}）` })}</p></div>`,
+    t('chat.deleteProject'),
     {
-      confirmButtonText: '删除',
-      cancelButtonText: '取消',
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
       dangerouslyUseHTMLString: true,
       customClass: 'military-dialog military-dialog--danger',
     },
@@ -440,14 +450,68 @@ function escapeHtml(value: string) {
     .replace(/'/g, '&#039;')
 }
 
+function showModeToast(config: {
+  icon: string
+  title: string
+  desc: string
+  type: 'success' | 'info' | 'warning'
+}) {
+  ElMessage({
+    dangerouslyUseHTMLString: true,
+    message: `<div class="t1-mode-toast">
+      <div class="t1-mode-toast-icon">${config.icon}</div>
+      <div class="t1-mode-toast-body">
+        <div class="t1-mode-toast-title">${config.title}</div>
+        <div class="t1-mode-toast-desc">${config.desc}</div>
+      </div>
+    </div>`,
+    type: config.type,
+    duration: 2800,
+    showClose: true,
+    customClass: 't1-mode-toast-msg',
+  })
+}
+
+function toggleEnableTools() {
+  const next = !chat.enableTools
+  chat.setEnableTools(next)
+  showModeToast(
+    next
+      ? { icon: '🔧', title: t('chat.toolToastOnTitle'), desc: t('chat.toolToastOnDesc'), type: 'success' }
+      : { icon: '⚪', title: t('chat.toolToastOffTitle'), desc: t('chat.toolToastOffDesc'), type: 'info' },
+  )
+}
+
+function toggleEnablePlanning() {
+  const next = !chat.enablePlanning
+  chat.setEnablePlanning(next)
+  showModeToast(
+    next
+      ? {
+          icon: '🎯',
+          title: t('chat.planningToastOnTitle'),
+          desc: t('chat.planningToastOnDesc'),
+          type: 'warning',
+        }
+      : {
+          icon: '⚪',
+          title: t('chat.planningToastOffTitle'),
+          desc: t('chat.planningToastOffDesc'),
+          type: 'info',
+        },
+  )
+}
+
 async function submit() {
   const content = input.value
   input.value = '' // 点击发送后立即清空输入框
   scrollToBottom() // 立即滚动到底部以显示用户刚发出的消息
 
-  const sent = await chat.sendMessage(content, {
-    composerTemplate: activeComposerTemplate.value,
-  })
+  const sent = chat.enablePlanning
+    ? await chat.sendPlanMessage(content)
+    : await chat.sendMessage(content, {
+        composerTemplate: activeComposerTemplate.value,
+      })
   if (sent) {
     scrollToBottom()
   } else {
@@ -502,11 +566,11 @@ function handleEnter(event: Event | KeyboardEvent) {
 
 async function confirmClear() {
   await ElMessageBox.confirm(
-    `<div class="military-dialog-content"><p>清空后会创建一个新的空会话。</p><p>历史记录将从本地浏览器移除。</p><p class="emphasis">当前操作对象：${activeProjectObjectLabel.value}</p></div>`,
-    '清空历史',
+    `<div class="military-dialog-content"><p>${t('chat.clearHistoryDesc1')}</p><p>${t('chat.clearHistoryDesc2')}</p><p class="emphasis">${t('chat.dialogActiveObject', { target: activeProjectObjectLabel.value })}</p></div>`,
+    t('chat.clearHistory'),
     {
-      confirmButtonText: '清空',
-      cancelButtonText: '取消',
+      confirmButtonText: t('chat.clearHistory'),
+      cancelButtonText: t('common.cancel'),
       dangerouslyUseHTMLString: true,
       customClass: 'military-dialog military-dialog--danger',
     },
@@ -563,7 +627,7 @@ async function copySummaryDraft() {
     copiedSummary.value = true
     setTimeout(() => (copiedSummary.value = false), 2000)
   } catch (err) {
-    console.error('复制总结失败', err)
+    console.error(t('chat.copiedSummaryFailed'), err)
   }
 }
 
@@ -756,7 +820,7 @@ async function copyMessage(messageId: string, content: any) {
     copiedMessageId.value = messageId
     setTimeout(() => (copiedMessageId.value = null), 2000)
   } catch (err) {
-    console.error('复制失败', err)
+    console.error(t('chat.copyFailed'), err)
   }
 }
 
@@ -766,7 +830,7 @@ async function copyCodeBlock(messageId: string, code: string, blockIndex: number
     copiedCodeBlock.value = { id: messageId, index: blockIndex }
     setTimeout(() => (copiedCodeBlock.value = null), 2000)
   } catch (err) {
-    console.error('复制代码失败', err)
+    console.error(t('chat.copyCodeFailed'), err)
   }
 }
 
@@ -783,7 +847,7 @@ async function runActiveCode() {
   if (!canRunActiveFile.value || codeRunStatus.value === 'running') return
 
   codeRunStatus.value = 'running'
-  codeRunLogs.value = ['启动浏览器沙箱...']
+  codeRunLogs.value = [t('chat.runnerStarting')]
   codeRunPreviewHtml.value = ''
 
   try {
@@ -827,14 +891,14 @@ function buildCodeRunnerHtml(source: string, language: string) {
   if (language === 'html') return buildHtmlRunner(source)
   if (language === 'css') {
     return buildHtmlRunner(
-      `<!doctype html><style>${source}</style><main class="runner-css-preview">CSS 已注入页面</main>`,
+      `<!doctype html><style>${source}</style><main class="runner-css-preview">${t('chat.cssInjected')}</main>`,
     )
   }
   return `<!doctype html>
 <html>
 <head><meta charset="utf-8"><style>${runnerBaseCss()}</style></head>
 <body>
-  <main id="app">代码运行中...</main>
+  <main id="app">${t('chat.codeRunning')}</main>
   <script>${runnerBridgeScript()}${closeScript}
   <script type="module">
     const source = ${escapedSource};
@@ -884,7 +948,7 @@ function handleCodeRunnerMessage(event: MessageEvent) {
   const data = event.data
   if (!data || data.source !== 'twentys1x-code-runner') return
   if (data.type === 'ready') {
-    codeRunLogs.value.push(formatRunnerMessage('info', '沙箱已就绪'))
+    codeRunLogs.value.push(formatRunnerMessage('info', t('chat.runnerReady')))
     return
   }
   if (data.type === 'log') {
@@ -893,13 +957,17 @@ function handleCodeRunnerMessage(event: MessageEvent) {
   }
   if (data.type === 'done') {
     codeRunStatus.value = 'success'
-    codeRunLogs.value.push(formatRunnerMessage('info', '执行完成'))
+    codeRunLogs.value.push(formatRunnerMessage('info', t('chat.runnerDone')))
     return
   }
   if (data.type === 'error') {
     codeRunStatus.value = 'error'
-    codeRunLogs.value.push(formatRunnerMessage('error', data.payload?.message || '执行失败'))
+    codeRunLogs.value.push(formatRunnerMessage('error', data.payload?.message || t('chat.runnerFailed')))
   }
+}
+
+function handleLocaleChange(value: string) {
+  setLocale(value as AppLocale)
 }
 
 function formatRunnerMessage(level: string, message: string) {
@@ -950,7 +1018,11 @@ async function regenerateMessage(messageId: string) {
         </div>
       </div>
 
-      <section class="project-panel" :class="{ 'is-collapsed': isProjectPanelCollapsed }" aria-label="项目">
+      <section
+        class="project-panel"
+        :class="{ 'is-collapsed': isProjectPanelCollapsed }"
+        :aria-label="t('chat.project')"
+      >
         <div class="project-panel-toolbar">
           <button
             type="button"
@@ -960,7 +1032,7 @@ async function regenerateMessage(messageId: string) {
           >
             <span class="project-panel-title">
               <el-icon><Files /></el-icon>
-              项目
+              {{ t('chat.project') }}
             </span>
             <span class="project-panel-meta">{{ projectPanelMetaText }}</span>
             <el-icon
@@ -974,7 +1046,7 @@ async function regenerateMessage(messageId: string) {
             class="panel-icon-button"
             :icon="FolderAdd"
             text
-            title="导入项目文件夹"
+            :title="t('chat.importProjectFolder')"
             :loading="chat.isImportingProject"
             @click.stop="pickProjectFolder"
           />
@@ -990,8 +1062,8 @@ async function regenerateMessage(messageId: string) {
                   @click="selectProjectFromSidebar('')"
                 >
                   <el-icon><Promotion /></el-icon>
-                  <span>普通对话</span>
-                  <small>不关联任何项目</small>
+                  <span>{{ t('chat.normalChat') }}</span>
+                  <small>{{ t('chat.noProjectLink') }}</small>
                 </button>
 
                 <button
@@ -1004,10 +1076,10 @@ async function regenerateMessage(messageId: string) {
                 >
                   <el-icon><Files /></el-icon>
                   <span>{{ project.name }}</span>
-                  <small>{{ project.fileCount }} 文件</small>
+                  <small>{{ t('chat.fileCount', { count: project.fileCount }) }}</small>
                   <el-icon
                     class="delete-project"
-                    title="删除项目"
+                    :title="t('chat.deleteProject')"
                     @click.stop="confirmDeleteProject(project.id, project.name)"
                   >
                     <Delete />
@@ -1019,7 +1091,7 @@ async function regenerateMessage(messageId: string) {
                   class="project-empty"
                   @click="pickProjectFolder"
                 >
-                  导入一个项目文件夹
+                  {{ t('chat.importProjectCta') }}
                 </button>
               </div>
               <el-button
@@ -1029,16 +1101,8 @@ async function regenerateMessage(messageId: string) {
                 :loading="chat.isAnalyzingProject"
                 @click="analyzeProject"
               >
-                分析项目框架
+                {{ t('chat.analyzeProject') }}
               </el-button>
-              <input
-                ref="projectInputEl"
-                class="file-input"
-                type="file"
-                webkitdirectory
-                multiple
-                @change="handleProjectFolder"
-              />
             </div>
           </div>
         </div>
@@ -1065,7 +1129,7 @@ async function regenerateMessage(messageId: string) {
       <section
         class="session-manager"
         :class="{ 'is-collapsed': isSessionManagerCollapsed }"
-        aria-label="会话智能管理"
+        :aria-label="t('chat.sessionManager')"
       >
         <button
           type="button"
@@ -1075,7 +1139,7 @@ async function regenerateMessage(messageId: string) {
         >
           <span class="session-manager-title">
             <el-icon><Search /></el-icon>
-            会话智能管理
+            {{ t('chat.sessionManager') }}
           </span>
           <span class="session-manager-count">{{ filteredSessions.length }}/{{ chat.sessions.length }}</span>
           <el-icon
@@ -1094,7 +1158,7 @@ async function regenerateMessage(messageId: string) {
                 class="session-search"
                 clearable
                 :prefix-icon="Search"
-                placeholder="搜索标题、标签、内容"
+                :placeholder="t('chat.sessionSearchPlaceholder')"
               />
               <div v-if="chat.allSessionTags.length" class="session-tags">
                 <button
@@ -1103,7 +1167,7 @@ async function regenerateMessage(messageId: string) {
                   :class="{ active: !activeSessionTag }"
                   @click="activeSessionTag = ''"
                 >
-                  全部
+                  {{ t('common.all') }}
                 </button>
                 <button
                   v-for="tag in chat.allSessionTags"
@@ -1117,20 +1181,24 @@ async function regenerateMessage(messageId: string) {
                 </button>
               </div>
               <div class="session-export-actions">
-                <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown"
-                  >导出当前</el-button
-                >
-                <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson"
-                  >导出列表</el-button
-                >
+                <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown">{{
+                  t('chat.exportCurrent')
+                }}</el-button>
+                <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson">{{
+                  t('chat.exportList')
+                }}</el-button>
               </div>
               <label class="session-tag-editor">
-                <span>当前会话标签</span>
-                <el-input v-model="activeSessionTagsText" size="small" placeholder="自定义会话标签" />
+                <span>{{ t('chat.currentSessionTags') }}</span>
+                <el-input
+                  v-model="activeSessionTagsText"
+                  size="small"
+                  :placeholder="t('chat.customSessionTags')"
+                />
               </label>
               <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
                 <div class="session-summary-head">
-                  <span>智能总结</span>
+                  <span>{{ t('chat.smartSummary') }}</span>
                   <div class="session-summary-actions">
                     <el-button
                       v-if="chat.activeSession.summary"
@@ -1138,7 +1206,7 @@ async function regenerateMessage(messageId: string) {
                       size="small"
                       text
                       :icon="MoreFilled"
-                      aria-label="查看完整智能总结"
+                      :aria-label="t('chat.viewFullSummary')"
                       @click="openSummaryDialog"
                     />
                     <el-button
@@ -1149,19 +1217,19 @@ async function regenerateMessage(messageId: string) {
                       :disabled="!canSummarizeActiveSession"
                       @click="summarizeActiveSession"
                     >
-                      {{ chat.activeSession.summary ? '更新' : '生成' }}
+                      {{ chat.activeSession.summary ? t('chat.update') : t('chat.generate') }}
                     </el-button>
                   </div>
                 </div>
                 <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
-                <p v-else>长会话可一键压缩成可回顾摘要。</p>
+                <p v-else>{{ t('chat.summaryEmpty') }}</p>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <nav class="sessions" aria-label="历史会话">
+      <nav class="sessions" :aria-label="t('chat.historySessions')">
         <SessionItem
           v-for="session in filteredSessions"
           :key="session.id"
@@ -1175,7 +1243,7 @@ async function regenerateMessage(messageId: string) {
           class="session-empty-filter"
           @click="clearSessionFilters"
         >
-          没有匹配会话，清除筛选
+          {{ t('chat.clearFilter') }}
         </button>
       </nav>
 
@@ -1213,8 +1281,8 @@ async function regenerateMessage(messageId: string) {
     <el-button
       class="sidebar-toggle-button"
       :icon="isSidebarCollapsed ? Expand : Fold"
-      :title="isSidebarCollapsed ? '展开左侧栏' : '收起左侧栏'"
-      :aria-label="isSidebarCollapsed ? '展开左侧栏' : '收起左侧栏'"
+      :title="isSidebarCollapsed ? t('chat.expandSidebar') : t('chat.collapseSidebar')"
+      :aria-label="isSidebarCollapsed ? t('chat.expandSidebar') : t('chat.collapseSidebar')"
       circle
       @click="toggleSidebar"
     />
@@ -1222,7 +1290,7 @@ async function regenerateMessage(messageId: string) {
     <el-dialog
       v-model="isSummaryDialogVisible"
       class="summary-dialog"
-      title="智能总结"
+      :title="t('chat.smartSummary')"
       width="min(640px, 92vw)"
     >
       <el-input
@@ -1231,7 +1299,7 @@ async function regenerateMessage(messageId: string) {
         type="textarea"
         :rows="12"
         resize="vertical"
-        placeholder="编辑当前会话总结"
+        :placeholder="t('chat.editSummary')"
       />
       <template #footer>
         <div class="summary-dialog-actions">
@@ -1241,12 +1309,12 @@ async function regenerateMessage(messageId: string) {
             :disabled="!summaryDraft.trim()"
             @click="copySummaryDraft"
           >
-            {{ copiedSummary ? '已复制' : '复制' }}
+            {{ copiedSummary ? t('common.copied') : t('common.copy') }}
           </el-button>
-          <el-button @click="isSummaryDialogVisible = false">取消</el-button>
-          <el-button type="primary" :disabled="!summaryDraft.trim()" @click="saveSummaryDraft"
-            >保存</el-button
-          >
+          <el-button @click="isSummaryDialogVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" :disabled="!summaryDraft.trim()" @click="saveSummaryDraft">{{
+            t('common.save')
+          }}</el-button>
         </div>
       </template>
     </el-dialog>
@@ -1254,7 +1322,7 @@ async function regenerateMessage(messageId: string) {
     <div
       v-if="!isSidebarCollapsed"
       class="panel-resizer left"
-      title="拖拽调整左侧栏宽度"
+      :title="t('chat.collapseSidebar')"
       @mousedown="startResize('left', $event)"
     ></div>
 
@@ -1275,8 +1343,8 @@ async function regenerateMessage(messageId: string) {
             v-if="isMobileLayout"
             class="topbar-icon-button mobile-new-chat-btn"
             :icon="Plus"
-            title="新建会话"
-            aria-label="新建会话"
+            :title="t('chat.newSession')"
+            :aria-label="t('chat.newSession')"
             circle
             @click="chat.newSession"
           />
@@ -1288,35 +1356,49 @@ async function regenerateMessage(messageId: string) {
             {{
               chat.isProviderReady
                 ? chat.inferenceMode === 'local'
-                  ? `本地 ${chat.localModel} 已就绪`
+                  ? t('chat.readyLocal', { model: chat.localModel })
                   : chat.inferenceMode === 'auto'
-                    ? '混合推理已就绪'
-                    : `${chat.selectedProvider.name} 已就绪`
+                    ? t('chat.readyHybrid')
+                    : t('chat.readyProvider', { provider: chat.selectedProvider.name })
                 : chat.inferenceMode === 'local'
-                  ? '等待本地模型'
-                  : '等待 API Key'
+                  ? t('chat.waitingLocal')
+                  : t('chat.waitingApiKey')
             }}
           </el-tag>
+          <el-select
+            class="topbar-locale-select"
+            :model-value="locale"
+            size="small"
+            :aria-label="t('common.language')"
+            @change="handleLocaleChange"
+          >
+            <el-option
+              v-for="item in localeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
           <el-button
             class="topbar-icon-button"
             :icon="isWorkspaceCollapsed ? Expand : Fold"
-            :title="isWorkspaceCollapsed ? '展开文件树' : '收起文件树'"
-            :aria-label="isWorkspaceCollapsed ? '展开文件树' : '收起文件树'"
+            :title="isWorkspaceCollapsed ? t('chat.expandFileTree') : t('chat.collapseFileTree')"
+            :aria-label="isWorkspaceCollapsed ? t('chat.expandFileTree') : t('chat.collapseFileTree')"
             circle
             @click="toggleWorkspaceTree"
           />
           <el-button
             class="topbar-icon-button"
             :icon="SwitchButton"
-            title="退出登录"
-            aria-label="退出登录"
+            :title="t('chat.logout')"
+            :aria-label="t('chat.logout')"
             circle
             @click="logout"
           />
         </div>
       </header>
 
-      <div ref="messagesEl" class="messages" aria-label="消息列表" role="log" aria-live="polite">
+      <div ref="messagesEl" class="messages" :aria-label="t('chat.messages')" role="log" aria-live="polite">
         <div v-if="!chat.visibleMessages.length" class="empty-state">
           <div class="empty-logo">T1</div>
           <!-- <h2>Twentys1x AI 工作台</h2>
@@ -1366,15 +1448,26 @@ async function regenerateMessage(messageId: string) {
         <!-- === 修改：仅在有项目时显示，并添加退出按钮 === -->
         <div v-if="chat.activeProjectId" class="composer-project-indicator">
           <span
-            >当前项目：<strong>{{ activeProjectLabel }}</strong></span
+            >{{ t('chat.activeProject') }}<strong>{{ activeProjectLabel }}</strong></span
           >
           <el-button link @click="chat.setActiveProject('')">
-            <el-icon><Close /></el-icon> 退出项目模式
+            <el-icon><Close /></el-icon> {{ t('chat.exitProjectMode') }}
           </el-button>
         </div>
 
+        <div v-if="chat.activeProjectId" class="composer-original-root-indicator">
+          <span class="original-root-label">
+            <el-icon><Folder /></el-icon>
+            {{
+              chat.activeProject?.originalRoot
+                ? t('chat.originalPath', { path: chat.activeProject.originalRoot })
+                : t('chat.originalPathLoading')
+            }}
+          </span>
+        </div>
+
         <div v-if="activeComposerTemplate" class="composer-template-indicator">
-          <span class="composer-template-indicator__label">对话模板</span>
+          <span class="composer-template-indicator__label">{{ t('chat.conversationTemplate') }}</span>
           <el-tag
             class="composer-template-tag"
             closable
@@ -1387,7 +1480,32 @@ async function regenerateMessage(messageId: string) {
         </div>
 
         <div class="composer">
-          <el-button class="icon-button" :icon="Paperclip" circle title="添加附件" @click="pickFiles" />
+          <div class="composer-left-actions">
+            <el-button
+              class="icon-button"
+              :icon="Paperclip"
+              circle
+              :title="t('chat.addAttachment')"
+              @click="pickFiles"
+            />
+            <el-button
+              class="icon-button"
+              :type="chat.enableTools ? 'primary' : 'default'"
+              :icon="Tools"
+              circle
+              :title="chat.enableTools ? t('chat.toolsOn') : t('chat.enableTools')"
+              @click="toggleEnableTools"
+            />
+            <el-button
+              v-if="chat.activeProjectId"
+              class="icon-button"
+              :type="chat.enablePlanning ? 'warning' : 'default'"
+              :icon="Cpu"
+              circle
+              :title="chat.enablePlanning ? t('chat.planningOn') : t('chat.enablePlanning')"
+              @click="toggleEnablePlanning"
+            />
+          </div>
           <!-- === 修改：动态更新 Placeholder 文案 === -->
           <el-input
             v-model="input"
@@ -1396,10 +1514,13 @@ async function regenerateMessage(messageId: string) {
             :autosize="{ minRows: 1, maxRows: 6 }"
             :placeholder="
               chat.activeProjectId
-                ? `向 ${
-                    chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name
-                  } 提问（当前项目：${activeProjectLabel}）...`
-                : `向 ${chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name} 提问...`
+                ? t('chat.askProviderWithProject', {
+                    provider: chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name,
+                    project: activeProjectLabel,
+                  })
+                : t('chat.askProvider', {
+                    provider: chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name,
+                  })
             "
             @keydown.enter="handleEnter"
           />
@@ -1413,7 +1534,7 @@ async function regenerateMessage(messageId: string) {
             :disabled="!canSend"
             @click="submit"
           >
-            发送
+            {{ t('common.send') }}
           </el-button>
 
           <el-button
@@ -1423,7 +1544,7 @@ async function regenerateMessage(messageId: string) {
             :icon="CircleClose"
             @click="stopGeneration"
           >
-            停止
+            {{ t('common.stop') }}
           </el-button>
 
           <input ref="fileInputEl" class="file-input" type="file" multiple @change="handleFiles" />
@@ -1433,14 +1554,14 @@ async function regenerateMessage(messageId: string) {
     <div
       v-if="isCodePreviewVisible"
       class="panel-resizer preview"
-      title="拖拽调整代码预览宽度"
+      :title="t('chat.codePreview')"
       @mousedown="startResize('preview', $event)"
     ></div>
 
     <aside v-if="isCodePreviewVisible" class="code-preview-panel">
       <header class="code-preview-topbar">
         <div class="code-preview-title">
-          <p>{{ attachmentPreview ? '附件预览' : '代码预览' }}</p>
+          <p>{{ attachmentPreview ? t('chat.attachmentPreview') : t('chat.codePreview') }}</p>
           <h3>{{ previewTitle }}</h3>
         </div>
         <el-button
@@ -1449,14 +1570,14 @@ async function regenerateMessage(messageId: string) {
           :icon="Refresh"
           :loading="chat.isLoadingFile"
           :disabled="!chat.activeFilePath || Boolean(attachmentPreview)"
-          title="刷新当前文件"
+          :title="t('chat.refreshFile')"
           @click="chat.activeFilePath && chat.loadProjectFile(chat.activeFilePath, { force: true })"
         />
         <el-button
           class="panel-icon-button"
           text
           :icon="Close"
-          title="关闭代码预览"
+          :title="t('chat.closeCodePreview')"
           @click="closeCodePreview"
         />
       </header>
@@ -1498,7 +1619,7 @@ async function regenerateMessage(messageId: string) {
             :disabled="!hasEditedFileChanges"
             @click="saveActiveFileFromMonaco"
           >
-            保存
+            {{ t('common.save') }}
           </el-button>
           <el-button
             size="small"
@@ -1517,7 +1638,7 @@ async function regenerateMessage(messageId: string) {
             :disabled="!canRunActiveFile"
             @click="runActiveCode"
           >
-            运行
+            {{ t('common.run') }}
           </el-button>
           <el-button
             size="small"
@@ -1531,12 +1652,12 @@ async function regenerateMessage(messageId: string) {
         </div>
 
         <div v-if="!attachmentPreview && chat.activeFilePath" class="code-workbench">
-          <div ref="monacoEditorEl" class="monaco-editor-host" aria-label="Monaco 代码编辑器"></div>
+          <div ref="monacoEditorEl" class="monaco-editor-host" aria-label="Monaco code editor"></div>
           <section class="code-runner-panel" :class="`status-${codeRunStatus}`">
             <header class="code-runner-header">
               <span class="code-runner-title">
                 <el-icon><Cpu /></el-icon>
-                调试
+                {{ t('chat.debug') }}
               </span>
               <span class="code-runner-status">{{ codeRunStatusLabel }}</span>
               <el-button
@@ -1544,7 +1665,7 @@ async function regenerateMessage(messageId: string) {
                 text
                 :icon="CopyDocument"
                 :disabled="!codeRunLogs.length"
-                :title="copiedDebugOutput ? '已复制' : '复制调试输出'"
+                :title="copiedDebugOutput ? t('common.copied') : t('chat.copyDebugOutput')"
                 @click="copyDebugOutput"
               />
             </header>
@@ -1553,14 +1674,14 @@ async function regenerateMessage(messageId: string) {
               class="code-runner-frame"
               sandbox="allow-scripts"
               :srcdoc="codeRunPreviewHtml"
-              title="代码运行沙箱"
+              :title="t('chat.codeSandboxTitle')"
             ></iframe>
             <pre
               class="code-runner-log"
-            ><code>{{ codeRunLogs.length ? codeRunLogs.join('\n') : '运行 JS/TS/HTML/CSS 后，日志和错误会显示在这里。' }}</code></pre>
+            ><code>{{ codeRunLogs.length ? codeRunLogs.join('\n') : t('chat.runLogEmpty') }}</code></pre>
           </section>
         </div>
-        <div v-else-if="!attachmentPreview" class="code-empty">选择文件后在这里预览代码</div>
+        <div v-else-if="!attachmentPreview" class="code-empty">{{ t('chat.chooseFilePreview') }}</div>
 
         <pre v-if="!attachmentPreview && chat.activeFileDiff" class="diff-preview">
           <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
@@ -1571,7 +1692,7 @@ async function regenerateMessage(messageId: string) {
     <div
       v-if="!isWorkspaceCollapsed"
       class="panel-resizer right"
-      title="拖拽调整 Workspace 宽度"
+      title="Workspace"
       @mousedown="startResize('right', $event)"
     ></div>
 
@@ -1579,7 +1700,7 @@ async function regenerateMessage(messageId: string) {
       <header class="workspace-topbar">
         <div>
           <p>Workspace</p>
-          <h2>{{ chat.activeProject?.name || '未选择项目' }}</h2>
+          <h2>{{ chat.activeProject?.name || t('chat.workspaceNoProject') }}</h2>
         </div>
         <div class="workspace-topbar-actions">
           <el-button
@@ -1588,14 +1709,14 @@ async function regenerateMessage(messageId: string) {
             :icon="Refresh"
             :loading="chat.isLoadingProjectTree || chat.isLoadingFile"
             :disabled="!chat.activeProject"
-            title="刷新项目文件"
+            :title="t('chat.refreshProjectFiles')"
             @click="chat.refreshActiveProjectFiles"
           />
           <el-button
             class="panel-icon-button"
             text
             :disabled="!canToggleCodePreview"
-            :title="isCodePreviewVisible ? '隐藏代码预览' : '显示代码预览'"
+            :title="isCodePreviewVisible ? t('chat.hideCodePreview') : t('chat.showCodePreview')"
             @click="toggleCodePreviewPanel"
           >
             <span
@@ -1608,8 +1729,8 @@ async function regenerateMessage(messageId: string) {
             class="panel-icon-button"
             text
             :icon="Fold"
-            title="收起文件树"
-            aria-label="收起文件树"
+            :title="t('chat.collapseFileTree')"
+            :aria-label="t('chat.collapseFileTree')"
             @click="toggleWorkspaceTree"
           />
         </div>
@@ -1618,9 +1739,11 @@ async function regenerateMessage(messageId: string) {
       <section class="file-tree-section">
         <div class="workspace-section-title">
           <span class="workspace-files-title"
-            >所有文件 <el-icon><ArrowDown /></el-icon
+            >{{ t('chat.allFiles') }} <el-icon><ArrowDown /></el-icon
           ></span>
-          <small v-if="chat.activeProject">{{ chat.activeProject.chunkCount }} 片段</small>
+          <small v-if="chat.activeProject"
+            >{{ chat.activeProject.chunkCount }} {{ t('common.snippets') }}</small
+          >
         </div>
         <el-tree
           v-if="chat.activeProjectTree.length"
@@ -1647,7 +1770,7 @@ async function regenerateMessage(messageId: string) {
           </template>
         </el-tree>
         <button v-else type="button" class="project-empty" @click="pickProjectFolder">
-          先导入项目文件夹
+          {{ t('chat.importProjectFirst') }}
         </button>
       </section>
     </aside>

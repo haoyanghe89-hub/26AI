@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { MoreFilled } from '@element-plus/icons-vue'
 import ElDropdown, { ElDropdownItem, ElDropdownMenu } from 'element-plus/es/components/dropdown/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
@@ -18,6 +19,7 @@ const emit = defineEmits<{
 }>()
 
 const chat = useChatStore()
+const { t, locale } = useI18n()
 
 /** 列表区只展示一个代表性标签，其余在「当前会话标签」编辑框查看 */
 const primaryListTag = computed(() => {
@@ -26,7 +28,7 @@ const primaryListTag = computed(() => {
 })
 
 function formatSessionTime(value: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(locale.value, {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -35,7 +37,7 @@ function formatSessionTime(value: string) {
 }
 
 function formatDetailTime(iso: string) {
-  return new Intl.DateTimeFormat('zh-CN', {
+  return new Intl.DateTimeFormat(locale.value, {
     dateStyle: 'full',
     timeStyle: 'medium',
   }).format(new Date(iso))
@@ -66,27 +68,27 @@ async function handleCommand(command: string) {
     const link = buildSessionLink(id)
     try {
       await navigator.clipboard.writeText(link)
-      ElMessage.success('对话链接已复制到剪贴板')
+      ElMessage.success(t('session.linkCopied'))
     } catch {
-      ElMessage.error('复制失败，请手动复制浏览器地址栏链接')
+      ElMessage.error(t('session.linkCopyFailed'))
     }
     return
   }
 
   if (command === 'rename') {
     try {
-      const { value } = await ElMessageBox.prompt('请输入新的会话标题', '重命名会话', {
-        confirmButtonText: '保存',
-        cancelButtonText: '取消',
+      const { value } = await ElMessageBox.prompt(t('session.renamePrompt'), t('session.renameTitle'), {
+        confirmButtonText: t('common.save'),
+        cancelButtonText: t('common.cancel'),
         inputValue: title,
         inputValidator: (val: string) => {
-          if (!val?.trim()) return '标题不能为空'
+          if (!val?.trim()) return t('session.titleRequired')
           return true
         },
       })
       const ok = chat.renameSession(id, value)
-      if (ok) ElMessage.success('已保存')
-      else ElMessage.error('重命名失败')
+      if (ok) ElMessage.success(t('session.saved'))
+      else ElMessage.error(t('session.renameFailed'))
     } catch {
       /* 取消 */
     }
@@ -96,10 +98,14 @@ async function handleCommand(command: string) {
   if (command === 'details') {
     const { createdAt, updatedAt } = props.session
     await ElMessageBox.alert(
-      `列表中不展示时间，以下为详细时间。\n\n最近更新（简写）：${formatSessionTime(updatedAt)}\n\n创建时间：${formatDetailTime(createdAt)}\n\n最后更新：${formatDetailTime(updatedAt)}`,
-      '会话时间',
+      t('session.timeDetails', {
+        shortUpdated: formatSessionTime(updatedAt),
+        created: formatDetailTime(createdAt),
+        updated: formatDetailTime(updatedAt),
+      }),
+      t('session.timeTitle'),
       {
-        confirmButtonText: '关闭',
+        confirmButtonText: t('common.close'),
         customClass: 'session-detail-dialog',
       },
     )
@@ -108,13 +114,13 @@ async function handleCommand(command: string) {
 
   if (command === 'delete') {
     try {
-      await ElMessageBox.confirm(`确定删除会话「${title}」吗？本地记录将一并移除，且不可恢复。`, '删除会话', {
-        confirmButtonText: '删除',
-        cancelButtonText: '取消',
+      await ElMessageBox.confirm(t('session.deleteConfirm', { title }), t('session.deleteConfirmTitle'), {
+        confirmButtonText: t('common.delete'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       })
       chat.deleteSession(id)
-      ElMessage.success('已删除')
+      ElMessage.success(t('session.deleted'))
     } catch {
       /* 取消 */
     }
@@ -134,22 +140,32 @@ async function handleCommand(command: string) {
     <span class="session-item-main">
       <span class="session-item-row">
         <span class="session-title">{{ session.title }}</span>
-        <span v-if="primaryListTag" class="session-tags-inline session-tags-trailing" aria-label="会话标签">
+        <span
+          v-if="primaryListTag"
+          class="session-tags-inline session-tags-trailing"
+          :aria-label="t('session.tags')"
+        >
           <span class="session-tag-chip" :title="session.tags?.join('、')">{{ primaryListTag }}</span>
         </span>
       </span>
     </span>
     <span class="session-more-wrap" @click.stop @mousedown.stop>
       <el-dropdown trigger="click" teleported @command="handleCommand">
-        <span class="session-more-trigger" role="button" tabindex="-1" title="更多操作" aria-label="更多操作">
+        <span
+          class="session-more-trigger"
+          role="button"
+          tabindex="-1"
+          :title="t('session.moreActions')"
+          :aria-label="t('session.moreActions')"
+        >
           <el-icon><MoreFilled /></el-icon>
         </span>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item command="copy-link">复制对话链接</el-dropdown-item>
-            <el-dropdown-item command="rename">重命名</el-dropdown-item>
-            <el-dropdown-item command="details">查看详细时间</el-dropdown-item>
-            <el-dropdown-item command="delete" divided>删除对话</el-dropdown-item>
+            <el-dropdown-item command="copy-link">{{ t('session.copyLink') }}</el-dropdown-item>
+            <el-dropdown-item command="rename">{{ t('session.rename') }}</el-dropdown-item>
+            <el-dropdown-item command="details">{{ t('session.details') }}</el-dropdown-item>
+            <el-dropdown-item command="delete" divided>{{ t('session.deleteChat') }}</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>

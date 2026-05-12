@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   ArrowDown,
   Collection,
@@ -49,6 +50,7 @@ const emit = defineEmits<{
   'run-workflow': [id: string, input: string]
 }>()
 
+const { t } = useI18n()
 type LabMode = 'templates' | 'agents' | 'workflows'
 
 const storedCollapsed = localStorage.getItem('twentys1x:prompt-lab-collapsed')
@@ -112,9 +114,9 @@ function resetObject(target: Record<string, unknown>, source: Record<string, unk
 function openTemplateDialog(template?: PromptTemplate) {
   resetObject(templateDraft, {
     id: template?.isBuiltin ? undefined : template?.id,
-    name: template?.isBuiltin ? `${template.name} 副本` : template?.name || '',
+    name: template?.isBuiltin ? `${template.name} ${t('promptLab.copySuffix')}` : template?.name || '',
     description: template?.description || '',
-    category: template?.category || '自定义',
+    category: template?.category || t('promptLab.defaultCategory'),
     content: template?.content || '',
   })
   templateDialogVisible.value = true
@@ -169,7 +171,7 @@ function applyTemplateVariables() {
 function openAgentDialog(agent?: CustomAgent) {
   resetObject(agentDraft, {
     id: agent?.isBuiltin ? undefined : agent?.id,
-    name: agent?.isBuiltin ? `${agent.name} 副本` : agent?.name || '',
+    name: agent?.isBuiltin ? `${agent.name} ${t('promptLab.copySuffix')}` : agent?.name || '',
     description: agent?.description || '',
     systemPrompt: agent?.systemPrompt || '',
     model: agent?.model || '',
@@ -206,8 +208,8 @@ function saveAgentDraft() {
 function createWorkflowStep(): PromptWorkflowStep {
   return {
     id: crypto.randomUUID(),
-    title: '新步骤',
-    prompt: '请基于输入完成这个步骤。\n\n输入：\n{{input}}\n\n上一步输出：\n{{previous}}',
+    title: t('promptLab.newStepTitle'),
+    prompt: t('promptLab.newStepPrompt'),
     agentId: props.activeAgentId || DEFAULT_AGENT_ID,
     templateId: '',
   }
@@ -216,7 +218,7 @@ function createWorkflowStep(): PromptWorkflowStep {
 function openWorkflowDialog(workflow?: PromptWorkflow) {
   resetObject(workflowDraft, {
     id: workflow?.isBuiltin ? undefined : workflow?.id,
-    name: workflow?.isBuiltin ? `${workflow.name} 副本` : workflow?.name || '',
+    name: workflow?.isBuiltin ? `${workflow.name} ${t('promptLab.copySuffix')}` : workflow?.name || '',
     description: workflow?.description || '',
     steps: workflow?.steps?.length ? workflow.steps.map((step) => ({ ...step })) : [createWorkflowStep()],
   })
@@ -271,13 +273,13 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 </script>
 
 <template>
-  <section class="prompt-lab" :class="{ 'is-collapsed': isCollapsed }" aria-label="个性化工作台">
+  <section class="prompt-lab" :class="{ 'is-collapsed': isCollapsed }" :aria-label="t('promptLab.title')">
     <button type="button" class="prompt-lab-header" :aria-expanded="!isCollapsed" @click="toggleCollapsed">
       <span class="prompt-lab-title">
         <el-icon><MagicStick /></el-icon>
-        个性化工作台
+        {{ t('promptLab.title') }}
       </span>
-      <span class="prompt-lab-summary">{{ activeAgent?.name || '通用助手' }}</span>
+      <span class="prompt-lab-summary">{{ activeAgent?.name || t('promptLab.defaultAgent') }}</span>
       <el-icon class="prompt-lab-chevron t1-chevron" :class="{ 'is-expanded': !isCollapsed }">
         <ArrowDown />
       </el-icon>
@@ -286,15 +288,15 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
     <div class="t1-collapse-wrap" :class="{ 'is-open': !isCollapsed }">
       <div class="t1-collapse-inner">
         <div class="prompt-lab-body">
-          <div class="prompt-lab-tabs" role="tablist" aria-label="个性化工作台视图">
+          <div class="prompt-lab-tabs" role="tablist" :aria-label="t('promptLab.views')">
             <button :class="{ active: mode === 'templates' }" type="button" @click="switchMode('templates')">
-              模板
+              {{ t('promptLab.templates') }}
             </button>
             <button :class="{ active: mode === 'agents' }" type="button" @click="switchMode('agents')">
-              Agent
+              {{ t('promptLab.agents') }}
             </button>
             <button :class="{ active: mode === 'workflows' }" type="button" @click="switchMode('workflows')">
-              工作流
+              {{ t('promptLab.workflows') }}
             </button>
           </div>
 
@@ -312,26 +314,32 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :value="template.id"
                 />
               </el-select>
-              <el-button size="small" plain :icon="Plus" @click="openTemplateDialog()">新建</el-button>
+              <el-button size="small" plain :icon="Plus" @click="openTemplateDialog()">{{
+                t('common.new')
+              }}</el-button>
             </div>
             <div v-if="selectedTemplate" class="prompt-card">
               <div class="prompt-card-head">
                 <span
                   ><el-icon><Collection /></el-icon>{{ selectedTemplate.name }}</span
                 >
-                <small>{{ selectedTemplate.isBuiltin ? '内置' : '自定义' }}</small>
+                <small>{{
+                  selectedTemplate.isBuiltin ? t('promptLab.builtin') : t('promptLab.custom')
+                }}</small>
               </div>
-              <p>{{ selectedTemplate.description || '无描述' }}</p>
+              <p>{{ selectedTemplate.description || t('common.noDescription') }}</p>
               <div v-if="templateVariables.length" class="prompt-chip-row">
                 <span v-for="name in templateVariables" :key="name">{{ name }}</span>
               </div>
               <div class="prompt-lab-actions">
-                <el-button size="small" type="primary" @click="applySelectedTemplate">使用模板</el-button>
+                <el-button size="small" type="primary" @click="applySelectedTemplate">{{
+                  t('promptLab.useTemplate')
+                }}</el-button>
                 <el-button size="small" plain :icon="Edit" @click="openTemplateDialog(selectedTemplate)">
-                  {{ selectedTemplate.isBuiltin ? '复制编辑' : '编辑' }}
+                  {{ selectedTemplate.isBuiltin ? t('promptLab.copyEdit') : t('common.edit') }}
                 </el-button>
                 <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedTemplate)">
-                  {{ copiedAssetId === selectedTemplate.id ? '已复制' : '分享' }}
+                  {{ copiedAssetId === selectedTemplate.id ? t('common.copied') : t('promptLab.share') }}
                 </el-button>
                 <el-button
                   v-if="!selectedTemplate.isBuiltin"
@@ -340,7 +348,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :icon="Delete"
                   @click="emit('delete-template', selectedTemplate.id)"
                 >
-                  删除
+                  {{ t('common.delete') }}
                 </el-button>
               </div>
             </div>
@@ -356,41 +364,46 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
               >
                 <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
               </el-select>
-              <el-button size="small" plain :icon="Plus" @click="openAgentDialog()">新建</el-button>
+              <el-button size="small" plain :icon="Plus" @click="openAgentDialog()">{{
+                t('common.new')
+              }}</el-button>
             </div>
             <div v-if="activeAgent" class="prompt-card">
               <div class="prompt-card-head">
                 <span
                   ><el-icon><User /></el-icon>{{ activeAgent.name }}</span
                 >
-                <small>{{ activeAgent.model || '当前模型' }} · T {{ activeAgent.temperature }}</small>
+                <small
+                  >{{ activeAgent.model || t('promptLab.currentModel') }} · T
+                  {{ activeAgent.temperature }}</small
+                >
               </div>
-              <p>{{ activeAgent.description || '无描述' }}</p>
+              <p>{{ activeAgent.description || t('common.noDescription') }}</p>
               <div class="agent-meta-row">
                 <div class="agent-context-row" :class="{ disabled: !isProjectContextActive }">
                   {{
                     isProjectContextActive
-                      ? '项目上下文已开启'
+                      ? t('promptLab.projectContextOn')
                       : hasActiveProject
-                        ? '项目上下文未启用'
-                        : '普通对话模式'
+                        ? t('promptLab.projectContextOff')
+                        : t('promptLab.normalChatMode')
                   }}
                 </div>
                 <div v-if="activeAgent.knowledgeBase?.length" class="agent-kb-badge">
                   <el-icon><Collection /></el-icon>
-                  {{ activeAgent.knowledgeBase.length }} 条知识
+                  {{ t('promptLab.knowledgeCount', { count: activeAgent.knowledgeBase.length }) }}
                 </div>
                 <div v-if="activeAgent.memory" class="agent-memory-badge">
                   <el-icon><Collection /></el-icon>
-                  有记忆
+                  {{ t('promptLab.hasMemory') }}
                 </div>
               </div>
               <div class="prompt-lab-actions">
                 <el-button size="small" plain :icon="Edit" @click="openAgentDialog(activeAgent)">
-                  {{ activeAgent.isBuiltin ? '复制编辑' : '编辑' }}
+                  {{ activeAgent.isBuiltin ? t('promptLab.copyEdit') : t('common.edit') }}
                 </el-button>
                 <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(activeAgent)">
-                  {{ copiedAssetId === activeAgent.id ? '已复制' : '分享' }}
+                  {{ copiedAssetId === activeAgent.id ? t('common.copied') : t('promptLab.share') }}
                 </el-button>
                 <el-button
                   v-if="!activeAgent.isBuiltin"
@@ -399,7 +412,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :icon="Delete"
                   @click="emit('delete-agent', activeAgent.id)"
                 >
-                  删除
+                  {{ t('common.delete') }}
                 </el-button>
               </div>
             </div>
@@ -419,16 +432,18 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :value="workflow.id"
                 />
               </el-select>
-              <el-button size="small" plain :icon="Plus" @click="openWorkflowDialog()">新建</el-button>
+              <el-button size="small" plain :icon="Plus" @click="openWorkflowDialog()">{{
+                t('common.new')
+              }}</el-button>
             </div>
             <div v-if="selectedWorkflow" class="prompt-card">
               <div class="prompt-card-head">
                 <span
                   ><el-icon><MagicStick /></el-icon>{{ selectedWorkflow.name }}</span
                 >
-                <small>{{ selectedWorkflow.steps.length }} 步</small>
+                <small>{{ t('promptLab.stepsCount', { count: selectedWorkflow.steps.length }) }}</small>
               </div>
-              <p>{{ selectedWorkflow.description || '无描述' }}</p>
+              <p>{{ selectedWorkflow.description || t('common.noDescription') }}</p>
               <ol class="workflow-step-list">
                 <li v-for="step in selectedWorkflow.steps" :key="step.id">{{ step.title }}</li>
               </ol>
@@ -439,13 +454,13 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :loading="isRunningWorkflow"
                   @click="openWorkflowRunDialog"
                 >
-                  执行
+                  {{ t('common.run') }}
                 </el-button>
                 <el-button size="small" plain :icon="Edit" @click="openWorkflowDialog(selectedWorkflow)">
-                  {{ selectedWorkflow.isBuiltin ? '复制编辑' : '编辑' }}
+                  {{ selectedWorkflow.isBuiltin ? t('promptLab.copyEdit') : t('common.edit') }}
                 </el-button>
                 <el-button size="small" plain :icon="CopyDocument" @click="copyAsset(selectedWorkflow)">
-                  {{ copiedAssetId === selectedWorkflow.id ? '已复制' : '分享' }}
+                  {{ copiedAssetId === selectedWorkflow.id ? t('common.copied') : t('promptLab.share') }}
                 </el-button>
                 <el-button
                   v-if="!selectedWorkflow.isBuiltin"
@@ -454,7 +469,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
                   :icon="Delete"
                   @click="emit('delete-workflow', selectedWorkflow.id)"
                 >
-                  删除
+                  {{ t('common.delete') }}
                 </el-button>
               </div>
             </div>
@@ -467,31 +482,31 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   <el-dialog
     v-model="templateDialogVisible"
     class="personalization-dialog"
-    title="提示词模板"
+    :title="t('promptLab.templateDialog')"
     width="min(720px, 94vw)"
     append-to-body
     align-center
   >
     <div class="prompt-form">
-      <el-input v-model="templateDraft.name" placeholder="模板名称" />
-      <el-input v-model="templateDraft.category" placeholder="分类，例如 研发、创作、职场" />
-      <el-input v-model="templateDraft.description" placeholder="用途描述" />
+      <el-input v-model="templateDraft.name" :placeholder="t('promptLab.templateName')" />
+      <el-input v-model="templateDraft.category" :placeholder="t('promptLab.categoryPlaceholder')" />
+      <el-input v-model="templateDraft.description" :placeholder="t('promptLab.descriptionPlaceholder')" />
       <el-input
         v-model="templateDraft.content"
         type="textarea"
         :rows="10"
         resize="vertical"
-        placeholder="使用 {{input}}、{{code}} 这类变量占位"
+        :placeholder="t('promptLab.templateContentPlaceholder')"
       />
     </div>
     <template #footer>
-      <el-button @click="templateDialogVisible = false">取消</el-button>
+      <el-button @click="templateDialogVisible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         type="primary"
         :disabled="!templateDraft.name || !templateDraft.content"
         @click="saveTemplateDraft"
       >
-        保存
+        {{ t('common.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -499,7 +514,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   <el-dialog
     v-model="variableDialogVisible"
     class="personalization-dialog"
-    title="填写模板变量"
+    :title="t('promptLab.variableDialog')"
     width="min(560px, 94vw)"
     append-to-body
     align-center
@@ -511,81 +526,87 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
       </label>
     </div>
     <template #footer>
-      <el-button @click="variableDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="applyTemplateVariables">使用模板</el-button>
+      <el-button @click="variableDialogVisible = false">{{ t('common.cancel') }}</el-button>
+      <el-button type="primary" @click="applyTemplateVariables">{{ t('promptLab.useTemplate') }}</el-button>
     </template>
   </el-dialog>
 
   <el-dialog
     v-model="agentDialogVisible"
     class="personalization-dialog"
-    title="自定义 Agent"
+    :title="t('promptLab.customAgent')"
     width="min(720px, 94vw)"
     append-to-body
     align-center
   >
     <div class="prompt-form">
-      <el-input v-model="agentDraft.name" placeholder="Agent 名称" />
-      <el-input v-model="agentDraft.description" placeholder="用途描述" />
-      <el-input v-model="agentDraft.model" placeholder="模型覆盖，留空则使用当前模型" />
+      <el-input v-model="agentDraft.name" :placeholder="t('promptLab.agentName')" />
+      <el-input v-model="agentDraft.description" :placeholder="t('promptLab.descriptionPlaceholder')" />
+      <el-input v-model="agentDraft.model" :placeholder="t('promptLab.modelOverride')" />
       <label>
-        <span>温度</span>
+        <span>{{ t('promptLab.temperature') }}</span>
         <el-input-number v-model="agentDraft.temperature" :min="0" :max="2" :step="0.1" />
       </label>
       <label class="agent-project-toggle">
         <input v-model="agentDraft.useProjectContext" type="checkbox" />
-        <span>使用当前上传项目上下文</span>
+        <span>{{ t('promptLab.useProjectContext') }}</span>
       </label>
       <el-input
         v-model="agentDraft.systemPrompt"
         type="textarea"
         :rows="6"
         resize="vertical"
-        placeholder="输入这个 Agent 的系统提示词"
+        :placeholder="t('promptLab.systemPrompt')"
       />
       <div class="memory-section">
         <div class="memory-section-head">
-          <strong>长期记忆</strong>
-          <span v-if="agentDraft.memory" class="memory-hint">已记录 {{ agentDraft.memory.length }} 字</span>
-          <span v-else class="memory-hint">对话中自动提取用户偏好</span>
+          <strong>{{ t('promptLab.memory') }}</strong>
+          <span v-if="agentDraft.memory" class="memory-hint">{{
+            t('promptLab.memoryRecorded', { count: agentDraft.memory.length })
+          }}</span>
+          <span v-else class="memory-hint">{{ t('promptLab.memoryHint') }}</span>
         </div>
         <el-input
           v-model="agentDraft.memory"
           type="textarea"
           :rows="4"
           resize="vertical"
-          placeholder="可手动编辑，也可由系统在对话中自动提取。每次对话后会自动更新。"
+          :placeholder="t('promptLab.memoryPlaceholder')"
         />
       </div>
       <div class="kb-section">
         <div class="kb-section-head">
-          <strong>知识库</strong>
-          <span>{{ agentKnowledgeItems().length }} 条</span>
-          <el-button size="small" plain :icon="Plus" @click="addKnowledgeItem">添加</el-button>
+          <strong>{{ t('promptLab.knowledgeBase') }}</strong>
+          <span>{{ t('promptLab.knowledgeCount', { count: agentKnowledgeItems().length }) }}</span>
+          <el-button size="small" plain :icon="Plus" @click="addKnowledgeItem">{{
+            t('promptLab.add')
+          }}</el-button>
         </div>
         <div v-for="(item, idx) in agentKnowledgeItems()" :key="item.id" class="kb-item">
           <div class="kb-item-head">
-            <el-input v-model="item.title" size="small" placeholder="知识标题" />
-            <el-button size="small" plain @click="removeKnowledgeItem(idx)">删除</el-button>
+            <el-input v-model="item.title" size="small" :placeholder="t('promptLab.knowledgeTitle')" />
+            <el-button size="small" plain @click="removeKnowledgeItem(idx)">{{
+              t('common.delete')
+            }}</el-button>
           </div>
           <el-input
             v-model="item.content"
             type="textarea"
             :rows="3"
             resize="vertical"
-            placeholder="知识内容，回答时作为参考上下文注入"
+            :placeholder="t('promptLab.knowledgeContent')"
           />
         </div>
       </div>
     </div>
     <template #footer>
-      <el-button @click="agentDialogVisible = false">取消</el-button>
+      <el-button @click="agentDialogVisible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         type="primary"
         :disabled="!agentDraft.name || !agentDraft.systemPrompt"
         @click="saveAgentDraft"
       >
-        保存
+        {{ t('common.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -593,31 +614,31 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   <el-dialog
     v-model="workflowDialogVisible"
     class="personalization-dialog personalization-dialog--wide"
-    title="工作流编排"
+    :title="t('promptLab.workflowDialog')"
     width="min(820px, 96vw)"
     append-to-body
     align-center
   >
     <div class="prompt-form workflow-form">
-      <el-input v-model="workflowDraft.name" placeholder="工作流名称" />
-      <el-input v-model="workflowDraft.description" placeholder="用途描述" />
+      <el-input v-model="workflowDraft.name" :placeholder="t('promptLab.workflowName')" />
+      <el-input v-model="workflowDraft.description" :placeholder="t('promptLab.descriptionPlaceholder')" />
       <div v-for="(step, index) in workflowSteps()" :key="step.id" class="workflow-step-editor">
         <div class="workflow-step-editor-head">
-          <strong>步骤 {{ index + 1 }}</strong>
+          <strong>{{ t('promptLab.step', { index: index + 1 }) }}</strong>
           <el-button
             size="small"
             plain
             :disabled="workflowSteps().length <= 1"
             @click="removeWorkflowStep(index)"
           >
-            删除
+            {{ t('common.delete') }}
           </el-button>
         </div>
-        <el-input v-model="step.title" placeholder="步骤标题" />
+        <el-input v-model="step.title" :placeholder="t('promptLab.stepTitle')" />
         <el-select
           v-model="step.agentId"
           popper-class="military-green-select-dropdown"
-          placeholder="选择 Agent"
+          :placeholder="t('promptLab.selectAgent')"
         >
           <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
         </el-select>
@@ -625,7 +646,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
           v-model="step.templateId"
           clearable
           popper-class="military-green-select-dropdown"
-          placeholder="可选：套用模板"
+          :placeholder="t('promptLab.selectTemplate')"
           @change="() => applyWorkflowTemplate(step)"
         >
           <el-option
@@ -637,16 +658,16 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
         </el-select>
         <el-input v-model="step.prompt" type="textarea" :rows="6" resize="vertical" />
       </div>
-      <el-button plain :icon="Plus" @click="addWorkflowStep">添加步骤</el-button>
+      <el-button plain :icon="Plus" @click="addWorkflowStep">{{ t('promptLab.addStep') }}</el-button>
     </div>
     <template #footer>
-      <el-button @click="workflowDialogVisible = false">取消</el-button>
+      <el-button @click="workflowDialogVisible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         type="primary"
         :disabled="!workflowDraft.name || !workflowSteps().length"
         @click="saveWorkflowDraft"
       >
-        保存
+        {{ t('common.save') }}
       </el-button>
     </template>
   </el-dialog>
@@ -654,7 +675,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   <el-dialog
     v-model="workflowRunDialogVisible"
     class="personalization-dialog"
-    title="运行工作流"
+    :title="t('promptLab.runWorkflow')"
     width="min(640px, 94vw)"
     append-to-body
     align-center
@@ -662,27 +683,27 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
     <div class="prompt-form">
       <div v-if="selectedWorkflow" class="workflow-run-summary">
         <strong>{{ selectedWorkflow.name }}</strong>
-        <span>{{ selectedWorkflow.steps.length }} 个步骤会依次执行，结果将写入当前会话。</span>
+        <span>{{ t('promptLab.runWorkflowDesc', { count: selectedWorkflow.steps.length }) }}</span>
       </div>
       <el-input
         v-model="workflowRunInput"
         type="textarea"
         :rows="8"
         resize="vertical"
-        placeholder="输入这次要交给工作流处理的任务、需求或问题"
+        :placeholder="t('promptLab.workflowInput')"
         @keydown.meta.enter.prevent="submitWorkflowRun"
         @keydown.ctrl.enter.prevent="submitWorkflowRun"
       />
     </div>
     <template #footer>
-      <el-button @click="workflowRunDialogVisible = false">取消</el-button>
+      <el-button @click="workflowRunDialogVisible = false">{{ t('common.cancel') }}</el-button>
       <el-button
         type="primary"
         :loading="isRunningWorkflow"
         :disabled="!workflowRunInput.trim()"
         @click="submitWorkflowRun"
       >
-        开始执行
+        {{ t('promptLab.startRun') }}
       </el-button>
     </template>
   </el-dialog>

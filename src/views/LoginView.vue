@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import {
   ChatDotRound,
@@ -16,6 +17,8 @@ import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
+import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
+import { localeOptions, setLocale, type AppLocale } from '../i18n'
 import { useAuthStore, type AuthProvider } from '../stores/auth'
 
 type LoginMode = 'qr' | 'phone' | 'account'
@@ -24,6 +27,7 @@ type QrProvider = Extract<AuthProvider, 'wechat' | 'qq'>
 
 const router = useRouter()
 const auth = useAuthStore()
+const { t, locale } = useI18n()
 
 const loginMode = ref<LoginMode>('account')
 const accountMode = ref<AccountMode>('login')
@@ -61,25 +65,27 @@ const accountForm = ref({
 
 const safeCapabilities = computed(() => auth.capabilities || fallbackCapabilities)
 const loginModeOptions = computed<Array<{ id: LoginMode; label: string; unavailable?: boolean }>>(() => [
-  { id: 'account', label: '账号密码' },
-  { id: 'phone', label: '手机验证码', unavailable: !safeCapabilities.value.phoneSms },
-  { id: 'qr', label: '扫码登录', unavailable: !hasEnabledQrProvider.value },
+  { id: 'account', label: t('auth.accountPassword') },
+  { id: 'phone', label: t('auth.phoneSms'), unavailable: !safeCapabilities.value.phoneSms },
+  { id: 'qr', label: t('auth.qrLogin'), unavailable: !hasEnabledQrProvider.value },
 ])
 
-const qrProviderOptions: Array<{ id: QrProvider; label: string }> = [
-  { id: 'wechat', label: '微信' },
-  { id: 'qq', label: 'QQ' },
-]
+const qrProviderOptions = computed<Array<{ id: QrProvider; label: string }>>(() => [
+  { id: 'wechat', label: t('auth.wechat') },
+  { id: 'qq', label: t('auth.qq') },
+])
 
-const qrProviderLabel = computed(() => (qrProvider.value === 'wechat' ? '微信' : 'QQ'))
-const accountSubmitLabel = computed(() => (accountMode.value === 'login' ? '登录' : '注册并登录'))
+const qrProviderLabel = computed(() => (qrProvider.value === 'wechat' ? t('auth.wechat') : t('auth.qq')))
+const accountSubmitLabel = computed(() =>
+  accountMode.value === 'login' ? t('auth.login') : t('auth.registerAndLogin'),
+)
 const hasEnabledQrProvider = computed(() => Object.values(safeCapabilities.value.oauth).some(Boolean))
 const activeQrProviderEnabled = computed(() => Boolean(safeCapabilities.value.oauth[qrProvider.value]))
 
 async function sendPhoneCode() {
   await withFeedback(async () => {
     await auth.requestSmsCode(phoneForm.value.phone, 'login')
-    ElMessage.success('验证码已发送')
+    ElMessage.success(t('auth.codeSent'))
   }, true)
 }
 
@@ -117,7 +123,7 @@ async function withFeedback(action: () => Promise<void>, sendingCode = false) {
     else isSubmitting.value = true
     await action()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : '操作失败，请稍后再试')
+    ElMessage.error(error instanceof Error ? error.message : t('auth.operationFailed'))
   } finally {
     isSendingCode.value = false
     isSubmitting.value = false
@@ -127,6 +133,10 @@ async function withFeedback(action: () => Promise<void>, sendingCode = false) {
 function updateCursor(event: MouseEvent) {
   cursorX.value = event.clientX
   cursorY.value = event.clientY
+}
+
+function handleLocaleChange(value: string) {
+  setLocale(value as AppLocale)
 }
 
 onMounted(async () => {
@@ -158,25 +168,34 @@ onMounted(async () => {
       <div class="logo-mark">T1</div>
       <div>
         <strong>Twentys1x</strong>
-        <span>真实认证进行中</span>
+        <span>{{ t('auth.authenticating') }}</span>
       </div>
     </div>
 
-    <div class="login-top-actions" aria-label="登录能力状态">
-      <span>本地真实账号</span>
-      <span>{{ safeCapabilities.phoneSms ? '短信已接入' : '短信待接入' }}</span>
+    <div class="login-top-actions" :aria-label="t('auth.status')">
+      <span>{{ t('auth.localAccount') }}</span>
+      <span>{{ safeCapabilities.phoneSms ? t('auth.smsReady') : t('auth.smsPending') }}</span>
+      <el-select
+        class="locale-select"
+        :model-value="locale"
+        size="small"
+        :aria-label="t('common.language')"
+        @change="handleLocaleChange"
+      >
+        <el-option v-for="item in localeOptions" :key="item.value" :label="item.label" :value="item.value" />
+      </el-select>
     </div>
 
-    <section class="login-center" aria-label="登录 Twentys1x">
+    <section class="login-center" :aria-label="t('auth.loginTwentys1x')">
       <div class="login-copy">
         <p>Twentys1x AI Studio</p>
         <!-- <h1>Secure Local Orbit</h1> -->
-        <strong>欢迎一起构建</strong>
-        <span>登录后继续你的会话、项目与 AI 工作流，把灵感、代码和知识沉淀成可以反复使用的创作空间。</span>
+        <strong>{{ t('auth.welcome') }}</strong>
+        <span>{{ t('auth.intro') }}</span>
       </div>
 
-      <section class="login-panel" aria-label="登录表单">
-        <div class="login-mode-tabs" role="tablist" aria-label="选择登录方式">
+      <section class="login-panel" :aria-label="t('auth.form')">
+        <div class="login-mode-tabs" role="tablist" :aria-label="t('auth.chooseLoginMode')">
           <button
             v-for="option in loginModeOptions"
             :key="option.id"
@@ -189,7 +208,7 @@ onMounted(async () => {
         </div>
 
         <div v-if="loginMode === 'qr'" class="login-qr-pane">
-          <div class="qr-provider-tabs" aria-label="选择扫码平台">
+          <div class="qr-provider-tabs" :aria-label="t('auth.selectQrProvider')">
             <button
               v-for="provider in qrProviderOptions"
               :key="provider.id"
@@ -212,14 +231,14 @@ onMounted(async () => {
             <div>
               <strong>{{
                 activeQrProviderEnabled
-                  ? `${qrProviderLabel}官方授权已就绪`
-                  : `${qrProviderLabel}扫码登录未开通`
+                  ? t('auth.qrReady', { provider: qrProviderLabel })
+                  : t('auth.qrUnavailable', { provider: qrProviderLabel })
               }}</strong>
               <span>
                 {{
                   activeQrProviderEnabled
-                    ? `点击下方按钮进入${qrProviderLabel}官方授权页。`
-                    : '该能力需要站点管理员接入第三方开放平台后才会显示真实二维码。'
+                    ? t('auth.qrReadyDesc', { provider: qrProviderLabel })
+                    : t('auth.qrUnavailableDesc')
                 }}
               </span>
             </div>
@@ -233,38 +252,38 @@ onMounted(async () => {
             @click="confirmQrLogin"
           >
             <el-icon><Check /></el-icon>
-            前往{{ qrProviderLabel }}授权
+            {{ t('auth.goAuthorize', { provider: qrProviderLabel }) }}
           </el-button>
           <p class="login-note">
             {{
               activeQrProviderEnabled
-                ? `将跳转到${qrProviderLabel}官方授权页，完成后自动回到 Twentys1x。`
-                : `${qrProviderLabel}扫码登录暂未开通，请先使用账号密码登录，或联系管理员开通第三方登录。`
+                ? t('auth.qrReadyNote', { provider: qrProviderLabel })
+                : t('auth.qrUnavailableNote', { provider: qrProviderLabel })
             }}
           </p>
         </div>
 
         <div v-else-if="loginMode === 'phone'" class="login-form">
           <label>
-            <span>手机号</span>
+            <span>{{ t('auth.phone') }}</span>
             <el-input
               v-model="phoneForm.phone"
               :prefix-icon="Phone"
               maxlength="11"
-              placeholder="请输入手机号"
+              :placeholder="t('auth.phonePlaceholder')"
             />
           </label>
           <p v-if="!safeCapabilities.phoneSms" class="login-note">
-            手机验证码由站点短信服务发送。当前站点尚未开通，请先使用账号密码登录。
+            {{ t('auth.smsUnavailable') }}
           </p>
           <label>
-            <span>验证码</span>
+            <span>{{ t('auth.code') }}</span>
             <div class="code-row">
               <el-input
                 v-model="phoneForm.code"
                 :prefix-icon="Message"
                 maxlength="6"
-                placeholder="6 位验证码"
+                :placeholder="t('auth.codePlaceholder')"
               />
               <el-button
                 plain
@@ -272,64 +291,68 @@ onMounted(async () => {
                 :loading="isSendingCode"
                 @click="sendPhoneCode"
               >
-                获取验证码
+                {{ t('auth.getCode') }}
               </el-button>
             </div>
           </label>
           <el-button type="primary" size="large" :loading="isSubmitting" @click="submitPhoneLogin">
             <el-icon><Promotion /></el-icon>
-            登录
+            {{ t('auth.login') }}
           </el-button>
         </div>
 
         <div v-else class="login-form">
-          <div class="account-switch" aria-label="账号密码登录注册切换">
+          <div class="account-switch" :aria-label="t('auth.accountSwitch')">
             <button type="button" :class="{ active: accountMode === 'login' }" @click="accountMode = 'login'">
-              登录
+              {{ t('auth.login') }}
             </button>
             <button
               type="button"
               :class="{ active: accountMode === 'register' }"
               @click="accountMode = 'register'"
             >
-              注册
+              {{ t('auth.register') }}
             </button>
           </div>
 
           <template v-if="accountMode === 'login'">
             <label>
-              <span>账号 / 手机号</span>
+              <span>{{ t('auth.accountOrPhone') }}</span>
               <el-input
                 v-model="accountForm.identifier"
                 :prefix-icon="User"
-                placeholder="请输入账号或手机号"
+                :placeholder="t('auth.accountOrPhonePlaceholder')"
               />
             </label>
             <label>
-              <span>密码</span>
+              <span>{{ t('auth.password') }}</span>
               <el-input
                 v-model="accountForm.password"
                 :prefix-icon="Lock"
                 show-password
                 type="password"
-                placeholder="请输入密码"
+                :placeholder="t('auth.passwordPlaceholder')"
               />
             </label>
           </template>
 
           <template v-else>
             <label>
-              <span>账号</span>
-              <el-input v-model="accountForm.username" :prefix-icon="User" placeholder="至少 3 个字符" />
+              <span>{{ t('auth.account') }}</span>
+              <el-input
+                v-model="accountForm.username"
+                :prefix-icon="User"
+                :placeholder="t('auth.accountPlaceholder')"
+              />
             </label>
             <label>
-              <span>密码</span>
+              <span>{{ t('auth.password') }}</span>
               <el-input
                 v-model="accountForm.password"
                 :prefix-icon="Key"
                 show-password
                 type="password"
-                placeholder="至少 8 位"
+                :placeholder="t('auth.passwordRegisterPlaceholder')"
               />
             </label>
           </template>

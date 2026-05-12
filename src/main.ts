@@ -18,7 +18,8 @@ import App from './App.vue'
 import { pinia } from './stores'
 import { router } from './router'
 import { installErrorReporting } from './lib/errorReporting'
+import { i18n } from './i18n'
 
 const app = createApp(App)
 installErrorReporting(app, router)
-app.use(pinia).use(router).mount('#app')
+app.use(pinia).use(router).use(i18n).mount('#app')

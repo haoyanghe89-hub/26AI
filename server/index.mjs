@@ -11,9 +11,11 @@ import {
   getProjectTree,
   getProjectFilePath,
   getProjectFilesRoot,
+  getProjectOriginalRoot,
   getWorkspaceStatus,
   getProjectStatus,
   importProject,
+  importProjectFromLocalRoot,
   indexWorkspace,
   listProjects,
   previewProjectFileWrite,
@@ -27,6 +29,7 @@ import {
   captureServerError,
   initServerErrorMonitoring,
 } from './error-monitoring.mjs'
+import { executeTool, TOOL_DEFINITIONS } from './tools.mjs'
 import {
   authenticateRequest,
   completeOAuthTicket,
@@ -180,6 +183,19 @@ const server = http.createServer(async (req, res) => {
       return
     }
 
+    if (req.method === 'POST' && routePath === '/api/projects/pick-local') {
+      const rootPath = await pickLocalProjectDirectory()
+      if (!rootPath) {
+        sendJson(res, 200, { cancelled: true, project: null })
+        return
+      }
+
+      const project = await importProjectFromLocalRoot(rootPath)
+      if (!project) throw httpError(400, 'Invalid project path')
+      sendJson(res, 200, { cancelled: false, project })
+      return
+    }
+
     if (req.method === 'POST' && routePath === '/api/workspace/index') {
       sendJson(res, 200, await indexWorkspace())
       return
@@ -239,11 +255,21 @@ const server = http.createServer(async (req, res) => {
       const filePath = url.searchParams.get('path') || ''
       const body = await readJson(req)
       const absolutePath = await getProjectFilePath(projectId, filePath)
-      const projectRoot = await getProjectFilesRoot(projectId)
+      const filesRoot = await getProjectFilesRoot(projectId)
+      const originalRoot = await getProjectOriginalRoot(projectId)
       if (!absolutePath) throw httpError(404, 'File not found')
-      if (!projectRoot) throw httpError(404, 'Project not found')
-      await openFileInExternalEditor(projectRoot, absolutePath, body?.editor)
-      sendJson(res, 200, { opened: true, editor: normalizeEditor(body?.editor), path: filePath })
+      if (!filesRoot) throw httpError(404, 'Project not found')
+
+      const effectiveRoot = originalRoot || filesRoot
+      const effectiveFilePath = originalRoot ? path.join(originalRoot, filePath) : absolutePath
+
+      await openFileInExternalEditor(effectiveRoot, effectiveFilePath, body?.editor)
+      sendJson(res, 200, {
+        opened: true,
+        editor: normalizeEditor(body?.editor),
+        path: filePath,
+        originalRoot: Boolean(originalRoot),
+      })
       return
     }
 
@@ -935,6 +961,76 @@ function normalizeEditor(value) {
   return value === 'vscode' ? 'vscode' : 'cursor'
 }
 
+async function pickLocalProjectDirectory() {
+  const commands = buildDirectoryPickerCommands()
+
+  for (const command of commands) {
+    try {
+      const output = await spawnForOutput(command)
+      const rootPath = output.trim()
+      if (rootPath) return rootPath
+    } catch (error) {
+      const isCancel = Number(error?.code) === 1 || String(error?.message || '').includes('User canceled')
+      if (isCancel) return null
+      if (command === commands.at(-1)) throw error
+    }
+  }
+
+  return null
+}
+
+function buildDirectoryPickerCommands() {
+  if (process.platform === 'darwin') {
+    return [['osascript', ['-e', 'POSIX path of (choose folder with prompt "选择要导入的项目文件夹")']]]
+  }
+
+  if (process.platform === 'win32') {
+    return [
+      [
+        'powershell',
+        [
+          '-NoProfile',
+          '-Command',
+          'Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description="选择要导入的项目文件夹"; if ($d.ShowDialog() -eq "OK") { Write-Output $d.SelectedPath }',
+        ],
+      ],
+    ]
+  }
+
+  return [
+    ['zenity', ['--file-selection', '--directory', '--title=选择要导入的项目文件夹']],
+    ['kdialog', ['--getexistingdirectory', '.', '选择要导入的项目文件夹']],
+  ]
+}
+
+function spawnForOutput([command, args]) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk
+    })
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk
+    })
+    child.once('error', reject)
+    child.once('close', (code) => {
+      if (code === 0) resolve(stdout)
+      else {
+        const error = new Error(stderr || `Command failed with exit code ${code}`)
+        error.code = code
+        reject(error)
+      }
+    })
+  })
+}
+
 async function openFileInExternalEditor(projectRoot, filePath, editor) {
   const selectedEditor = normalizeEditor(editor)
   const commands = buildExternalEditorOpenCommands(projectRoot, filePath, selectedEditor)
@@ -1069,6 +1165,54 @@ async function handleStreamChat(req, res, body) {
   const ctx = await buildChatRequest(body)
   let effectiveTarget = ctx.target
 
+  // 判断是否需要工具调用：启用工具 + 有活跃项目 + 不是本地模型
+  const enableTools = Boolean(body?.enableTools && ctx.targetProvider.kind === 'openai-compatible')
+  const projectRoot = body?.projectId ? await getProjectFilesRoot(body.projectId) : null
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+
+  res.write(
+    `event: start\ndata: ${JSON.stringify({
+      inference: effectiveTarget,
+      workspaceHits: ctx.workspaceHits.map(({ path, startLine, endLine, score }) => ({
+        path,
+        startLine,
+        endLine,
+        score,
+      })),
+    })}\n\n`,
+  )
+
+  // ===== 自主规划模式 =====
+  if (body?.enablePlanning && projectRoot) {
+    const planResult = await runChatWithPlanning(ctx, body, projectRoot, res)
+    if (!planResult.ok) {
+      sendStreamError(res, planResult.error)
+      return
+    }
+    res.write(`event: done\ndata: {}\n\n`)
+    res.end()
+    return
+  }
+
+  // ===== 工具调用模式 =====
+  if (enableTools && projectRoot) {
+    const toolResult = await runChatWithTools(ctx, body, projectRoot, res)
+    if (!toolResult.ok) {
+      sendStreamError(res, toolResult.error)
+      return
+    }
+    res.write(`event: done\ndata: {}\n\n`)
+    res.end()
+    return
+  }
+
+  // ===== 普通流式模式 =====
   const callCloudFallbackStream = () => {
     const fallbackApiKey = getApiKey(ctx.provider, body?.apiKey)
     if (ctx.provider.needsApiKey && !fallbackApiKey)
@@ -1130,25 +1274,6 @@ async function handleStreamChat(req, res, body) {
     return
   }
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  })
-
-  res.write(
-    `event: start\ndata: ${JSON.stringify({
-      inference: effectiveTarget,
-      workspaceHits: ctx.workspaceHits.map(({ path, startLine, endLine, score }) => ({
-        path,
-        startLine,
-        endLine,
-        score,
-      })),
-    })}\n\n`,
-  )
-
   const parser = createSseParser()
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -1183,6 +1308,147 @@ async function handleStreamChat(req, res, body) {
   res.end()
 }
 
+/**
+ * 工具调用流程：
+ * 1. 第一轮非流式调用，检测 AI 是否决定调用工具
+ * 2. 如果有 tool_calls，执行工具，发送事件，然后第二轮流式输出
+ * 3. 如果没有 tool_calls，把 content 模拟成流式发送
+ */
+async function runChatWithTools(ctx, body, projectRoot, res) {
+  const MAX_TOOL_ROUNDS = 3
+  let messages = ctx.messages.map((m) => ({ ...m }))
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const response = await callProviderNonStream(
+      ctx.target.providerId,
+      ctx.targetProvider,
+      ctx.target.model,
+      messages,
+      ctx.targetApiKey,
+      ctx.runtimeSystemPrompt,
+      {
+        temperature: ctx.temperature,
+        tools: TOOL_DEFINITIONS,
+      },
+    ).catch(() => null)
+
+    if (!response || !response.ok) {
+      return { ok: false, error: '工具调用：模型请求失败' }
+    }
+
+    const data = await readProviderResponse(response).catch(() => null)
+    const assistantMessage = extractAssistantMessage(ctx.targetProvider.kind, data)
+
+    // 有 tool_calls
+    if (assistantMessage.toolCalls?.length) {
+      messages.push({
+        role: 'assistant',
+        content: assistantMessage.content || '',
+        tool_calls: assistantMessage.toolCalls,
+      })
+
+      for (const toolCall of assistantMessage.toolCalls) {
+        const toolName = toolCall.function?.name
+        let toolArgs
+        try {
+          toolArgs = JSON.parse(toolCall.function?.arguments || '{}')
+        } catch {
+          toolArgs = {}
+        }
+
+        // 通知前端正在调用工具
+        res.write(
+          `event: tool_call\ndata: ${JSON.stringify({
+            name: toolName,
+            arguments: toolArgs,
+          })}\n\n`,
+        )
+
+        const result = await executeTool(toolName, toolArgs, { projectRoot })
+
+        // 通知前端工具执行结果
+        res.write(
+          `event: tool_result\ndata: ${JSON.stringify({
+            name: toolName,
+            result: typeof result === 'object' ? result : { output: String(result) },
+          })}\n\n`,
+        )
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        })
+      }
+
+      continue // 继续下一轮，让 AI 基于工具结果生成最终回复
+    }
+
+    // 没有 tool_calls，直接输出内容
+    if (assistantMessage.content) {
+      // 模拟流式：把内容分成小段发送
+      const chunks = simulateStreaming(assistantMessage.content)
+      for (const chunk of chunks) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk })}\n\n`)
+      }
+    }
+
+    return { ok: true }
+  }
+
+  return { ok: false, error: '工具调用轮次超限' }
+}
+
+function simulateStreaming(text) {
+  if (!text) return []
+  const chunks = []
+  let i = 0
+  while (i < text.length) {
+    const size = Math.floor(Math.random() * 8) + 2
+    chunks.push(text.slice(i, i + size))
+    i += size
+  }
+  return chunks
+}
+
+function extractAssistantMessage(providerKind, data) {
+  if (!data) return { content: '', toolCalls: [] }
+
+  if (providerKind === 'gemini') {
+    const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || ''
+    return { content: text, toolCalls: [] }
+  }
+
+  if (providerKind === 'claude') {
+    const text =
+      data.content
+        ?.filter((c) => c.type === 'text')
+        .map((c) => c.text)
+        .join('') || ''
+    const toolCalls =
+      data.content
+        ?.filter((c) => c.type === 'tool_use')
+        .map((c) => ({
+          id: c.id,
+          type: 'function',
+          function: { name: c.name, arguments: JSON.stringify(c.input || {}) },
+        })) || []
+    return { content: text, toolCalls }
+  }
+
+  const message = data.choices?.[0]?.message || {}
+  const toolCalls =
+    message.tool_calls?.map((tc) => ({
+      id: tc.id,
+      type: tc.type,
+      function: {
+        name: tc.function?.name,
+        arguments: tc.function?.arguments,
+      },
+    })) || []
+  return { content: message.content || '', toolCalls }
+}
+
 function sendStreamError(res, message) {
   res.write(`event: error\ndata: ${JSON.stringify({ error: message })}\n\n`)
   res.write(`event: done\ndata: {}\n\n`)
@@ -1195,6 +1461,102 @@ function callProviderStream(providerId, provider, model, messages, apiKey, syste
   if (provider.kind === 'claude')
     return callClaudeStream(provider, model, messages, apiKey, systemPrompt, options)
   return callOpenAiCompatibleStream(providerId, provider, model, messages, apiKey, systemPrompt, options)
+}
+
+/**
+ * 非流式调用（用于工具调用的第一轮检测）
+ */
+function callProviderNonStream(providerId, provider, model, messages, apiKey, systemPrompt, options = {}) {
+  if (provider.kind === 'gemini')
+    return callGeminiNonStream(provider, model, messages, apiKey, systemPrompt, options)
+  if (provider.kind === 'claude')
+    return callClaudeNonStream(provider, model, messages, apiKey, systemPrompt, options)
+  return callOpenAiCompatibleNonStream(providerId, provider, model, messages, apiKey, systemPrompt, options)
+}
+
+function callOpenAiCompatibleNonStream(
+  providerId,
+  provider,
+  model,
+  messages,
+  apiKey,
+  systemPrompt,
+  options = {},
+) {
+  const requestedTemperature = typeof options.temperature === 'number' ? options.temperature : undefined
+  const effectiveTemperature = providerId === 'kimi' && model === 'kimi-k2.6' ? 0.6 : requestedTemperature
+
+  const body = {
+    model,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      ...messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+    ],
+    ...(typeof effectiveTemperature === 'number' ? { temperature: effectiveTemperature } : {}),
+    ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
+    ...(options.tools ? { tools: options.tools } : {}),
+  }
+
+  return fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify(body),
+  })
+}
+
+function callClaudeNonStream(provider, model, messages, apiKey, systemPrompt, options = {}) {
+  return fetch(provider.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      ...(typeof options.temperature === 'number' ? { temperature: options.temperature } : {}),
+      system: systemPrompt,
+      messages: messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role,
+          content: toClaudeContent(message.content),
+        })),
+    }),
+  })
+}
+
+function callGeminiNonStream(provider, model, messages, apiKey, systemPrompt, options = {}) {
+  const geminiModel = encodeURIComponent(model)
+  return fetch(`${provider.endpoint}/${geminiModel}:generateContent`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(provider, apiKey),
+    },
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: systemPrompt }],
+      },
+      ...(typeof options.temperature === 'number'
+        ? { generationConfig: { temperature: options.temperature } }
+        : {}),
+      contents: messages
+        .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
+        .map((message) => ({
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: toGeminiParts(message.content),
+        })),
+    }),
+  })
 }
 
 function callOpenAiCompatibleStream(
@@ -1223,6 +1585,7 @@ function callOpenAiCompatibleStream(
     ],
     ...(typeof effectiveTemperature === 'number' ? { temperature: effectiveTemperature } : {}),
     ...(providerId === 'kimi' ? { thinking: { type: 'disabled' } } : {}),
+    ...(options.tools ? { tools: options.tools } : {}),
   }
 
   return fetch(provider.endpoint, {
@@ -1338,4 +1701,269 @@ function extractStreamDelta(providerKind, eventName, data) {
   } catch {
     return { text: '' }
   }
+}
+
+/* ===================== 自主规划（L4）===================== */
+
+const PLANNING_SYSTEM_PROMPT = `你是自主规划专家。用户给出一个目标，请将其拆解为可执行的步骤。
+
+请分析用户需求并输出JSON格式的执行计划，格式如下：
+{
+  "thought": "思考过程，分析用户需求的拆解思路",
+  "tasks": [
+    {
+      "id": "1",
+      "title": "任务标题（简短）",
+      "description": "详细描述，包括建议使用的工具、查看的文件、预期的输出"
+    }
+  ]
+}
+
+规则：
+1. 任务数量 2-8 个，粒度适中，每个任务对应一个明确的子目标
+2. 每个任务描述要明确，包含建议使用的工具（如 read_file、list_directory、write_file、run_command）
+3. 如果涉及代码生成，建议先分析现有项目结构，再生成代码，最后运行测试
+4. 输出必须是合法的JSON，不要包含 Markdown 代码块标记（如 \`\`\`json）
+5. 任务应该是顺序执行的，默认没有依赖关系时按数组顺序执行`
+
+const TASK_EXECUTION_SYSTEM_PROMPT = `你是自主任务执行专家。你正在执行一个更大的计划中的一个具体任务。
+
+可用工具：
+- read_file: 读取指定文件的内容
+- write_file: 写入或覆盖指定文件的内容
+- list_directory: 列出指定目录下的文件和子目录
+- search_code: 在项目代码中搜索匹配文本
+- run_command: 在项目根目录下执行一条安全的 shell 命令
+
+请根据任务描述执行当前任务。你可以使用工具来获取信息、修改文件或运行命令。
+执行完成后，请用简洁的语言总结任务结果和关键发现。`
+
+/**
+ * 自主规划主流程
+ * 1. 生成计划 → 2. 流式发送计划 → 3. 逐个执行任务 → 4. 完成
+ */
+async function runChatWithPlanning(ctx, body, projectRoot, res) {
+  const MAX_TASK_ROUNDS = 8
+  const userGoal = getLatestUserText(ctx.messages)
+
+  // 1. 生成计划（非流式）
+  res.write(`event: plan_start\ndata: ${JSON.stringify({ goal: userGoal })}\n\n`)
+
+  const plan = await generatePlan(ctx, userGoal)
+  if (!plan || !plan.tasks || !plan.tasks.length) {
+    return { ok: false, error: '计划生成失败，未能拆解出可执行任务。' }
+  }
+
+  // 2. 发送计划任务列表
+  const tasks = plan.tasks.slice(0, MAX_TASK_ROUNDS).map((task, index) => ({
+    ...task,
+    id: String(task.id || index + 1),
+    status: 'pending',
+  }))
+
+  res.write(
+    `event: plan_tasks\ndata: ${JSON.stringify({ tasks: tasks.map((t) => ({ id: t.id, title: t.title, description: t.description })) })}\n\n`,
+  )
+
+  // 3. 逐个执行任务
+  const completedResults = []
+
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i]
+    task.status = 'running'
+
+    // 通知前端任务开始
+    res.write(
+      `event: task_start\ndata: ${JSON.stringify({ taskIndex: i, taskId: task.id, title: task.title })}\n\n`,
+    )
+
+    const taskContext = buildTaskExecutionContext(userGoal, tasks.slice(0, i), task, completedResults)
+
+    const taskResult = await runTaskWithTools(ctx, taskContext, projectRoot, res, i)
+
+    if (taskResult.ok) {
+      task.status = 'success'
+      completedResults.push({ id: task.id, title: task.title, result: taskResult.summary })
+      res.write(
+        `event: task_complete\ndata: ${JSON.stringify({ taskIndex: i, taskId: task.id, status: 'success', summary: taskResult.summary })}\n\n`,
+      )
+    } else {
+      task.status = 'error'
+      completedResults.push({ id: task.id, title: task.title, result: `执行失败: ${taskResult.error}` })
+      res.write(
+        `event: task_complete\ndata: ${JSON.stringify({ taskIndex: i, taskId: task.id, status: 'error', error: taskResult.error })}\n\n`,
+      )
+      // 继续执行后续任务，不中断整个计划
+    }
+  }
+
+  // 4. 发送计划完成总结
+  const allSuccessful = tasks.every((t) => t.status === 'success')
+  res.write(
+    `event: plan_complete\ndata: ${JSON.stringify({ allSuccessful, completedCount: completedResults.length, totalCount: tasks.length })}\n\n`,
+  )
+
+  return { ok: true }
+}
+
+/**
+ * 调用 LLM 生成结构化计划
+ */
+async function generatePlan(ctx, userGoal) {
+  const planningMessages = [
+    ...ctx.messages.slice(0, -1),
+    {
+      role: 'user',
+      content: `${PLANNING_SYSTEM_PROMPT}\n\n用户目标：${userGoal}\n\n请输出JSON格式的执行计划：`,
+    },
+  ]
+
+  const response = await callProviderNonStream(
+    ctx.target.providerId,
+    ctx.targetProvider,
+    ctx.target.model,
+    planningMessages,
+    ctx.targetApiKey,
+    ctx.runtimeSystemPrompt,
+    { temperature: 0.4 },
+  ).catch(() => null)
+
+  if (!response || !response.ok) return null
+
+  const data = await readProviderResponse(response).catch(() => null)
+  const text = extractProviderText(ctx.targetProvider, data)
+
+  try {
+    // 尝试从文本中提取 JSON（可能包含 markdown 代码块）
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    const jsonText = jsonMatch ? jsonMatch[0] : text
+    const plan = JSON.parse(jsonText)
+
+    if (Array.isArray(plan.tasks) && plan.tasks.length > 0) {
+      return plan
+    }
+  } catch {
+    // JSON 解析失败，返回 fallback 计划
+  }
+
+  // Fallback：把整个目标作为一个任务
+  return {
+    thought: '计划生成失败，使用默认单任务执行。',
+    tasks: [
+      {
+        id: '1',
+        title: '执行用户目标',
+        description: `直接完成用户的目标：${userGoal}`,
+      },
+    ],
+  }
+}
+
+/**
+ * 构建单个任务的执行上下文（system prompt + user prompt）
+ */
+function buildTaskExecutionContext(goal, previousTasks, currentTask, completedResults) {
+  const previousSummary = completedResults.length
+    ? completedResults.map((r) => `任务 ${r.id} (${r.title}): ${r.result}`).join('\n\n')
+    : '无'
+
+  const systemPrompt = `${TASK_EXECUTION_SYSTEM_PROMPT}\n\n总体目标：${goal}\n\n之前已完成任务的结果：\n${previousSummary}`
+
+  const userPrompt = `当前正在执行任务：${currentTask.title}\n任务描述：${currentTask.description}\n\n请开始执行当前任务。你可以使用工具。执行完成后请总结结果。`
+
+  return { systemPrompt, userPrompt }
+}
+
+/**
+ * 执行单个任务（带工具调用）
+ * 与 runChatWithTools 类似，但事件名带 task_ 前缀
+ */
+async function runTaskWithTools(ctx, taskContext, projectRoot, res, taskIndex) {
+  const MAX_TOOL_ROUNDS = 3
+  const messages = [{ role: 'user', content: taskContext.userPrompt }]
+
+  let fullContent = ''
+
+  for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const response = await callProviderNonStream(
+      ctx.target.providerId,
+      ctx.targetProvider,
+      ctx.target.model,
+      messages,
+      ctx.targetApiKey,
+      taskContext.systemPrompt,
+      {
+        temperature: ctx.temperature,
+        tools: TOOL_DEFINITIONS,
+      },
+    ).catch(() => null)
+
+    if (!response || !response.ok) {
+      return { ok: false, error: '任务执行：模型请求失败' }
+    }
+
+    const data = await readProviderResponse(response).catch(() => null)
+    const assistantMessage = extractAssistantMessage(ctx.targetProvider.kind, data)
+
+    // 有 tool_calls
+    if (assistantMessage.toolCalls?.length) {
+      messages.push({
+        role: 'assistant',
+        content: assistantMessage.content || '',
+        tool_calls: assistantMessage.toolCalls,
+      })
+
+      for (const toolCall of assistantMessage.toolCalls) {
+        const toolName = toolCall.function?.name
+        let toolArgs
+        try {
+          toolArgs = JSON.parse(toolCall.function?.arguments || '{}')
+        } catch {
+          toolArgs = {}
+        }
+
+        // 通知前端正在调用工具（task_ 前缀）
+        res.write(
+          `event: task_tool_call\ndata: ${JSON.stringify({
+            taskIndex,
+            name: toolName,
+            arguments: toolArgs,
+          })}\n\n`,
+        )
+
+        const result = await executeTool(toolName, toolArgs, { projectRoot })
+
+        // 通知前端工具执行结果
+        res.write(
+          `event: task_tool_result\ndata: ${JSON.stringify({
+            taskIndex,
+            name: toolName,
+            result: typeof result === 'object' ? result : { output: String(result) },
+          })}\n\n`,
+        )
+
+        messages.push({
+          role: 'tool',
+          tool_call_id: toolCall.id,
+          content: JSON.stringify(result),
+        })
+      }
+
+      continue // 继续下一轮
+    }
+
+    // 没有 tool_calls，直接输出内容
+    if (assistantMessage.content) {
+      fullContent = assistantMessage.content
+      // 模拟流式：把内容分成小段发送（task_delta）
+      const chunks = simulateStreaming(assistantMessage.content)
+      for (const chunk of chunks) {
+        res.write(`event: task_delta\ndata: ${JSON.stringify({ taskIndex, content: chunk })}\n\n`)
+      }
+    }
+
+    return { ok: true, summary: fullContent }
+  }
+
+  return { ok: false, error: '任务执行轮次超限' }
 }

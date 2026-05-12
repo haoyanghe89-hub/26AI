@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Check, CopyDocument } from '@element-plus/icons-vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
+import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{
   messageId: string
@@ -13,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   copy: [messageId: string, content: string, blockIndex: number]
 }>()
+const { t } = useI18n()
 
 function handleCopy() {
   emit('copy', props.messageId, props.content, props.blockIndex)
@@ -24,7 +26,7 @@ function handleCopy() {
     <div class="code-header">
       <span class="language">{{ language || 'text' }}</span>
       <el-button :icon="copied ? Check : CopyDocument" size="small" text @click="handleCopy">
-        {{ copied ? '已复制' : '复制代码' }}
+        {{ copied ? t('common.copied') : t('common.copy') }}
       </el-button>
     </div>
     <pre><code>{{ content }}</code></pre>

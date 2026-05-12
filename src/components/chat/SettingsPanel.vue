@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowUp, Refresh, Setting } from '@element-plus/icons-vue'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
@@ -40,6 +41,7 @@ const emit = defineEmits<{
   'clear-history': []
 }>()
 
+const { t } = useI18n()
 const providerSelectRef = ref<InstanceType<typeof ElSelect> | null>(null)
 const modelSelectRef = ref<InstanceType<typeof ElSelect> | null>(null)
 const storedCollapsed = localStorage.getItem('twentys1x:settings-collapsed')
@@ -71,15 +73,15 @@ function handleLocalModelChange(value: string) {
     <button type="button" class="settings-header" :aria-expanded="!isCollapsed" @click="toggleCollapsed">
       <span class="settings-title">
         <el-icon><Setting /></el-icon>
-        配置
+        {{ t('settings.title') }}
       </span>
       <span class="settings-summary">
         {{
           inferenceMode === 'local'
-            ? `本地 · ${localModel}`
+            ? t('settings.localSummary', { model: localModel })
             : inferenceMode === 'auto'
-              ? `混合 · ${localModel} / ${model}`
-              : `${selectedProvider.name} · ${model}`
+              ? t('settings.hybridSummary', { localModel, model })
+              : t('settings.providerSummary', { provider: selectedProvider.name, model })
         }}
       </span>
       <el-icon class="settings-chevron t1-chevron" :class="{ 'is-expanded': !isCollapsed }">
@@ -91,20 +93,20 @@ function handleLocalModelChange(value: string) {
       <div class="t1-collapse-inner">
         <div class="settings-body">
           <label>
-            <span>推理策略</span>
+            <span>{{ t('settings.inferenceStrategy') }}</span>
             <el-select
               :model-value="inferenceMode"
               :reserve-keyword="false"
               popper-class="military-green-select-dropdown"
               @change="(value) => emit('select-inference-mode', value as InferenceMode)"
             >
-              <el-option label="云端模型" value="cloud" />
-              <el-option label="本地模型" value="local" />
-              <el-option label="自动混合" value="auto" />
+              <el-option :label="t('settings.cloudModel')" value="cloud" />
+              <el-option :label="t('settings.localModel')" value="local" />
+              <el-option :label="t('settings.autoHybrid')" value="auto" />
             </el-select>
           </label>
           <label>
-            <span>AI 供应商</span>
+            <span>{{ t('settings.provider') }}</span>
             <el-select
               ref="providerSelectRef"
               :model-value="selectedProviderId"
@@ -133,7 +135,7 @@ function handleLocalModelChange(value: string) {
             />
           </label>
           <label v-if="inferenceMode !== 'local'">
-            <span>云端模型</span>
+            <span>{{ t('settings.cloudModel') }}</span>
             <el-select
               ref="modelSelectRef"
               :model-value="model"
@@ -141,7 +143,7 @@ function handleLocalModelChange(value: string) {
               allow-create
               default-first-option
               :reserve-keyword="false"
-              placeholder="选择或输入模型"
+              :placeholder="t('settings.chooseOrInputModel')"
               popper-class="military-green-select-dropdown"
               @update:model-value="handleModelChange"
             >
@@ -155,7 +157,7 @@ function handleLocalModelChange(value: string) {
           </label>
           <div v-if="inferenceMode !== 'cloud'" class="local-model-box">
             <div class="local-model-heading">
-              <span>本地模型</span>
+              <span>{{ t('settings.localModel') }}</span>
               <el-button
                 plain
                 size="small"
@@ -163,7 +165,7 @@ function handleLocalModelChange(value: string) {
                 :loading="isRefreshingLocalModels"
                 @click="emit('refresh-local-models')"
               >
-                刷新
+                {{ t('common.refresh') }}
               </el-button>
             </div>
             <el-select
@@ -172,7 +174,7 @@ function handleLocalModelChange(value: string) {
               allow-create
               default-first-option
               :reserve-keyword="false"
-              placeholder="选择或输入 Ollama 模型"
+              :placeholder="t('settings.chooseOrInputOllama')"
               popper-class="military-green-select-dropdown"
               @update:model-value="handleLocalModelChange"
             >
@@ -186,12 +188,15 @@ function handleLocalModelChange(value: string) {
             <p class="local-model-status" :class="{ 'is-online': localModelStatus.available }">
               {{
                 localModelStatus.available
-                  ? `Ollama ${localModelStatus.version || '已连接'} · ${localModelStatus.models.length} 个模型`
-                  : localModelStatus.error || '未检测到 Ollama，可先启动本地服务后刷新'
+                  ? t('settings.ollamaStatus', {
+                      version: localModelStatus.version || t('settings.connected'),
+                      count: localModelStatus.models.length,
+                    })
+                  : localModelStatus.error || t('settings.ollamaMissing')
               }}
             </p>
             <div v-if="inferenceMode === 'auto'" class="hybrid-fallback-row">
-              <span>本地失败时切换云端</span>
+              <span>{{ t('settings.hybridFallback') }}</span>
               <el-switch
                 :model-value="hybridFallbackToCloud"
                 @update:model-value="
@@ -200,7 +205,7 @@ function handleLocalModelChange(value: string) {
               />
             </div>
           </div>
-          <el-button plain @click="emit('clear-history')">清空历史</el-button>
+          <el-button plain @click="emit('clear-history')">{{ t('chat.clearHistory') }}</el-button>
         </div>
       </div>
     </div>

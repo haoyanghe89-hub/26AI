@@ -34,7 +34,8 @@ describe('MessageBubble', () => {
 
     const wrapper = mountMessage(message, true)
 
-    expect(wrapper.text()).toContain('思考中')
+    expect(wrapper.find('.thinking').exists()).toBe(true)
+    expect(wrapper.findAll('.thinking-dot').length).toBe(3)
   })
 
   it('shows a fallback when an assistant reply finishes empty', () => {

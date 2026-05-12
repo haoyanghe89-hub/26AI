@@ -10,6 +10,7 @@ import {
   setStoredString,
 } from '../lib/clientStorage'
 import { authFetch, requestWithRetry } from '../lib/request'
+import { translate } from '../i18n'
 import {
   BUILTIN_AGENTS,
   BUILTIN_PROMPT_TEMPLATES,
@@ -72,12 +73,56 @@ export type ChatAttachment = Pick<
   'id' | 'name' | 'kind' | 'size' | 'type' | 'hash' | 'dataUrl' | 'text'
 >
 
+export interface ToolLog {
+  name: string
+  arguments: Record<string, unknown>
+  result?: unknown
+}
+
+export interface PlanTask {
+  id: string
+  title: string
+  description: string
+  status: 'pending' | 'running' | 'success' | 'error' | 'skipped'
+  toolLogs?: ToolLog[]
+  result?: string
+  output?: string
+}
+
+export interface AgentPlan {
+  id: string
+  goal: string
+  tasks: PlanTask[]
+  status: 'planning' | 'executing' | 'completed' | 'failed'
+  currentTaskIndex: number
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ChatMessage {
   id: string
   role: Role
   content: MessageContent
   attachments?: ChatAttachment[]
   createdAt: string
+  /** 工具调用日志 */
+  toolLogs?: ToolLog[]
+  /** 自主规划结果 */
+  plan?: AgentPlan
+  /** 本条消息生成时的上下文元信息 */
+  meta?: {
+    agentId?: string
+    agentName?: string
+    templateId?: string
+    templateName?: string
+    workflowId?: string
+    workflowName?: string
+    model?: string
+    providerId?: string
+    providerName?: string
+    inferenceMode?: InferenceMode
+    isPlanning?: boolean
+  }
 }
 
 export interface ChatSession {
@@ -141,6 +186,7 @@ export interface ImportedProject {
   id: string
   name: string
   root: string
+  originalRoot?: string
   importedAt: string
   updatedAt: string
   fileCount: number
@@ -172,6 +218,8 @@ const STORAGE_KEYS = {
   inferenceMode: 'twentys1x:inference-mode',
   localModel: 'twentys1x:local-model',
   hybridFallback: 'twentys1x:hybrid-fallback',
+  enableTools: 'twentys1x:enable-tools',
+  enablePlanning: 'twentys1x:enable-planning',
 }
 
 const MAX_MESSAGE_CHARS = 12000
@@ -759,6 +807,9 @@ export const useChatStore = defineStore('chat', () => {
   )
   const localModel = ref(localStorage.getItem(STORAGE_KEYS.localModel) || DEFAULT_LOCAL_MODEL)
   const hybridFallbackToCloud = ref(localStorage.getItem(STORAGE_KEYS.hybridFallback) !== 'false')
+  const enableTools = ref(localStorage.getItem(STORAGE_KEYS.enableTools) === 'true')
+  const enablePlanning = ref(localStorage.getItem(STORAGE_KEYS.enablePlanning) === 'true')
+  const isPlanning = ref(false)
   const sessions = ref<ChatSession[]>(loadSessions())
   const activeSessionId = ref(localStorage.getItem(STORAGE_KEYS.activeSession) || sessions.value[0].id)
   const promptTemplates = ref<PromptTemplate[]>(loadPromptTemplates())
@@ -939,6 +990,16 @@ export const useChatStore = defineStore('chat', () => {
     persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
   }
 
+  function setEnableTools(value: boolean) {
+    enableTools.value = Boolean(value)
+    persist(STORAGE_KEYS.enableTools, String(enableTools.value))
+  }
+
+  function setEnablePlanning(value: boolean) {
+    enablePlanning.value = Boolean(value)
+    persist(STORAGE_KEYS.enablePlanning, String(enablePlanning.value))
+  }
+
   async function hydrateClientState() {
     if (hasHydratedClientState.value) return
     hasHydratedClientState.value = true
@@ -984,6 +1045,11 @@ export const useChatStore = defineStore('chat', () => {
     localModel.value = storedLocalModel || localModel.value
     hybridFallbackToCloud.value =
       storedHybridFallback === null ? hybridFallbackToCloud.value : storedHybridFallback !== 'false'
+    const storedEnableTools = await getStoredString(STORAGE_KEYS.enableTools)
+    enableTools.value = storedEnableTools === null ? enableTools.value : storedEnableTools === 'true'
+    const storedEnablePlanning = await getStoredString(STORAGE_KEYS.enablePlanning)
+    enablePlanning.value =
+      storedEnablePlanning === null ? enablePlanning.value : storedEnablePlanning === 'true'
     sessions.value = storedSessions
     promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
       normalizePromptTemplate(
@@ -1223,12 +1289,12 @@ export const useChatStore = defineStore('chat', () => {
 
     for (const file of files) {
       if (file.size > MAX_UPLOAD_BYTES) {
-        errorMessage.value = `${file.name} 超过 10MB，已跳过。`
+        errorMessage.value = translate('errors.uploadTooLarge', { name: file.name })
         continue
       }
 
       if (!isAllowedAttachment(file)) {
-        errorMessage.value = `${file.name} 类型不在上传白名单内，已跳过。`
+        errorMessage.value = translate('errors.uploadTypeDenied', { name: file.name })
         continue
       }
 
@@ -1242,8 +1308,8 @@ export const useChatStore = defineStore('chat', () => {
             ? await extractPdfText(file).catch((error) => {
                 errorMessage.value =
                   error instanceof Error
-                    ? `${file.name} PDF 文本提取失败：${error.message}`
-                    : `${file.name} PDF 文本提取失败`
+                    ? `${translate('errors.pdfExtractFailed', { name: file.name })}: ${error.message}`
+                    : translate('errors.pdfExtractFailed', { name: file.name })
                 return ''
               })
             : ''
@@ -1294,7 +1360,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!isProviderReady.value || isSending.value || (!cleanText && !files.length)) return false
 
     if (text.trim().length > MAX_MESSAGE_CHARS) {
-      errorMessage.value = `单次输入最多 ${MAX_MESSAGE_CHARS} 个字符，已自动截断后发送。`
+      errorMessage.value = translate('errors.inputTooLong', { count: MAX_MESSAGE_CHARS })
     }
 
     const template = options?.composerTemplate ?? undefined
@@ -1326,6 +1392,16 @@ export const useChatStore = defineStore('chat', () => {
       role: 'assistant',
       content: '',
       createdAt: new Date().toISOString(),
+      meta: {
+        agentId: activeAgent.value?.id,
+        agentName: activeAgent.value?.name,
+        templateId: template?.id,
+        templateName: template?.name,
+        model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+        providerId: selectedProviderId.value,
+        providerName: selectedProvider.value.name,
+        inferenceMode: inferenceMode.value,
+      },
     }
 
     updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
@@ -1353,11 +1429,19 @@ export const useChatStore = defineStore('chat', () => {
         abortController.value.signal,
       )
 
+      const toolLogs: ToolLog[] = []
       for await (const event of stream) {
         if (event.type === 'start') {
           assistantHttpOk = true
         } else if (event.type === 'delta') {
           reactiveAssistant.content = (reactiveAssistant.content as string) + event.content
+        } else if (event.type === 'tool_call') {
+          toolLogs.push({ name: event.name, arguments: event.arguments })
+          reactiveAssistant.toolLogs = [...toolLogs]
+        } else if (event.type === 'tool_result') {
+          const lastLog = toolLogs[toolLogs.length - 1]
+          if (lastLog) lastLog.result = event.result
+          reactiveAssistant.toolLogs = [...toolLogs]
         } else if (event.type === 'error') {
           throw new Error(event.error)
         }
@@ -1366,14 +1450,187 @@ export const useChatStore = defineStore('chat', () => {
       session.updatedAt = new Date().toISOString()
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        reactiveAssistant.content = (reactiveAssistant.content as string) || '生成已停止。'
+        reactiveAssistant.content = (reactiveAssistant.content as string) || translate('errors.stopped')
       } else {
-        reactiveAssistant.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
-        errorMessage.value = error instanceof Error ? error.message : '未知错误'
+        reactiveAssistant.content = translate('errors.callFailed')
+        errorMessage.value = error instanceof Error ? error.message : translate('errors.unknown')
       }
     } finally {
       isSending.value = false
       abortController.value = null
+      saveSessions()
+      if (assistantHttpOk) {
+        void maybeInferSessionTags(session)
+        void maybeExtractAgentMemory(session)
+      }
+    }
+
+    return true
+  }
+
+  async function sendPlanMessage(text: string) {
+    const cleanText = sanitizeUserInput(text)
+    const files = [...pendingFiles.value]
+    if (!isProviderReady.value || isSending.value || (!cleanText && !files.length)) return false
+    if (!activeProjectId.value) {
+      errorMessage.value = translate('errors.planningNeedsProject')
+      return false
+    }
+
+    if (text.trim().length > MAX_MESSAGE_CHARS) {
+      errorMessage.value = translate('errors.inputTooLong', { count: MAX_MESSAGE_CHARS })
+    }
+
+    const session = activeSession.value
+    const displayContent = buildUserContent(cleanText, files)
+    const apiPayloadContent = buildUserContent(cleanText, files, { includePreviewSummary: true })
+
+    const now = new Date().toISOString()
+    const planId = crypto.randomUUID()
+
+    const userMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: displayContent,
+      attachments: files.map(({ id, name, kind, size, type, hash, dataUrl, text }) => ({
+        id,
+        name,
+        kind,
+        size,
+        type,
+        hash,
+        dataUrl,
+        text,
+      })),
+      createdAt: now,
+    }
+
+    const assistantMessage: ChatMessage = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: '',
+      createdAt: now,
+      plan: {
+        id: planId,
+        goal: cleanText,
+        tasks: [],
+        status: 'planning',
+        currentTaskIndex: -1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      meta: {
+        agentId: activeAgent.value?.id,
+        agentName: activeAgent.value?.name,
+        model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+        providerId: selectedProviderId.value,
+        providerName: selectedProvider.value.name,
+        inferenceMode: inferenceMode.value,
+        isPlanning: true,
+      },
+    }
+
+    updateTitle(session, cleanText || files.map((file) => file.name).join(', '))
+    session.messages.push(userMessage, assistantMessage)
+    session.updatedAt = now
+    pendingFiles.value = []
+    errorMessage.value = ''
+    isSending.value = true
+    isPlanning.value = true
+    abortController.value = new AbortController()
+    saveSessions()
+
+    const reactiveAssistant = session.messages[session.messages.length - 1] as ChatMessage
+    const plan = reactiveAssistant.plan!
+
+    let assistantHttpOk = false
+    try {
+      const runtime = buildPromptRuntimeConfig(activeAgent.value)
+      const stream = streamChat(
+        replaceLastUserMessageContent(session.messages, apiPayloadContent),
+        {
+          runtime,
+          useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
+          enablePlanning: true,
+        },
+        abortController.value.signal,
+      )
+
+      for await (const event of stream) {
+        if (event.type === 'start') {
+          assistantHttpOk = true
+        } else if (event.type === 'plan_start') {
+          plan.status = 'planning'
+          plan.goal = event.goal
+          plan.updatedAt = new Date().toISOString()
+          reactiveAssistant.content = `🎯 **目标**：${event.goal}\n\n📋 正在生成执行计划...`
+        } else if (event.type === 'plan_tasks') {
+          plan.tasks = event.tasks.map((t) => ({
+            ...t,
+            status: 'pending',
+          }))
+          plan.updatedAt = new Date().toISOString()
+          reactiveAssistant.content = `🎯 **目标**：${plan.goal}\n\n📋 执行计划（${event.tasks.length} 个任务）\n\n${event.tasks.map((t, i) => `${i + 1}. ${t.title}`).join('\n')}\n\n⏳ 开始执行...`
+        } else if (event.type === 'task_start') {
+          plan.currentTaskIndex = event.taskIndex
+          if (plan.tasks[event.taskIndex]) {
+            plan.tasks[event.taskIndex].status = 'running'
+          }
+          plan.status = 'executing'
+          plan.updatedAt = new Date().toISOString()
+        } else if (event.type === 'task_delta') {
+          const task = plan.tasks[event.taskIndex]
+          if (task) {
+            task.output = (task.output || '') + event.content
+          }
+        } else if (event.type === 'task_tool_call') {
+          const task = plan.tasks[event.taskIndex]
+          if (task) {
+            if (!task.toolLogs) task.toolLogs = []
+            task.toolLogs.push({ name: event.name, arguments: event.arguments })
+          }
+        } else if (event.type === 'task_tool_result') {
+          const task = plan.tasks[event.taskIndex]
+          if (task && task.toolLogs?.length) {
+            const lastLog = task.toolLogs[task.toolLogs.length - 1]
+            lastLog.result = event.result
+          }
+        } else if (event.type === 'task_complete') {
+          const task = plan.tasks[event.taskIndex]
+          if (task) {
+            task.status = event.status as PlanTask['status']
+            task.result = event.summary || event.error || ''
+          }
+          plan.updatedAt = new Date().toISOString()
+          // 更新 content 为当前进度摘要
+          const completed = plan.tasks.filter((t) => t.status === 'success').length
+          const failed = plan.tasks.filter((t) => t.status === 'error').length
+          reactiveAssistant.content = `🎯 **目标**：${plan.goal}\n\n📋 执行进度：${completed}/${plan.tasks.length} 完成${failed > 0 ? ` · ${failed} 失败` : ''}\n\n${plan.tasks.map((t, i) => `${t.status === 'success' ? '✅' : t.status === 'error' ? '❌' : t.status === 'running' ? '⏳' : '⬜'} ${i + 1}. ${t.title}${t.result ? '\n   ' + t.result.slice(0, 120) + (t.result.length > 120 ? '...' : '') : ''}`).join('\n')}`
+        } else if (event.type === 'plan_complete') {
+          plan.status = event.allSuccessful ? 'completed' : 'failed'
+          plan.updatedAt = new Date().toISOString()
+          const completed = plan.tasks.filter((t) => t.status === 'success').length
+          reactiveAssistant.content = `🎯 **目标**：${plan.goal}\n\n✅ 计划执行完成（${completed}/${plan.tasks.length} 成功）\n\n${plan.tasks.map((t, i) => `${t.status === 'success' ? '✅' : '❌'} ${i + 1}. ${t.title}${t.result ? '\n   ' + t.result.slice(0, 200) + (t.result.length > 200 ? '...' : '') : ''}`).join('\n')}`
+        } else if (event.type === 'error') {
+          throw new Error(event.error)
+        }
+      }
+
+      session.updatedAt = new Date().toISOString()
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') {
+        reactiveAssistant.content = (reactiveAssistant.content as string) || translate('errors.stopped')
+        plan.status = 'failed'
+      } else {
+        reactiveAssistant.content = translate('errors.callFailed')
+        errorMessage.value = error instanceof Error ? error.message : translate('errors.unknown')
+        plan.status = 'failed'
+      }
+    } finally {
+      isSending.value = false
+      isPlanning.value = false
+      abortController.value = null
+      plan.updatedAt = new Date().toISOString()
       saveSessions()
       if (assistantHttpOk) {
         void maybeInferSessionTags(session)
@@ -1397,8 +1654,16 @@ export const useChatStore = defineStore('chat', () => {
     if (!promptMessages.some((message) => message.role === 'user')) return false
 
     const assistantMessage = session.messages[assistantIndex]
+    const existingMeta = assistantMessage.meta
     assistantMessage.content = ''
     assistantMessage.createdAt = new Date().toISOString()
+    assistantMessage.meta = {
+      ...existingMeta,
+      model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+      providerId: selectedProviderId.value,
+      providerName: selectedProvider.value.name,
+      inferenceMode: inferenceMode.value,
+    }
     session.updatedAt = assistantMessage.createdAt
     errorMessage.value = ''
     isSending.value = true
@@ -1417,11 +1682,19 @@ export const useChatStore = defineStore('chat', () => {
         abortController.value.signal,
       )
 
+      const toolLogs: ToolLog[] = []
       for await (const event of stream) {
         if (event.type === 'start') {
           assistantHttpOk = true
         } else if (event.type === 'delta') {
           assistantMessage.content = (assistantMessage.content as string) + event.content
+        } else if (event.type === 'tool_call') {
+          toolLogs.push({ name: event.name, arguments: event.arguments })
+          assistantMessage.toolLogs = [...toolLogs]
+        } else if (event.type === 'tool_result') {
+          const lastLog = toolLogs[toolLogs.length - 1]
+          if (lastLog) lastLog.result = event.result
+          assistantMessage.toolLogs = [...toolLogs]
         } else if (event.type === 'error') {
           throw new Error(event.error)
         }
@@ -1431,10 +1704,10 @@ export const useChatStore = defineStore('chat', () => {
       return true
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        assistantMessage.content = (assistantMessage.content as string) || '生成已停止。'
+        assistantMessage.content = (assistantMessage.content as string) || translate('errors.stopped')
       } else {
-        assistantMessage.content = '调用失败，请检查 API Key、模型名称、供应商配置或网络连接。'
-        errorMessage.value = error instanceof Error ? error.message : '未知错误'
+        assistantMessage.content = translate('errors.callFailed')
+        errorMessage.value = error instanceof Error ? error.message : translate('errors.unknown')
       }
       return false
     } finally {
@@ -1451,6 +1724,23 @@ export const useChatStore = defineStore('chat', () => {
   type StreamEvent =
     | { type: 'start'; inference: unknown; workspaceHits: unknown[] }
     | { type: 'delta'; content: string }
+    | { type: 'tool_call'; name: string; arguments: Record<string, unknown> }
+    | { type: 'tool_result'; name: string; result: unknown }
+    | { type: 'plan_start'; goal: string }
+    | { type: 'plan_tasks'; tasks: Array<{ id: string; title: string; description: string }> }
+    | { type: 'task_start'; taskIndex: number; taskId: string; title: string }
+    | { type: 'task_delta'; taskIndex: number; content: string }
+    | { type: 'task_tool_call'; taskIndex: number; name: string; arguments: Record<string, unknown> }
+    | { type: 'task_tool_result'; taskIndex: number; name: string; result: unknown }
+    | {
+        type: 'task_complete'
+        taskIndex: number
+        taskId: string
+        status: string
+        summary?: string
+        error?: string
+      }
+    | { type: 'plan_complete'; allSuccessful: boolean; completedCount: number; totalCount: number }
     | { type: 'done' }
     | { type: 'error'; error: string }
 
@@ -1490,7 +1780,7 @@ export const useChatStore = defineStore('chat', () => {
 
   async function* streamChat(
     messages: ChatMessage[],
-    options: { useWorkspaceContext?: boolean; runtime?: PromptRuntimeConfig },
+    options: { useWorkspaceContext?: boolean; runtime?: PromptRuntimeConfig; enablePlanning?: boolean },
     signal: AbortSignal,
   ): AsyncGenerator<StreamEvent> {
     const useWorkspaceContext =
@@ -1513,6 +1803,8 @@ export const useChatStore = defineStore('chat', () => {
         projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
         useWorkspaceContext,
         stream: true,
+        enableTools: enableTools.value,
+        enablePlanning: options.enablePlanning ?? false,
         messages: messages
           .filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content))
           .map((message) => ({ role: message.role, content: message.content })),
@@ -1522,11 +1814,11 @@ export const useChatStore = defineStore('chat', () => {
 
     if (!response.ok) {
       const detail = await response.json().catch(() => null)
-      throw new Error(detail?.error || `请求失败：${response.status}`)
+      throw new Error(detail?.error || translate('errors.requestFailed', { status: response.status }))
     }
 
     if (!response.body) {
-      throw new Error('浏览器不支持流式响应')
+      throw new Error(translate('errors.streamUnsupported'))
     }
 
     const reader = response.body.getReader()
@@ -1546,11 +1838,72 @@ export const useChatStore = defineStore('chat', () => {
           } else if (event === 'delta') {
             const parsed = JSON.parse(data)
             yield { type: 'delta', content: String(parsed.content || '') }
+          } else if (event === 'tool_call') {
+            const parsed = JSON.parse(data)
+            yield { type: 'tool_call', name: String(parsed.name || ''), arguments: parsed.arguments || {} }
+          } else if (event === 'tool_result') {
+            const parsed = JSON.parse(data)
+            yield { type: 'tool_result', name: String(parsed.name || ''), result: parsed.result }
+          } else if (event === 'plan_start') {
+            const parsed = JSON.parse(data)
+            yield { type: 'plan_start', goal: String(parsed.goal || '') }
+          } else if (event === 'plan_tasks') {
+            const parsed = JSON.parse(data)
+            yield { type: 'plan_tasks', tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [] }
+          } else if (event === 'task_start') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'task_start',
+              taskIndex: Number(parsed.taskIndex ?? 0),
+              taskId: String(parsed.taskId || ''),
+              title: String(parsed.title || ''),
+            }
+          } else if (event === 'task_delta') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'task_delta',
+              taskIndex: Number(parsed.taskIndex ?? 0),
+              content: String(parsed.content || ''),
+            }
+          } else if (event === 'task_tool_call') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'task_tool_call',
+              taskIndex: Number(parsed.taskIndex ?? 0),
+              name: String(parsed.name || ''),
+              arguments: parsed.arguments || {},
+            }
+          } else if (event === 'task_tool_result') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'task_tool_result',
+              taskIndex: Number(parsed.taskIndex ?? 0),
+              name: String(parsed.name || ''),
+              result: parsed.result,
+            }
+          } else if (event === 'task_complete') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'task_complete',
+              taskIndex: Number(parsed.taskIndex ?? 0),
+              taskId: String(parsed.taskId || ''),
+              status: String(parsed.status || ''),
+              summary: parsed.summary,
+              error: parsed.error,
+            }
+          } else if (event === 'plan_complete') {
+            const parsed = JSON.parse(data)
+            yield {
+              type: 'plan_complete',
+              allSuccessful: Boolean(parsed.allSuccessful),
+              completedCount: Number(parsed.completedCount ?? 0),
+              totalCount: Number(parsed.totalCount ?? 0),
+            }
           } else if (event === 'done') {
             yield { type: 'done' }
           } else if (event === 'error') {
             const parsed = JSON.parse(data)
-            yield { type: 'error', error: String(parsed.error || '未知错误') }
+            yield { type: 'error', error: String(parsed.error || translate('errors.unknown')) }
           }
         }
       }
@@ -1580,19 +1933,19 @@ export const useChatStore = defineStore('chat', () => {
     const workflow = promptWorkflows.value.find((item) => item.id === workflowId)
     const cleanInput = sanitizeUserInput(input)
     if (!workflow || !workflow.steps.length) {
-      errorMessage.value = '请选择一个包含步骤的工作流。'
+      errorMessage.value = translate('errors.workflowNoSteps')
       return false
     }
     if (!cleanInput) {
-      errorMessage.value = '请输入要交给工作流处理的任务。'
+      errorMessage.value = translate('errors.workflowNeedsInput')
       return false
     }
     if (!isProviderReady.value) {
-      errorMessage.value = '请先配置 API Key 或后端供应商环境变量。'
+      errorMessage.value = translate('errors.providerNotReady')
       return false
     }
     if (isSending.value) {
-      errorMessage.value = '当前已有请求进行中，请稍后再执行工作流。'
+      errorMessage.value = translate('errors.requestBusy')
       return false
     }
 
@@ -1630,6 +1983,16 @@ export const useChatStore = defineStore('chat', () => {
           role: 'assistant',
           content: `### ${index + 1}. ${step.title}\n\n执行中...`,
           createdAt: new Date().toISOString(),
+          meta: {
+            agentId: agent?.id,
+            agentName: agent?.name,
+            workflowId: workflow.id,
+            workflowName: workflow.name,
+            model: model.value.trim() || getDefaultModel(selectedProviderId.value),
+            providerId: selectedProviderId.value,
+            providerName: selectedProvider.value.name,
+            inferenceMode: inferenceMode.value,
+          },
         }
         session.messages.push(assistantMessage)
         saveSessions()
@@ -1650,17 +2013,20 @@ export const useChatStore = defineStore('chat', () => {
               useWorkspaceContext: Boolean(activeProjectId.value && runtime.useProjectContext),
             },
           )
-          if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+          if (result.status >= 500)
+            throw new Error(translate('errors.serviceUnavailable', { status: result.status }))
           return result
         })
 
         if (!response.ok) {
           const detail = await response.json().catch(() => null)
-          throw new Error(detail?.error || `工作流步骤失败：${response.status}`)
+          throw new Error(
+            detail?.error || translate('errors.workflowStepFailed', { status: response.status }),
+          )
         }
 
         const data = await response.json()
-        previous = String(data.content || '').trim() || '没有收到有效回复。'
+        previous = String(data.content || '').trim() || translate('errors.noValidResponse')
         assistantMessage.content = `### ${index + 1}. ${step.title}\n\n${previous}`
         session.updatedAt = new Date().toISOString()
         saveSessions()
@@ -1671,10 +2037,10 @@ export const useChatStore = defineStore('chat', () => {
       session.messages.push({
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: '工作流执行失败，请检查 API Key、模型名称、Agent 配置或网络连接。',
+        content: translate('errors.workflowFailedFull'),
         createdAt: new Date().toISOString(),
       })
-      errorMessage.value = error instanceof Error ? error.message : '工作流执行失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.workflowFailed')
       saveSessions()
       return false
     } finally {
@@ -1720,7 +2086,8 @@ export const useChatStore = defineStore('chat', () => {
             },
           },
         )
-        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        if (result.status >= 500)
+          throw new Error(translate('errors.serviceUnavailable', { status: result.status }))
         return result
       })
 
@@ -1799,7 +2166,8 @@ export const useChatStore = defineStore('chat', () => {
             },
           },
         )
-        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        if (result.status >= 500)
+          throw new Error(translate('errors.serviceUnavailable', { status: result.status }))
         return result
       })
 
@@ -1851,26 +2219,27 @@ export const useChatStore = defineStore('chat', () => {
           ],
           { useWorkspaceContext: false },
         )
-        if (result.status >= 500) throw new Error(`服务暂时不可用：${result.status}`)
+        if (result.status >= 500)
+          throw new Error(translate('errors.serviceUnavailable', { status: result.status }))
         return result
       })
 
       if (!response.ok) {
         const detail = await response.json().catch(() => null)
-        throw new Error(detail?.error || `总结失败：${response.status}`)
+        throw new Error(detail?.error || translate('errors.requestFailed', { status: response.status }))
       }
 
       const data = await response.json()
       const now = new Date().toISOString()
       session.summary = {
-        content: String(data.content || '').trim() || '没有生成有效总结。',
+        content: String(data.content || '').trim() || translate('errors.noValidSummary'),
         updatedAt: now,
       }
       session.updatedAt = now
       saveSessions()
       return true
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '生成会话总结失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.summarizeFailed')
       return false
     } finally {
       isSummarizingSession.value = false
@@ -1947,7 +2316,8 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await authFetch('/api/local-models')
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `本地模型刷新失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
 
       localModelStatus.value = {
         available: Boolean(data.available),
@@ -1963,7 +2333,7 @@ export const useChatStore = defineStore('chat', () => {
       localModelStatus.value = {
         ...localModelStatus.value,
         available: false,
-        error: error instanceof Error ? error.message : '本地模型刷新失败',
+        error: error instanceof Error ? error.message : translate('errors.localModelsRefreshFailed'),
         updatedAt: new Date().toISOString(),
       }
     } finally {
@@ -1997,32 +2367,63 @@ export const useChatStore = defineStore('chat', () => {
     else activeProjectTree.value = []
   }
 
-  async function importProjectFolder(files: File[]) {
+  async function importProjectFolder(files: File[], pathMap?: Map<File, string>) {
     if (isImportingProject.value || !files.length) return null
 
     isImportingProject.value = true
     errorMessage.value = ''
 
     try {
-      const projectFiles = await prepareProjectFiles(files)
-      if (!projectFiles.length) throw new Error('没有可导入的文本/代码文件。')
+      const { files: projectFiles, originalRoot } = await prepareProjectFiles(files, pathMap)
+      if (!projectFiles.length) throw new Error(translate('errors.noImportableFiles'))
 
       const firstPath = projectFiles[0].path
       const name = firstPath.split('/')[0] || '导入项目'
       const response = await authFetch('/api/projects/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, files: projectFiles }),
+        body: JSON.stringify({ name, files: projectFiles, originalRoot }),
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `导入失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
 
       const project = data.project as ImportedProject
       projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
       setActiveProject(project.id)
       return project
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '导入项目失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.importProjectFailed')
+      return null
+    } finally {
+      isImportingProject.value = false
+    }
+  }
+
+  async function pickAndImportProjectFolder() {
+    if (isImportingProject.value) return null
+
+    isImportingProject.value = true
+    errorMessage.value = ''
+
+    try {
+      const response = await authFetch('/api/projects/pick-local', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      const data = await response.json().catch(() => null)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
+      if (data?.cancelled) return null
+
+      const project = data.project as ImportedProject
+      projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
+      setActiveProject(project.id)
+      return project
+    } catch (error) {
+      errorMessage.value =
+        error instanceof Error ? error.message : translate('errors.pickImportProjectFailed')
       return null
     } finally {
       isImportingProject.value = false
@@ -2039,13 +2440,14 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await authFetch(`/api/projects/${project.id}/analyze`, { method: 'POST' })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `分析失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
 
       const session = activeSession.value
       session.messages.push({
         id: crypto.randomUUID(),
         role: 'assistant',
-        content: data.analysis || '没有生成有效分析。',
+        content: data.analysis || translate('errors.noValidAnalysis'),
         createdAt: new Date().toISOString(),
       })
       session.updatedAt = new Date().toISOString()
@@ -2053,7 +2455,7 @@ export const useChatStore = defineStore('chat', () => {
       saveSessions()
       return true
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '分析项目失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.analyzeProjectFailed')
       return false
     } finally {
       isAnalyzingProject.value = false
@@ -2070,10 +2472,11 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await authFetch(`/api/projects/${project.id}/tree`)
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `获取目录树失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       activeProjectTree.value = Array.isArray(data.tree) ? data.tree : []
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '获取目录树失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.getTreeFailed')
     } finally {
       isLoadingProjectTree.value = false
     }
@@ -2094,13 +2497,14 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await authFetch(`/api/projects/${project.id}/file?path=${encodeURIComponent(path)}`)
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `读取文件失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       activeFilePath.value = path
       activeFileContent.value = data.content || ''
       editedFileContent.value = activeFileContent.value
       activeFileDiff.value = ''
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '读取文件失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.readFileFailed')
     } finally {
       isLoadingFile.value = false
     }
@@ -2123,11 +2527,12 @@ export const useChatStore = defineStore('chat', () => {
         },
       )
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `生成 Diff 失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       activeFileDiff.value = data.diff || ''
       return activeFileDiff.value
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '生成 Diff 失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.diffFailed')
       return ''
     } finally {
       isPreviewingFileDiff.value = false
@@ -2151,14 +2556,15 @@ export const useChatStore = defineStore('chat', () => {
         },
       )
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `写入失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       activeFileContent.value = editedFileContent.value
       activeFileDiff.value = data.diff || ''
       await refreshProjects()
       await refreshActiveProjectTree()
       return true
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '写入文件失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.writeFileFailed')
       return false
     } finally {
       isApplyingFileWrite.value = false
@@ -2182,10 +2588,11 @@ export const useChatStore = defineStore('chat', () => {
         },
       )
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `打开编辑器失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       return true
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '打开编辑器失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.openEditorFailed')
       return false
     } finally {
       isOpeningExternalEditor.value = false
@@ -2200,12 +2607,13 @@ export const useChatStore = defineStore('chat', () => {
     try {
       const response = await authFetch(`/api/projects/${projectId}`, { method: 'DELETE' })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `删除失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       projects.value = projects.value.filter((project) => project.id !== projectId)
       if (activeProjectId.value === projectId) setActiveProject(projects.value[0]?.id || '')
       return true
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '删除项目失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.deleteProjectFailed')
       return false
     }
   }
@@ -2223,10 +2631,11 @@ export const useChatStore = defineStore('chat', () => {
         body: JSON.stringify({}),
       })
       const data = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(data?.error || `索引失败：${response.status}`)
+      if (!response.ok)
+        throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       workspaceStatus.value = data
     } catch (error) {
-      errorMessage.value = error instanceof Error ? error.message : '索引项目失败'
+      errorMessage.value = error instanceof Error ? error.message : translate('errors.indexProjectFailed')
     } finally {
       isIndexingWorkspace.value = false
     }
@@ -2258,6 +2667,9 @@ export const useChatStore = defineStore('chat', () => {
     visibleMessages,
     allSessionTags,
     pendingFiles,
+    enableTools,
+    enablePlanning,
+    isPlanning,
     providerServerConfigured,
     isRefreshingLocalModels,
     isSending,
@@ -2296,6 +2708,8 @@ export const useChatStore = defineStore('chat', () => {
     setSessionTags,
     updateSessionSummary,
     setActiveAgent,
+    setEnableTools,
+    setEnablePlanning,
     savePromptTemplate,
     deletePromptTemplate,
     saveCustomAgent,
@@ -2305,6 +2719,7 @@ export const useChatStore = defineStore('chat', () => {
     prepareFiles,
     removePendingFile,
     sendMessage,
+    sendPlanMessage,
     regenerateMessage,
     stop,
     runPromptWorkflow,
@@ -2315,6 +2730,7 @@ export const useChatStore = defineStore('chat', () => {
     refreshProjects,
     indexCurrentWorkspace,
     importProjectFolder,
+    pickAndImportProjectFolder,
     setActiveProject,
     analyzeActiveProject,
     refreshActiveProjectTree,
@@ -2355,14 +2771,83 @@ const PROJECT_FILE_EXTENSIONS = new Set([
   '.yml',
 ])
 
-async function prepareProjectFiles(files: File[]) {
+function getFileAbsolutePath(file: File): string | undefined {
+  // 方式1: Electron 旧版本的 file.path
+  const path1 = (file as File & { path?: string }).path
+  if (typeof path1 === 'string' && path1) return path1
+
+  // 方式2: Electron 28+ 的 webUtils.getPathForFile
+  try {
+    const electron = (
+      window as Window & { Electron?: { webUtils?: { getPathForFile?: (f: File) => string } } }
+    ).Electron
+    if (electron?.webUtils?.getPathForFile) {
+      const path2 = electron.webUtils.getPathForFile(file)
+      if (typeof path2 === 'string' && path2) return path2
+    }
+  } catch {
+    // ignore
+  }
+
+  // 方式3: Tauri 的 @tauri-apps/api
+  try {
+    const tauri = (window as Window & { __TAURI__?: { path?: { dirname?: (p: string) => string } } })
+      .__TAURI__
+    if (tauri?.path?.dirname) {
+      // Tauri 下 file.path 同样可用（通过自定义协议或插件）
+      const path3 = (file as any).path
+      if (typeof path3 === 'string' && path3) return path3
+    }
+  } catch {
+    // ignore
+  }
+
+  // 方式4: 尝试从 dataTransfer 或自定义属性获取（拖放场景兜底）
+  try {
+    const path4 = (file as any).relativePath || (file as any).fullPath
+    if (typeof path4 === 'string' && path4 && path4.startsWith('/')) return path4
+  } catch {
+    // ignore
+  }
+
+  return undefined
+}
+
+function inferOriginalRoot(files: File[], pathMap?: Map<File, string>): string | undefined {
+  for (const file of files) {
+    const absPath = getFileAbsolutePath(file)
+    const relPath = (
+      pathMap?.get(file) ||
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      file.name
+    ).replace(/\\/g, '/')
+    if (typeof absPath !== 'string' || !absPath) continue
+
+    // 从 absPath 向上退 relPath 中的目录层级数
+    // relPath 每有一个 / 就需要退一级；没有 / 时退 1 级（文件就在根目录下）
+    const depth = Math.max(1, relPath.split('/').length - 1)
+    let root = absPath
+    for (let i = 0; i < depth; i++) {
+      const lastSep = Math.max(root.lastIndexOf('/'), root.lastIndexOf('\\'))
+      if (lastSep <= 0) break
+      root = root.slice(0, lastSep)
+    }
+    if (root) return root
+  }
+  return undefined
+}
+
+async function prepareProjectFiles(files: File[], pathMap?: Map<File, string>) {
   const maxBytes = 256 * 1024
-  const maxFiles = 1000
+  const maxFiles = 5000
   const prepared: Array<{ path: string; text: string; size: number; type: string; lastModified: number }> = []
+  const originalRoot = inferOriginalRoot(files, pathMap)
 
   for (const file of files.slice(0, maxFiles)) {
     const relativePath = (
-      (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+      pathMap?.get(file) ||
+      (file as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      file.name
     ).replace(/\\/g, '/')
     if (!isProjectFilePath(relativePath)) continue
     if (file.size > maxBytes) continue
@@ -2376,7 +2861,7 @@ async function prepareProjectFiles(files: File[]) {
     })
   }
 
-  return prepared
+  return { files: prepared, originalRoot }
 }
 
 function isProjectFilePath(value: string) {

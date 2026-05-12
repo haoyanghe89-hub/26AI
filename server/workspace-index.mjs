@@ -9,6 +9,21 @@ const PROJECTS_DIR = path.join(DATA_DIR, 'projects')
 const PROJECTS_META_PATH = path.join(PROJECTS_DIR, 'projects.json')
 
 const IGNORED_DIRS = new Set(['.git', '.idea', '.vscode', 'coverage', 'data', 'dist', 'node_modules'])
+const TEXT_DOTFILES = new Set([
+  '.browserslistrc',
+  '.editorconfig',
+  '.env',
+  '.env.development',
+  '.env.local',
+  '.env.online',
+  '.env.preview',
+  '.env.production',
+  '.env.test',
+  '.eslintrc',
+  '.gitignore',
+  '.npmrc',
+  '.prettierrc',
+])
 
 const TEXT_EXTENSIONS = new Set([
   '.c',
@@ -39,7 +54,7 @@ const TEXT_EXTENSIONS = new Set([
 ])
 
 const MAX_FILE_BYTES = 256 * 1024
-const MAX_FILES = 1000
+const MAX_FILES = 5000
 const CHUNK_CHARS = 3200
 const CHUNK_OVERLAP = 420
 
@@ -53,6 +68,7 @@ export async function listProjects() {
 export async function importProject(payload) {
   const rawFiles = Array.isArray(payload?.files) ? payload.files : []
   const name = sanitizeProjectName(payload?.name || inferProjectName(rawFiles) || 'imported-project')
+  const originalRoot = String(payload?.originalRoot || '').trim() || undefined
   const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
   const importedAt = new Date().toISOString()
   const projectDir = path.join(PROJECTS_DIR, id)
@@ -68,9 +84,9 @@ export async function importProject(payload) {
       text: String(file.text || ''),
     }))
 
-  const importableFiles = acceptedFiles.filter((file) => file.text.trim())
-  const fingerprint = createProjectFingerprint(name, importableFiles)
-  const pathFingerprint = createProjectPathFingerprint(name, importableFiles)
+  const fingerprintableFiles = acceptedFiles.filter((file) => file.text.trim())
+  const fingerprint = createProjectFingerprint(name, fingerprintableFiles)
+  const pathFingerprint = createProjectPathFingerprint(name, acceptedFiles)
   const duplicateMatch = await findExistingImportedProject(fingerprint, pathFingerprint)
   if (duplicateMatch) {
     const projects = await loadProjects()
@@ -83,11 +99,11 @@ export async function importProject(payload) {
   await fs.mkdir(filesDir, { recursive: true })
 
   const chunks = []
-  for (const file of importableFiles) {
+  for (const file of acceptedFiles) {
     const destination = path.join(filesDir, file.relativePath)
     await fs.mkdir(path.dirname(destination), { recursive: true })
     await fs.writeFile(destination, file.text)
-    chunks.push(...chunkText(file.relativePath, file.text))
+    if (file.text.trim()) chunks.push(...chunkText(file.relativePath, file.text))
   }
 
   const index = {
@@ -95,6 +111,7 @@ export async function importProject(payload) {
     id,
     name,
     root: name,
+    originalRoot,
     importedAt,
     updatedAt: importedAt,
     fileCount: acceptedFiles.length,
@@ -111,6 +128,29 @@ export async function importProject(payload) {
   await saveProjects(projects)
 
   return summary
+}
+
+export async function importProjectFromLocalRoot(rootPath) {
+  const originalRoot = path.resolve(String(rootPath || '').trim())
+  const stat = await fs.stat(originalRoot).catch(() => null)
+  if (!stat?.isDirectory()) return null
+
+  const files = await collectFiles(originalRoot)
+  const rawFiles = []
+  for (const filePath of files) {
+    const text = await fs.readFile(filePath, 'utf8').catch(() => '')
+    rawFiles.push({
+      path: path.relative(originalRoot, filePath).replace(/\\/g, '/'),
+      text,
+      size: Buffer.byteLength(text, 'utf8'),
+    })
+  }
+
+  return importProject({
+    name: path.basename(originalRoot) || 'imported-project',
+    files: rawFiles,
+    originalRoot,
+  })
 }
 
 export async function getProjectStatus(projectId) {
@@ -210,7 +250,7 @@ export async function getProjectTree(projectId) {
   return root.children
 }
 
-export { getProjectFilePath, getProjectFilesRoot, readProjectFile }
+export { getProjectFilePath, getProjectFilesRoot, getProjectOriginalRoot, readProjectFile }
 
 export async function previewProjectFileWrite(projectId, relativePath, content) {
   const previous = await readProjectFile(projectId, relativePath)
@@ -416,6 +456,25 @@ async function getProjectFilesRoot(projectId) {
   return stat?.isDirectory() ? filesRoot : null
 }
 
+async function getProjectOriginalRoot(projectId) {
+  const id = String(projectId || '')
+  if (!/^[a-z0-9-]+$/i.test(id)) return null
+
+  const indexPath = path.resolve(PROJECTS_DIR, id, 'index.json')
+  const raw = await fs.readFile(indexPath, 'utf8').catch(() => null)
+  if (!raw) return null
+
+  try {
+    const index = JSON.parse(raw)
+    const root = String(index?.originalRoot || '').trim()
+    if (!root) return null
+    const stat = await fs.stat(root).catch(() => null)
+    return stat?.isDirectory() ? root : null
+  } catch {
+    return null
+  }
+}
+
 async function rebuildProjectIndex(projectId) {
   const index = await loadProjectIndex(projectId)
   const filesRoot = await getProjectFilesRoot(projectId)
@@ -480,8 +539,6 @@ async function collectFiles(root) {
     const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
     for (const entry of entries) {
       if (files.length >= MAX_FILES) return
-      if (entry.name.startsWith('.') && entry.name !== '.gitignore') continue
-
       const fullPath = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         if (!IGNORED_DIRS.has(entry.name)) await walk(fullPath)
@@ -504,7 +561,7 @@ async function collectFiles(root) {
 function isIndexableFile(filePath) {
   const basename = path.basename(filePath)
   if (basename === 'package-lock.json') return false
-  if (basename === '.gitignore') return true
+  if (TEXT_DOTFILES.has(basename.toLowerCase()) || basename.toLowerCase().startsWith('.env.')) return true
   return TEXT_EXTENSIONS.has(path.extname(filePath).toLowerCase())
 }
 
@@ -774,10 +831,44 @@ function projectSummary(index) {
     id: index.id,
     name: index.name,
     root: index.root,
+    originalRoot: index.originalRoot || undefined,
     importedAt: index.importedAt,
     updatedAt: index.updatedAt,
     fileCount: index.fileCount,
     chunkCount: index.chunks.length,
+  }
+}
+
+export async function setProjectOriginalRoot(projectId, originalRoot) {
+  const id = String(projectId || '')
+  if (!/^[a-z0-9-]+$/i.test(id)) return false
+
+  const indexPath = path.resolve(PROJECTS_DIR, id, 'index.json')
+  const raw = await fs.readFile(indexPath, 'utf8').catch(() => null)
+  if (!raw) return false
+
+  try {
+    const index = JSON.parse(raw)
+    const root = String(originalRoot || '').trim()
+    if (root) {
+      const stat = await fs.stat(root).catch(() => null)
+      if (!stat?.isDirectory()) return false
+      index.originalRoot = root
+    } else {
+      delete index.originalRoot
+    }
+    index.updatedAt = new Date().toISOString()
+    await fs.writeFile(indexPath, JSON.stringify(index, null, 2))
+
+    // 刷新 projects.json 缓存
+    const projects = (await loadProjects()).map((project) =>
+      project.id === id ? projectSummary(index) : project,
+    )
+    cachedProjects = projects
+    await saveProjects(projects)
+    return true
+  } catch {
+    return false
   }
 }
 

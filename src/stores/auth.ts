@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { translate } from '../i18n'
 import { getStoredJson, setStoredJson } from '../lib/clientStorage'
 
 export type AuthProvider = 'account' | 'phone' | 'wechat' | 'qq'
@@ -180,7 +181,8 @@ async function authRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
     },
   })
   const data = await response.json().catch(() => null)
-  if (!response.ok) throw new Error(data?.error || `认证请求失败：${response.status}`)
+  if (!response.ok)
+    throw new Error(data?.error || translate('errors.authRequestFailed', { status: response.status }))
   return data as T
 }
 
