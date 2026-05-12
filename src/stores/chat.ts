@@ -571,6 +571,10 @@ function persist(key: string, value: string) {
   void setStoredString(key, value)
 }
 
+function isAuthTokenAvailable() {
+  return Boolean(localStorage.getItem('twentys1x:auth-token'))
+}
+
 function loadJsonRecord(key: string): Record<string, string> {
   try {
     const raw = localStorage.getItem(key)
@@ -792,6 +796,9 @@ export function messagePreviewContent(content: MessageContent) {
 
 export const useChatStore = defineStore('chat', () => {
   const hasHydratedClientState = ref(false)
+  const hasHydratedServerState = ref(false)
+  const isApplyingServerState = ref(false)
+  let serverPersistTimer: number | null = null
   const legacyKimiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || ''
   const providerApiKeys = ref<Record<string, string>>({
     ...loadJsonRecord(STORAGE_KEYS.apiKeys),
@@ -936,18 +943,68 @@ export const useChatStore = defineStore('chat', () => {
 
   function saveSessions() {
     void setStoredJson(STORAGE_KEYS.sessions, sessions.value)
+    scheduleServerStatePersist()
   }
 
   function savePromptTemplates() {
     void setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+    scheduleServerStatePersist()
   }
 
   function saveCustomAgents() {
     void setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
+    scheduleServerStatePersist()
   }
 
   function savePromptWorkflows() {
     void setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+    scheduleServerStatePersist()
+  }
+
+  function collectPersistedSettings() {
+    return {
+      provider: selectedProviderId.value,
+      providerModels: providerModels.value,
+      inferenceMode: inferenceMode.value,
+      localModel: localModel.value,
+      hybridFallbackToCloud: hybridFallbackToCloud.value,
+      enableTools: enableTools.value,
+      enablePlanning: enablePlanning.value,
+      activeSession: activeSessionId.value,
+      activeProject: activeProjectId.value,
+      activeAgent: activeAgentId.value,
+      activeNormalAgent: activeNormalAgentId.value,
+      activeProjectAgent: activeProjectAgentId.value,
+    }
+  }
+
+  function scheduleServerStatePersist() {
+    if (isApplyingServerState.value || !hasHydratedServerState.value || !isAuthTokenAvailable()) return
+    if (serverPersistTimer) window.clearTimeout(serverPersistTimer)
+    serverPersistTimer = window.setTimeout(() => {
+      serverPersistTimer = null
+      void persistServerState()
+    }, 500)
+  }
+
+  async function persistServerState() {
+    if (isApplyingServerState.value || !hasHydratedServerState.value || !isAuthTokenAvailable()) return
+    try {
+      await authFetch('/api/state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessions: sessions.value,
+          promptTemplates: promptTemplates.value,
+          customAgents: customAgents.value,
+          promptWorkflows: promptWorkflows.value,
+          projects: projects.value,
+          settings: collectPersistedSettings(),
+        }),
+      })
+    } catch {
+      // 后端临时不可用时仍保留浏览器本地副本，下次 hydrate 会再尝试迁移。
+    }
   }
 
   function setApiKey(value: string) {
@@ -965,6 +1022,7 @@ export const useChatStore = defineStore('chat', () => {
       [selectedProviderId.value]: value.trim() || getDefaultModel(selectedProviderId.value),
     }
     void setStoredJson(STORAGE_KEYS.models, providerModels.value)
+    scheduleServerStatePersist()
   }
 
   function setProvider(providerId: ProviderId) {
@@ -972,32 +1030,38 @@ export const useChatStore = defineStore('chat', () => {
     if (!providerModels.value[providerId]) setModel(getDefaultModel(providerId))
     errorMessage.value = ''
     persist(STORAGE_KEYS.provider, providerId)
+    scheduleServerStatePersist()
   }
 
   function setInferenceMode(value: InferenceMode) {
     inferenceMode.value = normalizeInferenceMode(value)
     errorMessage.value = ''
     persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
+    scheduleServerStatePersist()
   }
 
   function setLocalModel(value: string) {
     localModel.value = value.trim() || DEFAULT_LOCAL_MODEL
     persist(STORAGE_KEYS.localModel, localModel.value)
+    scheduleServerStatePersist()
   }
 
   function setHybridFallbackToCloud(value: boolean) {
     hybridFallbackToCloud.value = Boolean(value)
     persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
+    scheduleServerStatePersist()
   }
 
   function setEnableTools(value: boolean) {
     enableTools.value = Boolean(value)
     persist(STORAGE_KEYS.enableTools, String(enableTools.value))
+    scheduleServerStatePersist()
   }
 
   function setEnablePlanning(value: boolean) {
     enablePlanning.value = Boolean(value)
     persist(STORAGE_KEYS.enablePlanning, String(enablePlanning.value))
+    scheduleServerStatePersist()
   }
 
   async function hydrateClientState() {
@@ -1098,6 +1162,115 @@ export const useChatStore = defineStore('chat', () => {
     persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
     persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
     persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
+
+    await hydrateServerState()
+  }
+
+  async function hydrateServerState() {
+    if (hasHydratedServerState.value || !isAuthTokenAvailable()) return
+
+    try {
+      const response = await authFetch('/api/state')
+      if (!response.ok) return
+      const data = await response.json()
+
+      isApplyingServerState.value = true
+      if (data?.empty) {
+        hasHydratedServerState.value = true
+        isApplyingServerState.value = false
+        await persistServerState()
+        return
+      }
+
+      if (Array.isArray(data.sessions) && data.sessions.length) {
+        sessions.value = data.sessions.map(normalizeSession)
+      }
+
+      promptTemplates.value = mergePromptAssets(
+        BUILTIN_PROMPT_TEMPLATES,
+        Array.isArray(data.promptTemplates) ? data.promptTemplates : [],
+      ).map((item) =>
+        normalizePromptTemplate(
+          item,
+          BUILTIN_PROMPT_TEMPLATES.find((template) => template.id === item.id),
+        ),
+      )
+      customAgents.value = mergePromptAssets(
+        BUILTIN_AGENTS,
+        Array.isArray(data.customAgents) ? data.customAgents : [],
+      ).map((item) =>
+        normalizeAgent(
+          item,
+          BUILTIN_AGENTS.find((agent) => agent.id === item.id),
+        ),
+      )
+      promptWorkflows.value = mergePromptAssets(
+        BUILTIN_WORKFLOWS,
+        Array.isArray(data.promptWorkflows) ? data.promptWorkflows : [],
+      ).map((item) =>
+        normalizeWorkflow(
+          item,
+          BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
+        ),
+      )
+
+      const settings = data?.settings && typeof data.settings === 'object' ? data.settings : {}
+      providerModels.value = {
+        ...providerModels.value,
+        ...(settings.providerModels && typeof settings.providerModels === 'object'
+          ? settings.providerModels
+          : {}),
+      }
+      selectedProviderId.value = normalizeProviderId(String(settings.provider || selectedProviderId.value))
+      inferenceMode.value = normalizeInferenceMode(String(settings.inferenceMode || inferenceMode.value))
+      localModel.value = String(settings.localModel || localModel.value)
+      hybridFallbackToCloud.value =
+        typeof settings.hybridFallbackToCloud === 'boolean'
+          ? settings.hybridFallbackToCloud
+          : hybridFallbackToCloud.value
+      enableTools.value = typeof settings.enableTools === 'boolean' ? settings.enableTools : enableTools.value
+      enablePlanning.value =
+        typeof settings.enablePlanning === 'boolean' ? settings.enablePlanning : enablePlanning.value
+      activeSessionId.value =
+        settings.activeSession && sessions.value.some((session) => session.id === settings.activeSession)
+          ? String(settings.activeSession)
+          : sessions.value[0].id
+      activeProjectId.value = String(settings.activeProject || activeProjectId.value || '')
+      activeNormalAgentId.value = resolveAgentId(
+        String(settings.activeNormalAgent || settings.activeAgent || activeNormalAgentId.value),
+        DEFAULT_AGENT_ID,
+      )
+      activeProjectAgentId.value = resolveAgentId(
+        String(settings.activeProjectAgent || activeProjectAgentId.value),
+        DEFAULT_PROJECT_AGENT_ID,
+      )
+
+      if (Array.isArray(data.projects) && data.projects.length) {
+        projects.value = data.projects
+      }
+
+      await setStoredJson(STORAGE_KEYS.sessions, sessions.value)
+      await setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+      await setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
+      await setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+      await setStoredJson(STORAGE_KEYS.models, providerModels.value)
+      persist(STORAGE_KEYS.provider, selectedProviderId.value)
+      persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
+      persist(STORAGE_KEYS.localModel, localModel.value)
+      persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
+      persist(STORAGE_KEYS.enableTools, String(enableTools.value))
+      persist(STORAGE_KEYS.enablePlanning, String(enablePlanning.value))
+      persist(STORAGE_KEYS.activeSession, activeSessionId.value)
+      persist(STORAGE_KEYS.activeProject, activeProjectId.value)
+      persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+      persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
+      persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
+      hasHydratedServerState.value = true
+    } catch {
+      // 未登录、后端未启动或迁移中断时继续使用浏览器本地状态。
+    } finally {
+      isApplyingServerState.value = false
+    }
   }
 
   function newSession() {
@@ -1134,6 +1307,7 @@ export const useChatStore = defineStore('chat', () => {
     activeSessionId.value = id
     errorMessage.value = ''
     persist(STORAGE_KEYS.activeSession, id)
+    scheduleServerStatePersist()
   }
 
   function clearAllSessions() {
@@ -1190,6 +1364,7 @@ export const useChatStore = defineStore('chat', () => {
       persist(STORAGE_KEYS.activeNormalAgent, resolved)
     }
     persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+    scheduleServerStatePersist()
   }
 
   function savePromptTemplate(template: Partial<PromptTemplate>) {
@@ -1256,6 +1431,7 @@ export const useChatStore = defineStore('chat', () => {
     persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
     saveCustomAgents()
     savePromptWorkflows()
+    scheduleServerStatePersist()
     return true
   }
 
@@ -2350,6 +2526,7 @@ export const useChatStore = defineStore('chat', () => {
       if (activeProjectId.value && !projects.value.some((project) => project.id === activeProjectId.value)) {
         setActiveProject('')
       }
+      scheduleServerStatePersist()
     } catch {
       // 后端未启动时不阻塞聊天界面。
     }
@@ -2365,6 +2542,7 @@ export const useChatStore = defineStore('chat', () => {
     activeFileDiff.value = ''
     if (projectId) refreshActiveProjectTree()
     else activeProjectTree.value = []
+    scheduleServerStatePersist()
   }
 
   async function importProjectFolder(files: File[], pathMap?: Map<File, string>) {
@@ -2391,6 +2569,7 @@ export const useChatStore = defineStore('chat', () => {
       const project = data.project as ImportedProject
       projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
       setActiveProject(project.id)
+      scheduleServerStatePersist()
       return project
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : translate('errors.importProjectFailed')
@@ -2420,6 +2599,7 @@ export const useChatStore = defineStore('chat', () => {
       const project = data.project as ImportedProject
       projects.value = [project, ...projects.value.filter((item) => item.id !== project.id)]
       setActiveProject(project.id)
+      scheduleServerStatePersist()
       return project
     } catch (error) {
       errorMessage.value =
@@ -2611,6 +2791,7 @@ export const useChatStore = defineStore('chat', () => {
         throw new Error(data?.error || translate('errors.requestFailed', { status: response.status }))
       projects.value = projects.value.filter((project) => project.id !== projectId)
       if (activeProjectId.value === projectId) setActiveProject(projects.value[0]?.id || '')
+      scheduleServerStatePersist()
       return true
     } catch (error) {
       errorMessage.value = error instanceof Error ? error.message : translate('errors.deleteProjectFailed')

@@ -30,6 +30,7 @@ import {
   initServerErrorMonitoring,
 } from './error-monitoring.mjs'
 import { executeTool, TOOL_DEFINITIONS } from './tools.mjs'
+import { initPersistence, loadUserState, saveUserState } from './persistence.mjs'
 import {
   authenticateRequest,
   completeOAuthTicket,
@@ -49,6 +50,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = path.resolve(__dirname, '../dist')
 
 initServerErrorMonitoring()
+await initPersistence()
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
@@ -169,6 +171,17 @@ const server = http.createServer(async (req, res) => {
           ]),
         ),
       })
+      return
+    }
+
+    if (req.method === 'GET' && routePath === '/api/state') {
+      sendJson(res, 200, await loadUserState(req.user.id))
+      return
+    }
+
+    if (req.method === 'PUT' && routePath === '/api/state') {
+      const body = await readJson(req)
+      sendJson(res, 200, await saveUserState(req.user.id, body))
       return
     }
 

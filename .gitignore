@@ -18,5 +18,7 @@ dist
 # 本地/调试
 *.local
 data/auth/
+data/*.sqlite
+data/*.sqlite-*
 data/workspace-index.json
 data/projects/
