@@ -43,6 +43,76 @@ export function exportSessionsJson(sessions: ChatSession[]) {
   )
 }
 
+export interface SessionImportResult {
+  imported: number
+  skipped: number
+  errors: string[]
+}
+
+export function importSessionsJson(jsonString: string): {
+  sessions: ChatSession[]
+  result: SessionImportResult
+} {
+  const result: SessionImportResult = { imported: 0, skipped: 0, errors: [] }
+  let parsed: unknown
+
+  try {
+    parsed = JSON.parse(jsonString)
+  } catch {
+    result.errors.push('JSON 格式无效')
+    return { sessions: [], result }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    result.errors.push('JSON 内容不是有效对象')
+    return { sessions: [], result }
+  }
+
+  const root = parsed as Record<string, unknown>
+  let sessions: ChatSession[]
+
+  // 支持两种格式：{ version, exportedAt, sessions } 或直接的数组
+  if (root.version && Array.isArray(root.sessions)) {
+    sessions = root.sessions as ChatSession[]
+  } else if (Array.isArray(parsed)) {
+    sessions = parsed as ChatSession[]
+  } else {
+    result.errors.push('无法识别的会话备份格式：缺少 sessions 字段或有效数组')
+    return { sessions: [], result }
+  }
+
+  const validSessions: ChatSession[] = []
+  for (const session of sessions) {
+    if (typeof session !== 'object' || session === null) {
+      result.skipped++
+      continue
+    }
+    if (typeof (session as ChatSession).id !== 'string' || !(session as ChatSession).id) {
+      // 没有 id 则生成一个
+      ;(session as ChatSession).id = crypto.randomUUID()
+    }
+    if (!Array.isArray((session as ChatSession).messages)) {
+      ;(session as ChatSession).messages = []
+    }
+    if (typeof (session as ChatSession).title !== 'string') {
+      ;(session as ChatSession).title = '导入的会话'
+    }
+    if (!Array.isArray((session as ChatSession).tags)) {
+      ;(session as ChatSession).tags = []
+    }
+    if (typeof (session as ChatSession).createdAt !== 'string') {
+      ;(session as ChatSession).createdAt = new Date().toISOString()
+    }
+    if (typeof (session as ChatSession).updatedAt !== 'string') {
+      ;(session as ChatSession).updatedAt = new Date().toISOString()
+    }
+    validSessions.push(session as ChatSession)
+    result.imported++
+  }
+
+  return { sessions: validSessions, result }
+}
+
 export function exportSessionMarkdown(session: ChatSession) {
   const tags = session.tags?.length ? `\nTags: ${session.tags.join(', ')}` : ''
   const header = `# ${session.title}\n\nCreated: ${session.createdAt}\nUpdated: ${session.updatedAt}${tags}\n`

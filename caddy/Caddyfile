@@ -1,0 +1,42 @@
+# Twentys1x AI Studio - Caddy Reverse Proxy Configuration
+# Caddy automatically obtains and renews Let's Encrypt certificates
+
+{$DOMAIN:localhost} {
+    # Reverse proxy to the Node.js app
+    reverse_proxy twentys1x:8787
+
+    # Security headers
+    header {
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+        # Enable strict XSS protection
+        X-XSS-Protection "1; mode=block"
+        # Prevent clickjacking
+        X-Frame-Options "SAMEORIGIN"
+        # Referrer policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Permissions policy
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        # Remove server info
+        -Server
+    }
+
+    # Request body size limit (10MB)
+    request_body {
+        max_size 10MB
+    }
+
+    # Enable gzip compression
+    encode gzip zstd
+
+    # Logging
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
+
+# Redirect www to non-www (if DOMAIN is set)
+www.{$DOMAIN:localhost} {
+    redir https://{$DOMAIN:localhost}{uri} permanent
+}

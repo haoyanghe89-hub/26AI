@@ -22,3 +22,7 @@ data/*.sqlite
 data/*.sqlite-*
 data/workspace-index.json
 data/projects/
+
+# 数据备份
+backups/
+data_restore_rollback_*/

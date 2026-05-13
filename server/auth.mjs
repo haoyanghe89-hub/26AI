@@ -24,6 +24,11 @@ const OAUTH_TICKET_TTL_MS = 2 * 60 * 1000
 const smsChallenges = new Map()
 const oauthStates = new Map()
 const oauthTickets = new Map()
+const loginFailures = new Map() // key → { count, lastAttempt, lockedUntil }
+
+// ─── 登录失败锁定配置 ───
+const LOGIN_LOCKOUT_MAX_ATTEMPTS = Number(process.env.AUTH_LOCKOUT_MAX_ATTEMPTS || 5) // 连续失败 N 次后锁定
+const LOGIN_LOCKOUT_DURATION_MS = Number(process.env.AUTH_LOCKOUT_DURATION_MS || 15 * 60 * 1000) // 锁定 15 分钟
 
 let cachedUsers
 
@@ -73,12 +78,85 @@ export async function loginWithPhone(payload) {
   return createAuthResponse(user, 'phone')
 }
 
+// ─── 登录失败锁定 ───
+function getLockoutKey(identifier) {
+  return `login:${String(identifier).trim().toLowerCase()}`
+}
+
+function checkLoginLockout(identifier) {
+  const key = getLockoutKey(identifier)
+  const record = loginFailures.get(key)
+  if (!record) return { locked: false, retryAfter: 0 }
+
+  if (record.lockedUntil && Date.now() < record.lockedUntil) {
+    const retryAfter = Math.ceil((record.lockedUntil - Date.now()) / 1000)
+    return { locked: true, retryAfter }
+  }
+
+  // 锁定已到期，清除记录
+  if (record.lockedUntil && Date.now() >= record.lockedUntil) {
+    loginFailures.delete(key)
+    return { locked: false, retryAfter: 0 }
+  }
+
+  return { locked: false, retryAfter: 0 }
+}
+
+function recordLoginFailure(identifier) {
+  const key = getLockoutKey(identifier)
+  const record = loginFailures.get(key) || { count: 0, lastAttempt: 0, lockedUntil: 0 }
+  record.count++
+  record.lastAttempt = Date.now()
+
+  if (record.count >= LOGIN_LOCKOUT_MAX_ATTEMPTS) {
+    record.lockedUntil = Date.now() + LOGIN_LOCKOUT_DURATION_MS
+  }
+
+  loginFailures.set(key, record)
+}
+
+function resetLoginFailure(identifier) {
+  loginFailures.delete(getLockoutKey(identifier))
+}
+
+// 定期清理过期的锁定记录（每 5 分钟）
+const LOCKOUT_CLEANUP_INTERVAL = setInterval(() => {
+  const now = Date.now()
+  for (const [key, record] of loginFailures) {
+    if (record.lockedUntil && now >= record.lockedUntil + 3600_000) {
+      loginFailures.delete(key)
+    }
+  }
+}, 300_000)
+if (LOCKOUT_CLEANUP_INTERVAL.unref) LOCKOUT_CLEANUP_INTERVAL.unref()
+
+// ─── 密码策略：复杂度要求 ───
+function validatePasswordComplexity(password) {
+  if (typeof password !== 'string' || !password) {
+    throw httpError(400, '密码不能为空')
+  }
+  if (password.length < 10) {
+    throw httpError(400, '密码至少需要 10 位')
+  }
+  // 必须包含至少 3 类字符：大写字母、小写字母、数字、特殊符号
+  const categories = [
+    /[A-Z]/.test(password),
+    /[a-z]/.test(password),
+    /[0-9]/.test(password),
+    /[!@#$%^&*()_+\-=\]{};':"\\|,.<>/?`~]/.test(password),
+  ]
+  const passed = categories.filter(Boolean).length
+  if (passed < 3) {
+    throw httpError(400, '密码需包含大写字母、小写字母、数字、特殊符号中至少 3 类')
+  }
+}
+
 export async function registerWithAccount(payload) {
   const username = String(payload?.username || '').trim()
   const password = String(payload?.password || '')
 
   if (username.length < 3) throw httpError(400, '账号至少需要 3 个字符')
-  if (password.length < 8) throw httpError(400, '密码至少需要 8 位')
+  validatePasswordComplexity(password)
 
   const users = await loadUsers()
   if (users.some((candidate) => candidate.username === username)) {
@@ -103,16 +181,32 @@ export async function loginWithAccount(payload) {
   const password = String(payload?.password || '')
   if (!identifier || !password) throw httpError(400, '账号或密码不正确')
 
+  // 检查登录锁定
+  const lockout = checkLoginLockout(identifier)
+  if (lockout.locked) {
+    throw httpError(429, `登录尝试过于频繁，请 ${lockout.retryAfter} 秒后再试`, {
+      retryAfter: lockout.retryAfter,
+    })
+  }
+
   const users = await loadUsers()
   const normalizedPhone = normalizePhone(identifier)
   const user = users.find(
     (candidate) => candidate.username === identifier || candidate.phone === normalizedPhone,
   )
-  if (!user?.passwordHash || !user.salt) throw httpError(401, '账号或密码不正确')
-  if (!(await verifyPassword(password, user.passwordHash, user.salt))) {
+
+  if (!user?.passwordHash || !user.salt) {
+    recordLoginFailure(identifier)
     throw httpError(401, '账号或密码不正确')
   }
 
+  if (!(await verifyPassword(password, user.passwordHash, user.salt))) {
+    recordLoginFailure(identifier)
+    throw httpError(401, '账号或密码不正确')
+  }
+
+  // 登录成功，清除失败记录
+  resetLoginFailure(identifier)
   return createAuthResponse(user, 'account')
 }
 

@@ -31,6 +31,7 @@ import {
   buildHeuristicSessionTags,
   buildSessionSummaryPrompt,
   buildSessionTagsPrompt,
+  importSessionsJson,
   normalizeTags,
   parseAutoSessionTagsResponse,
 } from '../lib/sessionManagement'
@@ -1308,6 +1309,18 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
     persist(STORAGE_KEYS.activeSession, id)
     scheduleServerStatePersist()
+  }
+
+  function importSessions(jsonString: string): { imported: number; skipped: number; errors: string[] } {
+    const { sessions: importedSessions, result } = importSessionsJson(jsonString)
+    if (result.errors.length && !importedSessions.length) return result
+    // 为所有导入的会话生成新 ID 以避免冲突
+    for (const session of importedSessions) {
+      session.id = crypto.randomUUID()
+    }
+    sessions.value.unshift(...importedSessions)
+    saveSessions()
+    return result
   }
 
   function clearAllSessions() {
@@ -2885,6 +2898,7 @@ export const useChatStore = defineStore('chat', () => {
     deleteSession,
     renameSession,
     setActiveSession,
+    importSessions,
     clearAllSessions,
     setSessionTags,
     updateSessionSummary,

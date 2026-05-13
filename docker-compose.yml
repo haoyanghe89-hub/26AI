@@ -1,8 +1,8 @@
 services:
   twentys1x:
     build: .
-    ports:
-      - '8787:8787'
+    expose:
+      - '8787'
     environment:
       HOST: 0.0.0.0
       PORT: 8787
@@ -16,9 +16,28 @@ services:
       KIMI_API_KEY: ${KIMI_API_KEY:-}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      # Domain for CORS and OAuth callbacks (set via DOMAIN env)
+      DOMAIN: ${DOMAIN:-localhost}
     volumes:
       - twentys1x-data:/app/data
     restart: unless-stopped
 
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-log:/var/log/caddy
+    restart: unless-stopped
+    depends_on:
+      - twentys1x
+
 volumes:
   twentys1x-data:
+  caddy-data:
+  caddy-log:

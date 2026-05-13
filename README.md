@@ -62,6 +62,83 @@ Docker deployment:
 docker compose up --build
 ```
 
+## Data Backup & Migration
+
+### Automatic Backup (recommended)
+
+The project ships with an automatic backup script supporting daily / weekly / monthly rotation:
+
+```bash
+# Manual backup
+bash scripts/backup.sh
+
+# With custom directories
+BACKUP_DIR=/mnt/nas/twentys1x-backups bash scripts/backup.sh
+
+# Add to crontab for automatic daily backup (2:00 AM)
+# crontab -e
+# 0 2 * * * cd /path/to/twentys1x && bash scripts/backup.sh >> backups/backup.log 2>&1
+```
+
+**Backup strategy:**
+
+| Frequency | Trigger      | Retention |
+| --------- | ------------ | --------- |
+| Daily     | Every run    | Last 7    |
+| Weekly    | Monday only  | Last 4    |
+| Monthly   | 1st of month | Last 3    |
+| SQLite    | Every run    | Last 14   |
+
+**Backup directory structure:**
+
+```
+backups/
+├── daily/          # Daily archives
+├── weekly/         # Weekly archives (Mon)
+├── monthly/        # Monthly archives (1st)
+└── twentys1x-backup-*.db  # Standalone SQLite snapshots
+```
+
+### Restore from Backup
+
+```bash
+# Restore full data directory
+bash scripts/restore.sh backups/daily/twentys1x-backup-20260513_120000-daily.tar.gz
+
+# Restore SQLite only
+bash scripts/restore.sh backups/twentys1x-backup-20260513_120000-sqlite.db
+```
+
+The restore script will:
+
+1. Stop running containers automatically
+2. Create a rollback backup of current data before overwriting
+3. Restore the selected backup
+4. Restart containers
+
+### Docker Volume Persistence
+
+In `docker-compose.yml`, the `twentys1x-data` named volume is mounted at `/app/data`. This volume persists across container restarts and rebuilds.
+
+To migrate data between hosts:
+
+```bash
+# Export volume data
+docker run --rm -v twentys1x_twentys1x-data:/data -v $(pwd):/backup alpine tar czf /backup/twentys1x-data-export.tar.gz -C /data .
+
+# Import on target host
+docker run --rm -v twentys1x_twentys1x-data:/data -v $(pwd):/backup alpine tar xzf /backup/twentys1x-data-export.tar.gz -C /data
+```
+
+### Data Storage Details
+
+| Data                     | Location          | Format            |
+| ------------------------ | ----------------- | ----------------- |
+| Chat sessions & messages | `data/app.sqlite` | SQLite (WAL mode) |
+| User settings & agents   | `data/app.sqlite` | SQLite            |
+| Project metadata         | `data/app.sqlite` | SQLite            |
+| Project file indexes     | `data/projects/`  | JSON chunks       |
+
 ## Compliance Templates
 
 Before public launch, review and adapt:

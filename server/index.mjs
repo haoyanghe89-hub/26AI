@@ -49,6 +49,105 @@ const HOST = process.env.HOST || '127.0.0.1'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PUBLIC_DIR = path.resolve(__dirname, '../dist')
 
+// ─── 速率限制（令牌桶）───
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000) // 默认 60 秒窗口
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 30) // 每窗口最多 30 次
+const RATE_LIMIT_CHAT_MAX = Number(process.env.RATE_LIMIT_CHAT_MAX || 10) // /api/chat 每窗口最多 10 次
+const rateLimitBuckets = new Map() // key → { tokens, lastRefill }
+
+function getRateLimitKey(req) {
+  // 优先按用户 ID 限流，否则按 IP
+  if (req.user?.id) return `user:${req.user.id}`
+  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1'
+  return `ip:${ip}`
+}
+
+function checkRateLimit(req, maxRequests = RATE_LIMIT_MAX_REQUESTS, windowMs = RATE_LIMIT_WINDOW_MS) {
+  const key = getRateLimitKey(req)
+  const now = Date.now()
+  let bucket = rateLimitBuckets.get(key)
+
+  if (!bucket || now - bucket.lastRefill >= windowMs) {
+    // 新窗口：重置令牌
+    bucket = { tokens: maxRequests, lastRefill: now }
+    rateLimitBuckets.set(key, bucket)
+  }
+
+  if (bucket.tokens <= 0) {
+    const retryAfter = Math.ceil((bucket.lastRefill + windowMs - now) / 1000)
+    return { allowed: false, retryAfter }
+  }
+
+  bucket.tokens--
+  return { allowed: true }
+}
+
+// 定期清理过期桶（每 5 分钟）
+const RATE_LIMIT_CLEANUP_INTERVAL = setInterval(() => {
+  const now = Date.now()
+  const maxAge = Math.max(RATE_LIMIT_WINDOW_MS, 60_000) * 2
+  for (const [key, bucket] of rateLimitBuckets) {
+    if (now - bucket.lastRefill > maxAge) rateLimitBuckets.delete(key)
+  }
+}, 300_000)
+if (RATE_LIMIT_CLEANUP_INTERVAL.unref) RATE_LIMIT_CLEANUP_INTERVAL.unref()
+
+// ─── 请求体大小限制 ───
+const MAX_BODY_SIZE = Number(process.env.MAX_BODY_SIZE || 10 * 1024 * 1024) // 默认 10MB
+
+// ─── 防 Prompt 注入安全层 ───
+const PROMPT_INJECTION_PATTERNS = [
+  // Direct system prompt override attempts
+  /忽略.*(系统指令|system\s*prompt|上述指令|以上指令|所有规则)/i,
+  /(ignore|forget|disregard|override|bypass)\s+(all\s+)?(previous|above|system|your)\s+(instructions?|prompts?|rules?)/i,
+  /you\s+are\s+now\s+(a\s+)?(different|new|another)/i,
+  /act\s+as\s+(if\s+you\s+are|a\s+different)/i,
+  /switch\s+(your\s+)?role/i,
+  /新.*(角色|身份|指令)|角色.*扮演.*新/i,
+
+  // Delimiter/delimiter-based injection
+  /<\|im_start\|>|<\|im_end\|>/i,
+  /<\|system\|>|<\|user\|>|<\|assistant\|>/i,
+  /\[SYSTEM\]|\[INST\]|\[\/INST\]/i,
+  /<\|endoftext\|>/i,
+
+  // DAN / jailbreak patterns
+  /\bDAN\b.*(mode|prompt|jailbreak)/i,
+  /jailbreak.*(mode|prompt)/i,
+  /developer\s*mode/i,
+
+  // Attempts to extract system prompt
+  /(repeat|output|print|show|display|tell\s+me)\s+(your\s+)?(system\s+(prompt|instructions?)|initial\s+prompt)/i,
+  /what\s+(is|are)\s+your\s+(system\s+)?(prompt|instructions?)/i,
+  /你的.*(系统.*提示|初始.*指令|底层.*prompt)/i,
+
+  // Instruction injection via translations or encodings
+  /translate.*(system\s+prompt|instructions?)/i,
+  /base64.*(system\s+prompt|instructions?)/i,
+  /decode.*(system\s+prompt|instructions?)/i,
+
+  // Recursive prompt injection
+  /请.*忽略.*(所有|一切).*(限制|规则|指令)/i,
+  /从现在开始.*你是.*(自由|无限制)/i,
+]
+
+const PROMPT_INJECTION_ENABLED = process.env.PROMPT_INJECTION_GUARD !== 'false'
+
+function sanitizeUserMessages(messages) {
+  if (!PROMPT_INJECTION_ENABLED) return
+
+  for (const msg of messages) {
+    if (msg?.role !== 'user') continue
+    const text = typeof msg.content === 'string' ? msg.content : messageToText(msg.content)
+
+    for (const pattern of PROMPT_INJECTION_PATTERNS) {
+      if (pattern.test(text)) {
+        throw httpError(400, '检测到潜在的 Prompt 注入攻击，请求已被拒绝')
+      }
+    }
+  }
+}
+
 initServerErrorMonitoring()
 await initPersistence()
 
@@ -147,6 +246,20 @@ const server = http.createServer(async (req, res) => {
 
     if (routePath.startsWith('/api/')) {
       req.user = await authenticateRequest(req)
+    }
+
+    // 速率限制检查（仅对 API 路由）
+    if (routePath.startsWith('/api/') && !routePath.startsWith('/api/auth/')) {
+      const maxRequests = routePath === '/api/chat' ? RATE_LIMIT_CHAT_MAX : RATE_LIMIT_MAX_REQUESTS
+      const limitResult = checkRateLimit(req, maxRequests)
+      if (!limitResult.allowed) {
+        res.setHeader('Retry-After', String(limitResult.retryAfter))
+        sendJson(res, 429, {
+          error: '请求过于频繁，请稍后再试',
+          retryAfter: limitResult.retryAfter,
+        })
+        return
+      }
     }
 
     if (req.method === 'GET' && routePath === '/api/workspace/status') {
@@ -299,6 +412,73 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req)
       const results = await searchProject(projectSearchMatch[1], body?.query, Number(body?.limit || 8))
       sendJson(res, 200, { results })
+      return
+    }
+
+    // PDF export endpoint (server-side Puppeteer)
+    if (req.method === 'POST' && routePath === '/api/export/pdf') {
+      const body = await readJson(req, 10 * 1024 * 1024)
+      const { html } = body
+      if (!html) throw httpError(400, 'Missing "html" field in request body')
+
+      try {
+        const { default: puppeteer } = await import('puppeteer-core')
+        const browser = await puppeteer
+          .launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          })
+          .catch(() => null)
+
+        if (!browser) {
+          // Fallback: try puppeteer (full install)
+          const puppeteerFull = await import('puppeteer').catch(() => null)
+          if (!puppeteerFull)
+            throw httpError(
+              503,
+              'PDF generation unavailable: no browser found. Install puppeteer or ensure a Chrome/Chromium binary is available.',
+            )
+          const browser2 = await puppeteerFull.default.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          })
+          const page2 = await browser2.newPage()
+          await page2.setContent(html, { waitUntil: 'networkidle0' })
+          const pdfBuffer = await page2.pdf({
+            format: 'A4',
+            printBackground: true,
+            margin: { top: '15mm', right: '10mm', bottom: '15mm', left: '10mm' },
+          })
+          await browser2.close()
+          res.writeHead(200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': 'attachment; filename="session-export.pdf"',
+            'Content-Length': pdfBuffer.length,
+          })
+          res.end(pdfBuffer)
+          return
+        }
+
+        const page = await browser.newPage()
+        await page.setContent(html, { waitUntil: 'networkidle0' })
+        const pdfBuffer = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '15mm', right: '10mm', bottom: '15mm', left: '10mm' },
+        })
+        await browser.close()
+        res.writeHead(200, {
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': 'attachment; filename="session-export.pdf"',
+          'Content-Length': pdfBuffer.length,
+        })
+        res.end(pdfBuffer)
+      } catch (error) {
+        throw httpError(
+          500,
+          `PDF generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        )
+      }
       return
     }
 
@@ -851,7 +1031,7 @@ function extractProviderErrorMessage(data) {
   return typeof data.message === 'string' ? data.message.trim() : ''
 }
 
-function readJson(req, maxBytes = 40 * 1024 * 1024) {
+function readJson(req, maxBytes = MAX_BODY_SIZE) {
   return new Promise((resolve, reject) => {
     let raw = ''
 
@@ -880,9 +1060,14 @@ function getRoutePath(req) {
 }
 
 function setCorsHeaders(res) {
-  res.setHeader('Access-Control-Allow-Origin', '*')
+  const domain = process.env.DOMAIN || 'localhost'
+  const allowedOrigin = domain === 'localhost' || domain === '127.0.0.1' ? '*' : `https://${domain}`
+  res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+  if (allowedOrigin !== '*') {
+    res.setHeader('Vary', 'Origin')
+  }
 }
 
 function sendJson(res, status, payload) {
@@ -1102,6 +1287,7 @@ function httpError(status, message, details) {
 
 async function buildChatRequest(body) {
   validateChatBody(body)
+  sanitizeUserMessages(body?.messages) // 防 Prompt 注入检测
   const providerId = String(body?.providerId || '')
   const provider = PROVIDERS[providerId]
   if (!provider) throw httpError(400, `Unsupported provider: ${providerId}`)

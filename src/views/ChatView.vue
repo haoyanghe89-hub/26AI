@@ -28,6 +28,7 @@ import {
   SwitchButton,
   Plus,
   Tools,
+  UploadFilled,
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
@@ -71,6 +72,8 @@ import {
   normalizeTags,
   sessionMatchesQuery,
 } from '../lib/sessionManagement'
+import html2canvas from 'html2canvas'
+import jsPDF from 'jspdf'
 import type { PromptTemplate } from '../lib/promptEngineering'
 import { messagePreviewContent, type ChatAttachment, type ProviderId, useChatStore } from '../stores/chat'
 import { useAuthStore } from '../stores/auth'
@@ -113,6 +116,7 @@ const summaryDraft = ref('')
 const copiedSummary = ref(false)
 const sessionSearchQuery = ref('')
 const activeSessionTag = ref('')
+const exportLoading = ref<'markdown' | 'json' | 'pdf' | null>(null)
 const attachmentPreview = ref<ChatAttachment | null>(null)
 const attachmentPreviewUrl = ref('')
 const monacoEditorEl = ref<HTMLElement | null>(null)
@@ -578,17 +582,210 @@ async function confirmClear() {
   chat.clearAllSessions()
 }
 
-function exportActiveSessionMarkdown() {
-  downloadText(
-    `${safeFileName(chat.activeSession.title)}.md`,
-    exportSessionMarkdown(chat.activeSession),
-    'text/markdown;charset=utf-8',
-  )
+async function exportActiveSessionMarkdown() {
+  exportLoading.value = 'markdown'
+  await nextTick()
+  try {
+    downloadText(
+      `${safeFileName(chat.activeSession.title)}.md`,
+      exportSessionMarkdown(chat.activeSession),
+      'text/markdown;charset=utf-8',
+    )
+  } finally {
+    exportLoading.value = null
+  }
 }
 
-function exportFilteredSessionsJson() {
-  const sessions = filteredSessions.value.length ? filteredSessions.value : chat.sessions
-  downloadText('twentys1x-sessions.json', exportSessionsJson(sessions), 'application/json;charset=utf-8')
+async function exportFilteredSessionsJson() {
+  exportLoading.value = 'json'
+  await nextTick()
+  try {
+    const sessions = filteredSessions.value.length ? filteredSessions.value : chat.sessions
+    downloadText('twentys1x-sessions.json', exportSessionsJson(sessions), 'application/json;charset=utf-8')
+  } finally {
+    exportLoading.value = null
+  }
+}
+
+const importFileInput = ref<HTMLInputElement | null>(null)
+
+function triggerImportJson() {
+  importFileInput.value?.click()
+}
+
+async function handleImportJson(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  target.value = ''
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const result = chat.importSessions(text)
+    const imported = result.imported || 0
+    const skipped = result.skipped || 0
+    if (imported > 0) {
+      ElMessage({
+        message: t('chat.importSuccess', { imported, skipped }),
+        type: 'success',
+        duration: 3000,
+        plain: true,
+      })
+    }
+    if (result.errors?.length) {
+      ElMessage({
+        message: result.errors.join('; '),
+        type: 'warning',
+        duration: 5000,
+        plain: true,
+      })
+    }
+  } catch (err) {
+    ElMessage({
+      message: err instanceof Error ? err.message : '导入失败',
+      type: 'error',
+      duration: 3000,
+      plain: true,
+    })
+  }
+}
+
+function buildSessionPdfHtml(): string {
+  const session = chat.activeSession
+  const title = escapeHtml(session.title || 'Chat Session')
+  const lines: string[] = [
+    '<!DOCTYPE html><html><head><meta charset="utf-8"><style>',
+    'body{font-family:system-ui,-apple-system,sans-serif;color:#1f2a23;background:#fff;padding:40px;max-width:800px;margin:0 auto;line-height:1.6}',
+    'h1{font-size:22px;margin-bottom:8px;color:#17201a}',
+    '.meta{font-size:12px;color:#6b7f72;margin-bottom:24px;border-bottom:1px solid #e4eae6;padding-bottom:12px}',
+    '.msg{margin-bottom:16px}',
+    '.speaker{font-weight:600;font-size:13px;color:#34604e;margin-bottom:4px}',
+    '.text{font-size:14px;white-space:pre-wrap;word-break:break-word}',
+    'pre{background:#f5f7f5;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px}',
+    'code{background:rgba(23,32,26,0.06);padding:0.15em 0.4em;border-radius:5px;font-size:0.85em}',
+    '</style></head><body>',
+    `<h1>${title}</h1>`,
+    `<p class="meta">Created: ${escapeHtml(session.createdAt || '')} | Updated: ${escapeHtml(session.updatedAt || '')}${session.tags?.length ? ' | Tags: ' + escapeHtml(session.tags.join(', ')) : ''}</p>`,
+  ]
+
+  for (const msg of session.messages) {
+    const speaker = msg.role === 'user' ? 'User' : 'Assistant'
+    const rawText = typeof msg.content === 'string' ? msg.content : ''
+    // Wrap raw text preserving line breaks
+    const textHtml = rawText
+      .split('\n')
+      .map((line) => escapeHtml(line))
+      .join('<br>')
+    lines.push(
+      `<div class="msg"><div class="speaker">${speaker} · ${escapeHtml(msg.createdAt || '')}</div>`,
+      `<div class="text">${textHtml}</div></div>`,
+    )
+  }
+
+  lines.push('</body></html>')
+  return lines.join('\n')
+}
+
+async function exportActiveSessionPdf() {
+  exportLoading.value = 'pdf'
+  await nextTick()
+  try {
+    const title = chat.activeSession.title || 'Chat Session'
+    const fileName = `${safeFileName(title)}.pdf`
+
+    // Try server-side Puppeteer endpoint first
+    try {
+      const html = buildSessionPdfHtml()
+      const response = await fetch('/api/export/pdf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html }),
+      })
+      if (response.ok) {
+        const blob = await response.blob()
+        const url = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = fileName
+        link.click()
+        URL.revokeObjectURL(url)
+        return
+      }
+    } catch {
+      // Server endpoint failed, fall through to client-side
+    }
+
+    // Fallback: client-side html2canvas + jspdf
+    const session = chat.activeSession
+    const container = document.createElement('div')
+    container.style.cssText =
+      'padding: 40px; max-width: 800px; margin: 0 auto; font-family: system-ui, -apple-system, sans-serif; color: #1f2a23; background: #fff;'
+    const metaTags = session.tags?.length ? ` | Tags: ${escapeHtml(session.tags.join(', '))}` : ''
+    container.innerHTML = `
+      <h1 style="font-size: 22px; margin-bottom: 8px; color: #17201a;">${escapeHtml(title)}</h1>
+      <p style="font-size: 12px; color: #6b7f72; margin-bottom: 24px; border-bottom: 1px solid #e4eae6; padding-bottom: 12px;">
+        Created: ${session.createdAt || ''} | Updated: ${session.updatedAt || ''}${metaTags}
+      </p>
+    `
+
+    for (const msg of session.messages) {
+      const speaker = msg.role === 'user' ? 'User' : 'Assistant'
+      const text = typeof msg.content === 'string' ? msg.content : ''
+      const block = document.createElement('div')
+      block.style.cssText = 'margin-bottom: 16px;'
+      block.innerHTML = `
+        <div style="font-weight: 600; font-size: 13px; color: #34604e; margin-bottom: 4px;">${speaker} · ${msg.createdAt || ''}</div>
+        <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">${escapeHtml(text)}</div>
+      `
+      container.appendChild(block)
+    }
+
+    document.body.appendChild(container)
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    try {
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff',
+      })
+
+      const imgData = canvas.toDataURL('image/png')
+      const imgWidth = 210
+      const pageHeight = 297
+      const imgHeight = (canvas.height * imgWidth) / canvas.width
+
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      let heightLeft = imgHeight
+      let position = 0
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+      heightLeft -= pageHeight
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight
+        pdf.addPage()
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
+        heightLeft -= pageHeight
+      }
+
+      pdf.save(fileName)
+    } catch (err) {
+      ElMessage({
+        message: `PDF export failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        type: 'error',
+        duration: 4000,
+        plain: true,
+      })
+    } finally {
+      document.body.removeChild(container)
+      document.body.style.overflow = originalOverflow
+    }
+  } finally {
+    exportLoading.value = null
+  }
 }
 
 async function summarizeActiveSession() {
@@ -1181,12 +1378,40 @@ async function regenerateMessage(messageId: string) {
                 </button>
               </div>
               <div class="session-export-actions">
-                <el-button size="small" plain :icon="Download" @click="exportActiveSessionMarkdown">{{
-                  t('chat.exportCurrent')
+                <el-button
+                  size="small"
+                  plain
+                  :icon="Download"
+                  :loading="exportLoading === 'markdown'"
+                  @click="exportActiveSessionMarkdown"
+                  >{{ t('chat.exportCurrent') }}</el-button
+                >
+                <el-button
+                  size="small"
+                  plain
+                  :icon="Download"
+                  :loading="exportLoading === 'json'"
+                  @click="exportFilteredSessionsJson"
+                  >{{ t('chat.exportList') }}</el-button
+                >
+                <el-button
+                  size="small"
+                  plain
+                  :icon="Download"
+                  :loading="exportLoading === 'pdf'"
+                  @click="exportActiveSessionPdf"
+                  >{{ t('chat.exportPdf') }}</el-button
+                >
+                <el-button size="small" plain :icon="UploadFilled" @click="triggerImportJson">{{
+                  t('chat.importJson')
                 }}</el-button>
-                <el-button size="small" plain :icon="Download" @click="exportFilteredSessionsJson">{{
-                  t('chat.exportList')
-                }}</el-button>
+                <input
+                  ref="importFileInput"
+                  type="file"
+                  accept=".json"
+                  style="display: none"
+                  @change="handleImportJson"
+                />
               </div>
               <label class="session-tag-editor">
                 <span>{{ t('chat.currentSessionTags') }}</span>
