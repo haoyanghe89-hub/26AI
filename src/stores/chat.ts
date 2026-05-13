@@ -1352,6 +1352,23 @@ export const useChatStore = defineStore('chat', () => {
     saveSessions()
   }
 
+  /** 从所有会话中移除该标签（用于标签云/筛选区批量清理） */
+  function removeTagFromAllSessions(tag: string): boolean {
+    const needle = tag.trim()
+    if (!needle) return false
+    let changed = false
+    for (const session of sessions.value) {
+      const list = session.tags || []
+      if (!list.includes(needle)) continue
+      session.tags = list.filter((t) => t !== needle)
+      if (!session.tags.length) session.tagsInferAttempts = 0
+      session.updatedAt = new Date().toISOString()
+      changed = true
+    }
+    if (changed) saveSessions()
+    return changed
+  }
+
   function updateSessionSummary(sessionId: string, content: string) {
     const session = sessions.value.find((item) => item.id === sessionId)
     const normalizedContent = content.trim()
@@ -2901,6 +2918,7 @@ export const useChatStore = defineStore('chat', () => {
     importSessions,
     clearAllSessions,
     setSessionTags,
+    removeTagFromAllSessions,
     updateSessionSummary,
     setActiveAgent,
     setEnableTools,

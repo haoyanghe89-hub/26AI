@@ -64,6 +64,7 @@ import 'prismjs/components/prism-diff'
 import MessageBubble from '../components/chat/MessageBubble.vue'
 import PromptLabPanel from '../components/chat/PromptLabPanel.vue'
 import SessionItem from '../components/chat/SessionItem.vue'
+import SessionTagVirtualFilter from '../components/chat/SessionTagVirtualFilter.vue'
 import SettingsPanel from '../components/chat/SettingsPanel.vue'
 import { useResizablePanels } from '../composables/useResizablePanels'
 import {
@@ -1357,26 +1358,12 @@ async function regenerateMessage(messageId: string) {
                 :prefix-icon="Search"
                 :placeholder="t('chat.sessionSearchPlaceholder')"
               />
-              <div v-if="chat.allSessionTags.length" class="session-tags">
-                <button
-                  type="button"
-                  class="session-tag-filter"
-                  :class="{ active: !activeSessionTag }"
-                  @click="activeSessionTag = ''"
-                >
-                  {{ t('common.all') }}
-                </button>
-                <button
-                  v-for="tag in chat.allSessionTags"
-                  :key="tag"
-                  type="button"
-                  class="session-tag-filter"
-                  :class="{ active: activeSessionTag === tag }"
-                  @click="activeSessionTag = tag"
-                >
-                  {{ tag }}
-                </button>
-              </div>
+              <SessionTagVirtualFilter
+                v-if="chat.allSessionTags.length"
+                v-model="activeSessionTag"
+                :tags="chat.allSessionTags"
+                :all-label="t('common.all')"
+              />
               <div class="session-export-actions">
                 <el-button
                   size="small"
