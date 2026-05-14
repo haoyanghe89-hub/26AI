@@ -2206,6 +2206,7 @@ button {
 .messages {
   display: flex;
   flex-direction: column;
+  align-items: center;
   min-height: 0;
   height: 100%;
   padding: 28px clamp(18px, 8vw, 96px) 40px;
@@ -2215,6 +2216,7 @@ button {
 }
 
 .message-list-item {
+  width: min(760px, 100%);
   padding-bottom: 22px;
 }
 
@@ -2341,7 +2343,7 @@ button {
 }
 
 .message-row.user {
-  grid-template-columns: minmax(0, 760px) 36px;
+  grid-template-columns: minmax(0, 1fr) 36px;
   justify-content: end;
 }
 
@@ -2357,11 +2359,19 @@ button {
 .message-row.user .message-bubble {
   grid-column: 1;
   grid-row: 1;
+  justify-self: end;
+  width: fit-content;
+  max-width: min(760px, 100%);
   border-color: rgba(23, 32, 26, 0.1);
   background: linear-gradient(180deg, #fff 0%, #fafcfb 100%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
     0 16px 40px rgba(23, 32, 26, 0.07);
+}
+
+.message-row.user .message-bubble.is-inline-editing {
+  width: 100%;
+  max-width: min(760px, 100%);
 }
 
 .avatar {
@@ -2393,18 +2403,25 @@ button {
     border-color var(--t1-duration) var(--t1-ease);
 }
 
-.message-row:hover .message-bubble {
+.message-row.user:hover .message-bubble {
   border-color: rgba(52, 96, 78, 0.2);
   box-shadow: var(--t1-shadow-float);
 }
 
-/* 用户消息气泡：更轻的样式 */
-.message-row.user .message-bubble {
-  border-color: rgba(23, 32, 26, 0.1);
-  background: linear-gradient(180deg, #fff 0%, #fafcfb 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 16px 40px rgba(23, 32, 26, 0.07);
+/* AI 回复：无卡片气泡，正文铺在会话背景上 */
+.message-row.assistant .message-bubble {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  padding: 6px 0 16px;
+}
+
+.message-row.assistant .message-meta-bar {
+  margin: 0 0 10px;
+  padding: 6px 0;
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 1px solid rgba(23, 32, 26, 0.06);
 }
 
 .message-content {

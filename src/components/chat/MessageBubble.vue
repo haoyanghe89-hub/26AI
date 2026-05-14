@@ -94,7 +94,7 @@ function canPreviewAttachment(file: ChatAttachment) {
     <!-- Avatar -->
     <div class="avatar">{{ message.role === 'user' ? t('message.you') : 'T1' }}</div>
 
-    <div class="message-bubble">
+    <div class="message-bubble" :class="{ 'is-inline-editing': isEditing }">
       <!-- 元信息条：仅 AI 消息且非编辑态显示 -->
       <div v-if="message.role === 'assistant' && !isEditing && hasMeta" class="message-meta-bar">
         <div class="meta-left">
