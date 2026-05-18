@@ -1,4 +1,5 @@
 import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import { messagePreviewContent, type MessageContent } from '../stores/chat'
 
 export interface MessageSegment {
@@ -42,18 +43,7 @@ export function parseMessageSegments(content: MessageContent): MessageSegment[] 
 }
 
 export function formatMessageText(text: string) {
-  let html = text
-    .replace(/^### (.*$)/gm, '<h3>$1</h3>')
-    .replace(/^## (.*$)/gm, '<h2>$1</h2>')
-    .replace(/^# (.*$)/gm, '<h1>$1</h1>')
-    .replace(/^---$/gm, '<hr>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-
-  html = html.replace(/\n{3,}/g, '\n\n')
-  html = html.replace(/\n*(<h[1-6]>|<hr>)/g, '$1')
-  html = html.replace(/(<\/h[1-6]>|<hr>)\n*/g, '$1')
+  const html = marked.parse(text, { breaks: true, gfm: true }) as string
   return DOMPurify.sanitize(html)
 }
 

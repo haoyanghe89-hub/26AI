@@ -947,6 +947,10 @@ export const useChatStore = defineStore('chat', () => {
     scheduleServerStatePersist()
   }
 
+  function clearErrorMessage() {
+    errorMessage.value = ''
+  }
+
   function savePromptTemplates() {
     void setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
     scheduleServerStatePersist()
@@ -2904,6 +2908,7 @@ export const useChatStore = defineStore('chat', () => {
     activeFileDiff,
     workspaceStatus,
     errorMessage,
+    clearErrorMessage,
     hydrateClientState,
     setProvider,
     setInferenceMode,

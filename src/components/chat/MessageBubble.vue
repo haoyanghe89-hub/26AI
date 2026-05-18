@@ -43,7 +43,7 @@ const emit = defineEmits<{
   'open-attachment': [attachment: ChatAttachment]
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const renderedContent = computed(() => {
   if (hasContent(props.message.content)) return props.message.content
   if (props.message.role === 'assistant' && !props.isSending) return t('message.emptyResponse')
@@ -63,6 +63,12 @@ const inferenceLabel = computed(() => {
   if (mode === 'auto') return t('message.hybrid')
   return ''
 })
+const messageTimestamp = computed(() =>
+  new Intl.DateTimeFormat(locale.value, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(props.message.createdAt)),
+)
 
 function hasContent(content: ChatMessage['content']) {
   if (typeof content === 'string') return content.trim().length > 0
@@ -210,39 +216,45 @@ function canPreviewAttachment(file: ChatAttachment) {
 
         <!-- AI 消息操作栏 -->
         <div v-if="message.role === 'assistant' && hasRenderableContent" class="message-actions">
-          <el-button
-            :icon="RefreshRight"
-            size="small"
-            text
-            :disabled="isSending"
-            :aria-label="t('message.regenerate')"
-            @click="emit('regenerate-message', message.id)"
-          >
-            {{ t('message.regenerate') }}
-          </el-button>
-          <el-button
-            :icon="copiedMessageId === message.id ? Check : CopyDocument"
-            size="small"
-            text
-            @click="emit('copy-message', message.id, message.content)"
-          >
-            {{ copiedMessageId === message.id ? t('common.copied') : t('message.copyReply') }}
-          </el-button>
+          <span class="message-timestamp" :title="message.createdAt">{{ messageTimestamp }}</span>
+          <div class="message-action-buttons">
+            <el-button
+              :icon="RefreshRight"
+              size="small"
+              text
+              :disabled="isSending"
+              :aria-label="t('message.regenerate')"
+              @click="emit('regenerate-message', message.id)"
+            >
+              {{ t('message.regenerate') }}
+            </el-button>
+            <el-button
+              :icon="copiedMessageId === message.id ? Check : CopyDocument"
+              size="small"
+              text
+              @click="emit('copy-message', message.id, message.content)"
+            >
+              {{ copiedMessageId === message.id ? t('common.copied') : t('message.copyReply') }}
+            </el-button>
+          </div>
         </div>
 
         <!-- 用户消息操作栏 -->
         <div v-if="message.role === 'user'" class="message-actions user-actions">
-          <el-button
-            :icon="copiedMessageId === message.id ? Check : CopyDocument"
-            size="small"
-            text
-            @click="emit('copy-message', message.id, message.content)"
-          >
-            {{ copiedMessageId === message.id ? t('common.copied') : t('common.copy') }}
-          </el-button>
-          <el-button :icon="Edit" size="small" text @click="emit('start-inline-edit', message)">{{
-            t('message.editAgain')
-          }}</el-button>
+          <span class="message-timestamp" :title="message.createdAt">{{ messageTimestamp }}</span>
+          <div class="message-action-buttons">
+            <el-button
+              :icon="copiedMessageId === message.id ? Check : CopyDocument"
+              size="small"
+              text
+              @click="emit('copy-message', message.id, message.content)"
+            >
+              {{ copiedMessageId === message.id ? t('common.copied') : t('common.copy') }}
+            </el-button>
+            <el-button :icon="Edit" size="small" text @click="emit('start-inline-edit', message)">{{
+              t('message.editAgain')
+            }}</el-button>
+          </div>
         </div>
       </template>
     </div>
@@ -327,71 +339,59 @@ function canPreviewAttachment(file: ChatAttachment) {
 .thinking {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin: 8px 0 0;
-  color: #8a918b;
-  font-size: 13px;
+  gap: 6px;
+  margin: 10px 0 0;
 }
 
 .thinking-dot {
   display: inline-block;
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: #8a918b;
-  animation: thinkingPulse 1.4s infinite ease-in-out both;
+  background: rgba(61, 111, 91, 0.7);
+  animation: thinkingPulse 1.28s infinite ease-in-out both;
 }
 
 .thinking-dot:nth-child(1) {
-  animation-delay: -0.32s;
+  animation-delay: -0.24s;
 }
+
 .thinking-dot:nth-child(2) {
-  animation-delay: -0.16s;
+  animation-delay: -0.12s;
 }
 
 @keyframes thinkingPulse {
   0%,
   80%,
   100% {
-    transform: scale(0.6);
-    opacity: 0.4;
+    transform: translateY(0) scale(0.72);
+    opacity: 0.35;
   }
   40% {
-    transform: scale(1);
+    transform: translateY(-1px) scale(1);
     opacity: 1;
   }
 }
 
-/* ========================================================
-   3. 复制与 Markdown 渲染功能（保留）
-   ======================================================== */
-
-.user-actions {
-  text-align: right;
-  border-top: 1px dashed rgba(23, 32, 26, 0.08);
-  margin-top: 6px;
-  padding-top: 6px;
-  opacity: 0.5;
-  transition: opacity 0.2s;
+.message-timestamp {
+  color: rgba(102, 112, 106, 0.92);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
 }
 
-.message-row.user:hover .user-actions {
-  opacity: 1;
-}
-
-.stop-button {
-  --el-button-bg-color: #4f5d3a !important;
-  --el-button-border-color: #4f5d3a !important;
-  --el-button-hover-bg-color: #5f6f48 !important;
-  --el-button-hover-border-color: #5f6f48 !important;
-  --el-button-active-bg-color: #435033 !important;
-  --el-button-active-border-color: #435033 !important;
+.message-action-buttons {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
 .inline-edit-box {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 
@@ -399,13 +399,14 @@ function canPreviewAttachment(file: ChatAttachment) {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 4px;
 }
 
 :deep(.inline-edit-input .el-textarea__inner) {
-  background: linear-gradient(180deg, #f8faf7 0%, #f2f6f3 100%);
+  min-height: 128px;
+  border-radius: 14px;
   border-color: rgba(52, 96, 78, 0.18);
-  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(251, 253, 250, 0.98), rgba(242, 246, 243, 0.96));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
   color: #17201a;
   transition:
     border-color 0.22s ease,
@@ -413,13 +414,15 @@ function canPreviewAttachment(file: ChatAttachment) {
 }
 
 :deep(.inline-edit-input .el-textarea__inner:focus) {
-  border-color: rgba(52, 96, 78, 0.45);
-  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
+  border-color: rgba(52, 96, 78, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 0 0 4px rgba(52, 96, 78, 0.08);
 }
 
 .inline-cancel-btn {
-  --el-button-bg-color: #ffffff;
-  --el-button-border-color: rgba(52, 96, 78, 0.22);
+  --el-button-bg-color: rgba(255, 255, 255, 0.9);
+  --el-button-border-color: rgba(52, 96, 78, 0.2);
   --el-button-hover-bg-color: #eef4ef;
   --el-button-hover-border-color: #34604e;
   --el-button-active-bg-color: #dcebe2;

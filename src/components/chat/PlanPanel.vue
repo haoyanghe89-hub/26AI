@@ -183,21 +183,24 @@ const overallStatus = computed(() => {
 
 <style scoped>
 .plan-panel {
-  margin: 8px 0;
-  background: var(--surface-color, #f5f5f5);
-  border: 1px solid var(--border-color, #e4e7ed);
-  border-radius: 8px;
+  margin: 12px 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 251, 247, 0.76));
+  border: 1px solid rgba(23, 32, 26, 0.08);
+  border-radius: 18px;
   overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.7) inset,
+    0 14px 34px rgba(23, 32, 26, 0.06);
 }
 
 .plan-header {
-  padding: 10px 12px;
-  background: var(--bg-color, #fff);
-  border-bottom: 1px solid var(--border-color, #e4e7ed);
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.58);
+  border-bottom: 1px solid rgba(23, 32, 26, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .plan-title {
@@ -210,17 +213,17 @@ const overallStatus = computed(() => {
 
 .plan-badge {
   font-size: 12px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .plan-goal {
   font-size: 13px;
-  font-weight: 500;
-  color: #303133;
+  font-weight: 650;
+  color: #1f2c25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -228,31 +231,38 @@ const overallStatus = computed(() => {
 
 .plan-progress {
   font-size: 12px;
-  color: #909399;
+  color: #66706a;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .task-list {
-  padding: 8px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .task-item {
-  border-radius: 6px;
-  transition: background 0.2s;
+  border: 1px solid rgba(23, 32, 26, 0.05);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.52);
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .task-item.is-active {
-  background: #ecf5ff;
+  border-color: rgba(52, 96, 78, 0.16);
+  background: rgba(236, 245, 239, 0.92);
+  box-shadow: 0 12px 24px rgba(23, 32, 26, 0.05);
 }
 
 .task-main {
   display: flex;
-  gap: 8px;
-  padding: 8px 10px;
+  gap: 10px;
+  padding: 10px 12px;
 }
 
 .task-status {
@@ -279,25 +289,25 @@ const overallStatus = computed(() => {
 
 .task-title-text {
   font-size: 13px;
-  font-weight: 500;
-  color: #303133;
+  font-weight: 650;
+  color: #233028;
   line-height: 1.4;
 }
 
 .task-desc {
   font-size: 12px;
-  color: #606266;
-  margin-top: 2px;
+  color: #66706a;
+  margin-top: 3px;
   line-height: 1.4;
 }
 
 .task-result {
   font-size: 12px;
-  color: #606266;
-  margin-top: 4px;
-  padding: 4px 8px;
+  color: #55635b;
+  margin-top: 6px;
+  padding: 6px 10px;
   background: #f0f9eb;
-  border-radius: 4px;
+  border-radius: 10px;
   line-height: 1.5;
   word-break: break-all;
 }
@@ -308,17 +318,17 @@ const overallStatus = computed(() => {
 }
 
 .task-tool-logs {
-  margin-top: 6px;
+  margin-top: 8px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 6px;
 }
 
 .task-tool-log {
-  background: var(--bg-color, #fff);
-  border: 1px solid var(--border-color, #e4e7ed);
-  border-radius: 4px;
-  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(23, 32, 26, 0.08);
+  border-radius: 10px;
+  padding: 7px 9px;
   font-size: 11px;
 }
 
@@ -335,19 +345,19 @@ const overallStatus = computed(() => {
 
 .tool-icon {
   font-size: 12px;
-  color: #909399;
+  color: #7c8780;
   flex-shrink: 0;
 }
 
 .tool-name {
   font-weight: 600;
-  color: #606266;
+  color: #55635b;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
 .tool-args {
-  color: #909399;
+  color: #7c8780;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -378,22 +388,22 @@ const overallStatus = computed(() => {
 }
 
 .tool-log-result {
-  margin-top: 3px;
-  padding-top: 3px;
-  border-top: 1px dashed #dcdfe6;
-  color: #606266;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(23, 32, 26, 0.08);
+  color: #55635b;
   line-height: 1.4;
   word-break: break-all;
 }
 
 .plan-loading {
-  padding: 16px;
+  padding: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
   font-size: 13px;
-  color: #909399;
+  color: #66706a;
 }
 
 .is-spinning {

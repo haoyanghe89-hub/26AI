@@ -192,6 +192,11 @@ onMounted(async () => {
         <!-- <h1>Secure Local Orbit</h1> -->
         <strong>{{ t('auth.welcome') }}</strong>
         <span>{{ t('auth.intro') }}</span>
+        <div class="login-copy-badges">
+          <span>{{ t('auth.localAccount') }}</span>
+          <span>{{ safeCapabilities.phoneSms ? t('auth.smsReady') : t('auth.smsPending') }}</span>
+          <span>{{ hasEnabledQrProvider ? t('auth.qrLogin') : t('auth.accountPassword') }}</span>
+        </div>
       </div>
 
       <section class="login-panel" :aria-label="t('auth.form')">

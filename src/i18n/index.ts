@@ -18,6 +18,7 @@ const messages = {
       delete: '删除',
       close: '关闭',
       copy: '复制',
+      download: '下载',
       copied: '已复制',
       refresh: '刷新',
       edit: '编辑',
@@ -32,6 +33,7 @@ const messages = {
       file: '文件',
       files: '文件',
       snippets: '片段',
+      lines: '行',
       none: '无',
     },
     app: {
@@ -127,6 +129,14 @@ const messages = {
       expandSidebar: '展开左侧栏',
       collapseSidebar: '收起左侧栏',
       newSession: '新建会话',
+      emptyStateTitle: '把想法、代码和项目上下文放进同一个工作台',
+      emptyStateDescription:
+        '从普通问答到项目级协作都可以直接开始。导入项目后让 Agent 理解代码结构，再继续提问、规划、生成和调试。',
+      quickActions: '快速开始',
+      emptyPromptReview: '帮我审查这个需求方案，指出风险、边界情况和缺失项。',
+      emptyPromptExplain: '解释这个项目的整体结构、关键模块以及推荐的阅读顺序。',
+      emptyPromptPlan: '把这个任务拆成可执行步骤，并说明每一步的验收标准。',
+      emptyPromptRefactor: '基于当前实现给出一版更成熟的重构方案，兼顾可维护性和用户体验。',
       readyLocal: '本地 {model} 已就绪',
       readyHybrid: '混合推理已就绪',
       readyProvider: '{provider} 已就绪',
@@ -181,6 +191,11 @@ const messages = {
       runnerFailed: '执行失败',
       cssInjected: 'CSS 已注入页面',
       codeRunning: '代码运行中...',
+      scrollToLatest: '回到底部',
+      composerShortcutHint: 'Enter 发送，Shift + Enter 换行',
+      errorDialogTitle: '请求出现问题',
+      errorDialogDescription: '这次操作没有成功完成。你可以检查网络、API Key、模型配置后再重试。',
+      errorDialogAcknowledge: '我知道了',
     },
     settings: {
       title: '配置',
@@ -232,6 +247,17 @@ const messages = {
     },
     session: {
       tags: '会话标签',
+      select: '选择该会话',
+      selectAllFiltered: '全选当前筛选',
+      selectedCount: '已选 {count} 项',
+      batchDelete: '批量删除',
+      batchDeleteDialogTitle: '批量删除会话',
+      batchDeleteSearchPlaceholder: '搜索要删除的会话',
+      batchDeleteEmpty: '没有匹配到会话',
+      batchDeleteConfirmTitle: '批量删除会话',
+      batchDeleteConfirm: '确定删除已选的 {count} 个会话吗？本地记录将一并移除，且不可恢复。',
+      batchDeleted: '已删除 {count} 个会话',
+      messagesCount: '{count} 条消息',
       moreActions: '更多操作',
       copyLink: '复制对话链接',
       rename: '重命名',
@@ -361,6 +387,7 @@ const messages = {
       delete: 'Delete',
       close: 'Close',
       copy: 'Copy',
+      download: 'Download',
       copied: 'Copied',
       refresh: 'Refresh',
       edit: 'Edit',
@@ -375,6 +402,7 @@ const messages = {
       file: 'file',
       files: 'files',
       snippets: 'snippets',
+      lines: 'lines',
       none: 'None',
     },
     app: {
@@ -474,6 +502,16 @@ const messages = {
       expandSidebar: 'Expand left sidebar',
       collapseSidebar: 'Collapse left sidebar',
       newSession: 'New session',
+      emptyStateTitle: 'Bring ideas, code, and project context into one workspace',
+      emptyStateDescription:
+        'Start with quick questions or move into project-aware collaboration. Import a project so the Agent can understand the codebase, then continue with planning, generation, and debugging.',
+      quickActions: 'Quick start',
+      emptyPromptReview: 'Review this requirement and point out risks, edge cases, and missing pieces.',
+      emptyPromptExplain: 'Explain this project structure, the key modules, and the best reading order.',
+      emptyPromptPlan:
+        'Break this task into executable steps and define the acceptance criteria for each one.',
+      emptyPromptRefactor:
+        'Propose a more mature refactor for the current implementation, balancing maintainability and UX.',
       readyLocal: 'Local {model} ready',
       readyHybrid: 'Hybrid inference ready',
       readyProvider: '{provider} ready',
@@ -528,6 +566,12 @@ const messages = {
       runnerFailed: 'Execution failed',
       cssInjected: 'CSS injected into the page',
       codeRunning: 'Code running...',
+      scrollToLatest: 'Back to latest',
+      composerShortcutHint: 'Press Enter to send, Shift + Enter for a new line',
+      errorDialogTitle: 'Something went wrong',
+      errorDialogDescription:
+        'This request did not complete successfully. Check your network, API key, or model settings and try again.',
+      errorDialogAcknowledge: 'Got it',
     },
     settings: {
       title: 'Settings',
@@ -579,6 +623,18 @@ const messages = {
     },
     session: {
       tags: 'Session tags',
+      select: 'Select this session',
+      selectAllFiltered: 'Select all filtered',
+      selectedCount: '{count} selected',
+      batchDelete: 'Delete selected',
+      batchDeleteDialogTitle: 'Batch delete sessions',
+      batchDeleteSearchPlaceholder: 'Search sessions to delete',
+      batchDeleteEmpty: 'No matched sessions',
+      batchDeleteConfirmTitle: 'Delete selected sessions',
+      batchDeleteConfirm:
+        'Delete the selected {count} sessions? Local records will be removed and cannot be restored.',
+      batchDeleted: '{count} sessions deleted',
+      messagesCount: '{count} messages',
       moreActions: 'More actions',
       copyLink: 'Copy chat link',
       rename: 'Rename',
@@ -708,9 +764,18 @@ const messages = {
 } as const
 
 function resolveInitialLocale(): AppLocale {
-  const stored = localStorage.getItem(LOCALE_STORAGE_KEY)
+  const storage =
+    typeof globalThis !== 'undefined' &&
+    'localStorage' in globalThis &&
+    typeof globalThis.localStorage?.getItem === 'function'
+      ? globalThis.localStorage
+      : null
+  const stored = storage?.getItem(LOCALE_STORAGE_KEY)
   if (stored === 'zh-CN' || stored === 'en-US') return stored
-  return navigator.language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+
+  const language =
+    typeof navigator !== 'undefined' && typeof navigator.language === 'string' ? navigator.language : 'zh-CN'
+  return language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
 }
 
 export const i18n = createI18n({
@@ -722,7 +787,13 @@ export const i18n = createI18n({
 
 export function setLocale(locale: AppLocale) {
   i18n.global.locale.value = locale
-  localStorage.setItem(LOCALE_STORAGE_KEY, locale)
+  if (
+    typeof globalThis !== 'undefined' &&
+    'localStorage' in globalThis &&
+    typeof globalThis.localStorage?.setItem === 'function'
+  ) {
+    globalThis.localStorage.setItem(LOCALE_STORAGE_KEY, locale)
+  }
   document.documentElement.lang = locale
 }
 

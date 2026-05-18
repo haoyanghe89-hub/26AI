@@ -148,6 +148,12 @@ async function handleCommand(command: string) {
           <span class="session-tag-chip" :title="session.tags?.join('、')">{{ primaryListTag }}</span>
         </span>
       </span>
+      <span class="session-item-meta">
+        <span class="session-time" :title="formatDetailTime(session.updatedAt)">{{
+          formatSessionTime(session.updatedAt)
+        }}</span>
+        <span class="session-count">{{ session.messages.length }}</span>
+      </span>
     </span>
     <span class="session-more-wrap" @click.stop @mousedown.stop>
       <el-dropdown trigger="click" teleported @command="handleCommand">

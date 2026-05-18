@@ -32,7 +32,6 @@ import {
 } from '@element-plus/icons-vue'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
-import ElAlert from 'element-plus/es/components/alert/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElDialog from 'element-plus/es/components/dialog/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
@@ -102,6 +101,7 @@ const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
 const storedSidebarCollapsed = localStorage.getItem('twentys1x:left-sidebar-collapsed')
 const isSidebarCollapsed = ref(storedSidebarCollapsed === 'true')
 const isMobileLayout = ref(false)
+const isNearMessagesBottom = ref(true)
 
 const PROJECT_PANEL_COLLAPSE_KEY = 'twentys1x:project-panel-collapsed'
 function readProjectPanelStored(): boolean | null {
@@ -117,6 +117,9 @@ const summaryDraft = ref('')
 const copiedSummary = ref(false)
 const sessionSearchQuery = ref('')
 const activeSessionTag = ref('')
+const selectedSessionIds = ref<string[]>([])
+const isBatchDeleteDialogVisible = ref(false)
+const batchDeleteSearchQuery = ref('')
 const exportLoading = ref<'markdown' | 'json' | 'pdf' | null>(null)
 const attachmentPreview = ref<ChatAttachment | null>(null)
 const attachmentPreviewUrl = ref('')
@@ -145,6 +148,45 @@ const editingContent = ref('')
 const canSend = computed(() => {
   return chat.isProviderReady && !chat.isSending && (input.value.trim() || chat.pendingFiles.length)
 })
+const providerStatusText = computed(() => {
+  if (chat.isProviderReady) {
+    if (chat.inferenceMode === 'local') return t('chat.readyLocal', { model: chat.localModel })
+    if (chat.inferenceMode === 'auto') return t('chat.readyHybrid')
+    return t('chat.readyProvider', { provider: chat.selectedProvider.name })
+  }
+  return chat.inferenceMode === 'local' ? t('chat.waitingLocal') : t('chat.waitingApiKey')
+})
+const modeSummaryText = computed(() => {
+  if (chat.inferenceMode === 'local') return t('settings.localSummary', { model: chat.localModel })
+  if (chat.inferenceMode === 'auto')
+    return t('settings.hybridSummary', { localModel: chat.localModel, model: chat.model })
+  return t('settings.providerSummary', { provider: chat.selectedProvider.name, model: chat.model })
+})
+const emptyStatePrompts = computed(() => [
+  t('chat.emptyPromptReview'),
+  t('chat.emptyPromptExplain'),
+  t('chat.emptyPromptPlan'),
+  t('chat.emptyPromptRefactor'),
+])
+const showJumpToBottom = computed(() => chat.visibleMessages.length > 0 && !isNearMessagesBottom.value)
+const isErrorDialogVisible = computed({
+  get: () => Boolean(chat.errorMessage),
+  set: (value: boolean) => {
+    if (!value) chat.clearErrorMessage()
+  },
+})
+const lastMessageSignature = computed(() => {
+  const message = chat.visibleMessages[chat.visibleMessages.length - 1]
+  if (!message) return ''
+  const text = typeof message.content === 'string' ? message.content : messagePreviewContent(message.content)
+  return [
+    message.id,
+    message.role,
+    text.length,
+    message.toolLogs?.length ?? 0,
+    message.plan?.tasks?.length ?? 0,
+  ].join(':')
+})
 
 // === 修改：优化无项目状态的显示文案 ===
 const activeProjectLabel = computed(() => chat.activeProject?.name || t('chat.normalChat'))
@@ -165,6 +207,18 @@ const filteredSessions = computed(() =>
     return matchesTag && sessionMatchesQuery(session, sessionSearchQuery.value)
   }),
 )
+const batchDeleteFilteredSessions = computed(() =>
+  chat.sessions.filter((session) => sessionMatchesQuery(session, batchDeleteSearchQuery.value)),
+)
+const selectedSessionIdSet = computed(() => new Set(selectedSessionIds.value))
+const selectedSessionCount = computed(() => selectedSessionIds.value.length)
+const filteredSessionIds = computed(() => batchDeleteFilteredSessions.value.map((session) => session.id))
+const isAllFilteredSessionsSelected = computed(
+  () =>
+    Boolean(filteredSessionIds.value.length) &&
+    filteredSessionIds.value.every((id) => selectedSessionIdSet.value.has(id)),
+)
+const canBatchDeleteSessions = computed(() => selectedSessionCount.value > 0)
 const activeSessionTagsText = computed({
   get: () => chat.activeSession.tags?.join(', ') || '',
   set: (value: string) => chat.setSessionTags(chat.activeSession.id, normalizeTags(value)),
@@ -248,6 +302,7 @@ watch(
   () => {
     activeComposerTemplate.value = null
     syncSessionQueryParam()
+    scrollToBottom()
   },
 )
 
@@ -261,6 +316,22 @@ watch(
     }
   },
 )
+
+watch(
+  () => chat.sessions.map((session) => session.id),
+  (sessionIds) => {
+    const validIds = new Set(sessionIds)
+    selectedSessionIds.value = selectedSessionIds.value.filter((id) => validIds.has(id))
+  },
+  { immediate: true },
+)
+
+watch(isBatchDeleteDialogVisible, (visible) => {
+  if (!visible) {
+    batchDeleteSearchQuery.value = ''
+    clearSessionSelection()
+  }
+})
 
 watch(
   () => chat.projects.length,
@@ -322,11 +393,41 @@ watch(activeFileMonacoLanguage, (language) => {
   if (model) monaco.editor.setModelLanguage(model, language)
 })
 
+watch(lastMessageSignature, () => {
+  if (isNearMessagesBottom.value) {
+    scrollToBottom()
+  }
+})
+
 function scrollToBottom() {
   nextTick(() => {
     const el = messagesEl.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
+    isNearMessagesBottom.value = true
   })
+}
+
+function isScrolledNearBottom() {
+  const el = messagesEl.value
+  if (!el) return true
+  return el.scrollHeight - el.scrollTop - el.clientHeight < 96
+}
+
+function handleMessagesScroll() {
+  isNearMessagesBottom.value = isScrolledNearBottom()
+}
+
+function focusComposerInput() {
+  nextTick(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea')
+    textarea?.focus()
+  })
+}
+
+function applyQuickPrompt(prompt: string) {
+  input.value = prompt
+  focusComposerInput()
 }
 
 function pickFiles() {
@@ -349,6 +450,40 @@ async function pickProjectFolder() {
 function clearSessionFilters() {
   sessionSearchQuery.value = ''
   activeSessionTag.value = ''
+}
+
+function isSessionSelected(id: string) {
+  return selectedSessionIdSet.value.has(id)
+}
+
+function toggleSessionSelection(id: string, checked: boolean) {
+  if (checked) {
+    if (!selectedSessionIdSet.value.has(id)) selectedSessionIds.value.push(id)
+    return
+  }
+  selectedSessionIds.value = selectedSessionIds.value.filter((value) => value !== id)
+}
+
+function handleToggleSelectAllFiltered(event: Event) {
+  const checked = (event.target as HTMLInputElement).checked
+  if (!checked) {
+    const filteredIdSet = new Set(filteredSessionIds.value)
+    selectedSessionIds.value = selectedSessionIds.value.filter((id) => !filteredIdSet.has(id))
+    return
+  }
+  const merged = new Set(selectedSessionIds.value)
+  for (const id of filteredSessionIds.value) merged.add(id)
+  selectedSessionIds.value = Array.from(merged)
+}
+
+function clearSessionSelection() {
+  selectedSessionIds.value = []
+}
+
+function openBatchDeleteDialog() {
+  batchDeleteSearchQuery.value = ''
+  clearSessionSelection()
+  isBatchDeleteDialogVisible.value = true
 }
 
 function toggleSidebar() {
@@ -374,6 +509,49 @@ async function handleFiles(event: Event) {
   const target = event.target as HTMLInputElement
   await chat.prepareFiles(Array.from(target.files || []))
   target.value = ''
+}
+
+function getExtensionFromMime(type: string) {
+  const normalized = String(type || '').toLowerCase()
+  if (!normalized.includes('/')) return ''
+  const subtype = normalized.split('/')[1] || ''
+  if (!subtype) return ''
+  const safeSubtype = subtype.split('+')[0]
+  if (safeSubtype === 'jpeg') return 'jpg'
+  return safeSubtype
+}
+
+function normalizePastedFile(file: File) {
+  if (file.name) return file
+  const ext = getExtensionFromMime(file.type)
+  const stamp = Date.now()
+  const fallbackName = ext ? `pasted-${stamp}.${ext}` : `pasted-${stamp}.bin`
+  return new File([file], fallbackName, {
+    type: file.type || 'application/octet-stream',
+    lastModified: file.lastModified || Date.now(),
+  })
+}
+
+async function handleComposerPaste(event: ClipboardEvent) {
+  const clipboard = event.clipboardData
+  if (!clipboard) return
+
+  const pastedFromItems = Array.from(clipboard.items || [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .map(normalizePastedFile)
+
+  const pastedFiles =
+    pastedFromItems.length > 0
+      ? pastedFromItems
+      : Array.from(clipboard.files || [])
+          .filter((file) => file.size > 0)
+          .map(normalizePastedFile)
+
+  if (!pastedFiles.length) return
+  event.preventDefault()
+  await chat.prepareFiles(pastedFiles)
 }
 
 async function analyzeProject() {
@@ -527,10 +705,7 @@ async function submit() {
 
 function applyPromptTemplate(payload: Pick<PromptTemplate, 'id' | 'name' | 'content'>) {
   activeComposerTemplate.value = payload
-  nextTick(() => {
-    const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea')
-    textarea?.focus()
-  })
+  focusComposerInput()
 }
 
 async function runPromptWorkflow(workflowId: string, workflowInput?: string) {
@@ -581,6 +756,28 @@ async function confirmClear() {
     },
   )
   chat.clearAllSessions()
+  clearSessionSelection()
+}
+
+async function confirmBatchDeleteSessions() {
+  if (!canBatchDeleteSessions.value) return
+  const targetIds = [...selectedSessionIds.value]
+  const deletedCount = targetIds.length
+  await ElMessageBox.confirm(
+    t('session.batchDeleteConfirm', { count: deletedCount }),
+    t('session.batchDeleteConfirmTitle'),
+    {
+      confirmButtonText: t('common.delete'),
+      cancelButtonText: t('common.cancel'),
+      type: 'warning',
+    },
+  )
+  for (const id of targetIds) {
+    chat.deleteSession(id)
+  }
+  ElMessage.success(t('session.batchDeleted', { count: deletedCount }))
+  clearSessionSelection()
+  isBatchDeleteDialogVisible.value = false
 }
 
 async function exportActiveSessionMarkdown() {
@@ -1392,6 +1589,9 @@ async function regenerateMessage(messageId: string) {
                 <el-button size="small" plain :icon="UploadFilled" @click="triggerImportJson">{{
                   t('chat.importJson')
                 }}</el-button>
+                <el-button size="small" plain type="danger" :icon="Delete" @click="openBatchDeleteDialog">{{
+                  t('session.batchDelete')
+                }}</el-button>
                 <input
                   ref="importFileInput"
                   type="file"
@@ -1500,6 +1700,72 @@ async function regenerateMessage(messageId: string) {
     />
 
     <el-dialog
+      v-model="isBatchDeleteDialogVisible"
+      class="session-batch-delete-dialog"
+      :title="t('session.batchDeleteDialogTitle')"
+      width="min(760px, 92vw)"
+      align-center
+    >
+      <div class="session-batch-delete-body">
+        <div class="session-batch-delete-toolbar">
+          <el-input
+            v-model="batchDeleteSearchQuery"
+            class="session-batch-delete-search"
+            clearable
+            :prefix-icon="Search"
+            :placeholder="t('session.batchDeleteSearchPlaceholder')"
+          />
+          <label class="session-batch-select-all">
+            <input
+              class="session-select-checkbox"
+              type="checkbox"
+              :checked="isAllFilteredSessionsSelected"
+              :disabled="!batchDeleteFilteredSessions.length"
+              @change="handleToggleSelectAllFiltered"
+            />
+            <span>{{ t('session.selectAllFiltered') }}</span>
+          </label>
+          <span class="session-batch-count">{{
+            t('session.selectedCount', { count: selectedSessionCount })
+          }}</span>
+        </div>
+        <div v-if="batchDeleteFilteredSessions.length" class="session-batch-delete-list">
+          <label
+            v-for="session in batchDeleteFilteredSessions"
+            :key="session.id"
+            class="session-batch-delete-item"
+            :class="{ selected: isSessionSelected(session.id) }"
+          >
+            <input
+              class="session-select-checkbox"
+              type="checkbox"
+              :checked="isSessionSelected(session.id)"
+              @change="toggleSessionSelection(session.id, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="session-batch-delete-item-main">
+              <span class="session-batch-delete-item-title">{{ session.title }}</span>
+              <span class="session-batch-delete-item-meta">
+                {{ session.updatedAt.replace('T', ' ').slice(0, 16) }} ·
+                {{ t('session.messagesCount', { count: session.messages.length }) }}
+              </span>
+            </span>
+          </label>
+        </div>
+        <div v-else class="session-batch-delete-empty">
+          {{ t('session.batchDeleteEmpty') }}
+        </div>
+      </div>
+      <template #footer>
+        <div class="session-batch-delete-footer">
+          <el-button @click="isBatchDeleteDialogVisible = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="danger" :disabled="!canBatchDeleteSessions" @click="confirmBatchDeleteSessions">
+            {{ t('session.batchDelete') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
       v-model="isSummaryDialogVisible"
       class="summary-dialog"
       :title="t('chat.smartSummary')"
@@ -1531,6 +1797,32 @@ async function regenerateMessage(messageId: string) {
       </template>
     </el-dialog>
 
+    <el-dialog
+      v-model="isErrorDialogVisible"
+      class="t1-error-dialog"
+      width="min(520px, 92vw)"
+      :show-close="true"
+      align-center
+    >
+      <div class="t1-error-dialog-body">
+        <div class="t1-error-dialog-icon" aria-hidden="true">
+          <el-icon><CircleClose /></el-icon>
+        </div>
+        <div class="t1-error-dialog-copy">
+          <h3>{{ t('chat.errorDialogTitle') }}</h3>
+          <p class="t1-error-dialog-description">{{ t('chat.errorDialogDescription') }}</p>
+          <p class="t1-error-dialog-message">{{ chat.errorMessage }}</p>
+        </div>
+      </div>
+      <template #footer>
+        <div class="t1-error-dialog-actions">
+          <el-button type="primary" @click="chat.clearErrorMessage()">
+            {{ t('chat.errorDialogAcknowledge') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <div
       v-if="!isSidebarCollapsed"
       class="panel-resizer left"
@@ -1545,9 +1837,9 @@ async function regenerateMessage(messageId: string) {
       tabindex="-1"
     >
       <header class="topbar">
-        <div>
+        <div class="topbar-title">
           <!-- <p>当前会话</p> -->
-          <h4>{{ chat.activeSession.title }}</h4>
+          <h4 :title="chat.activeSession.title">{{ chat.activeSession.title }}</h4>
           <!-- <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div> -->
         </div>
         <div class="topbar-actions">
@@ -1564,18 +1856,8 @@ async function regenerateMessage(messageId: string) {
             <span class="topbar-user-avatar">{{ auth.currentUser.avatarText }}</span>
             <span class="topbar-user-name">{{ auth.currentUser.name }}</span>
           </div>
-          <el-tag :type="chat.apiKey.trim() ? 'success' : 'warning'" round>
-            {{
-              chat.isProviderReady
-                ? chat.inferenceMode === 'local'
-                  ? t('chat.readyLocal', { model: chat.localModel })
-                  : chat.inferenceMode === 'auto'
-                    ? t('chat.readyHybrid')
-                    : t('chat.readyProvider', { provider: chat.selectedProvider.name })
-                : chat.inferenceMode === 'local'
-                  ? t('chat.waitingLocal')
-                  : t('chat.waitingApiKey')
-            }}
+          <el-tag :type="chat.isProviderReady ? 'success' : 'warning'" round>
+            {{ providerStatusText }}
           </el-tag>
           <el-select
             class="topbar-locale-select"
@@ -1610,14 +1892,38 @@ async function regenerateMessage(messageId: string) {
         </div>
       </header>
 
-      <div ref="messagesEl" class="messages" :aria-label="t('chat.messages')" role="log" aria-live="polite">
+      <div
+        ref="messagesEl"
+        class="messages"
+        :aria-label="t('chat.messages')"
+        role="log"
+        aria-live="polite"
+        @scroll="handleMessagesScroll"
+      >
         <div v-if="!chat.visibleMessages.length" class="empty-state">
           <div class="empty-logo">T1</div>
-          <!-- <h2>Twentys1x AI 工作台</h2>
-          <p>
-            选择 AI 供应商并粘贴对应 API Key
-            后，直接开始对话。支持文本附件和图片附件，历史会话会保存在本地浏览器。
-          </p> -->
+          <h2>{{ t('chat.emptyStateTitle') }}</h2>
+          <p>{{ t('chat.emptyStateDescription') }}</p>
+          <div class="empty-state-status">
+            <span class="empty-status-chip">{{ providerStatusText }}</span>
+            <span class="empty-status-chip">{{ modeSummaryText }}</span>
+            <span class="empty-status-chip">
+              {{
+                chat.activeProjectId ? `${t('chat.project')} · ${activeProjectLabel}` : t('chat.normalChat')
+              }}
+            </span>
+          </div>
+          <div class="empty-state-actions" :aria-label="t('chat.quickActions')">
+            <button
+              v-for="prompt in emptyStatePrompts"
+              :key="prompt"
+              type="button"
+              class="empty-state-action"
+              @click="applyQuickPrompt(prompt)"
+            >
+              {{ prompt }}
+            </button>
+          </div>
         </div>
 
         <div v-for="message in chat.visibleMessages" v-else :key="message.id" class="message-list-item">
@@ -1640,11 +1946,18 @@ async function regenerateMessage(messageId: string) {
         </div>
       </div>
 
-      <section class="composer-wrap">
-        <el-alert v-if="chat.errorMessage" class="error-message" type="error" :closable="false" show-icon>
-          {{ chat.errorMessage }}
-        </el-alert>
+      <button
+        v-if="showJumpToBottom"
+        type="button"
+        class="scroll-to-bottom-button"
+        :aria-label="t('chat.scrollToLatest')"
+        @click="scrollToBottom"
+      >
+        <el-icon><ArrowDown /></el-icon>
+        {{ t('chat.scrollToLatest') }}
+      </button>
 
+      <section class="composer-wrap">
         <div v-if="chat.pendingFiles.length" class="attachment-list">
           <el-tag
             v-for="file in chat.pendingFiles"
@@ -1691,7 +2004,7 @@ async function regenerateMessage(messageId: string) {
           </el-tag>
         </div>
 
-        <div class="composer">
+        <div class="composer" @paste="handleComposerPaste">
           <div class="composer-left-actions">
             <el-button
               class="icon-button"
@@ -1760,6 +2073,10 @@ async function regenerateMessage(messageId: string) {
           </el-button>
 
           <input ref="fileInputEl" class="file-input" type="file" multiple @change="handleFiles" />
+        </div>
+        <div class="composer-help-row">
+          <span>{{ t('chat.composerShortcutHint') }}</span>
+          <span>{{ providerStatusText }}</span>
         </div>
       </section>
     </main>
@@ -1988,182 +2305,3 @@ async function regenerateMessage(messageId: string) {
     </aside>
   </div>
 </template>
-
-<style scoped>
-/* ========================================================
-   1. Markdown 消息展示排版 - 极度控制间距使其美观紧凑
-   ======================================================== */
-:deep(.message-content) {
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  color: #17201a;
-  font-size: 14px;
-}
-
-:deep(.message-content h1),
-:deep(.message-content h2),
-:deep(.message-content h3) {
-  margin: 1.2em 0 0.5em; /* 压缩自带块级标题边距 */
-  font-weight: 700;
-  color: #17201a;
-  line-height: 1.35;
-}
-
-:deep(.message-content h1:first-child),
-:deep(.message-content h2:first-child),
-:deep(.message-content h3:first-child) {
-  margin-top: 0;
-}
-
-:deep(.message-content hr) {
-  border: none;
-  border-top: 1px solid rgba(23, 32, 26, 0.12);
-  margin: 1.2em 0; /* 控制分割线的留白 */
-}
-
-:deep(.message-content code) {
-  background: rgba(23, 32, 26, 0.06);
-  padding: 0.15em 0.4em;
-  border-radius: 5px;
-  font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace;
-  font-size: 0.85em;
-  color: #2d5848;
-  font-variant-ligatures: none;
-}
-
-/* 降低列表的内部间距 */
-:deep(.message-content ul),
-:deep(.message-content ol) {
-  padding-left: 1.5em;
-  margin: 0.5em 0;
-}
-
-:deep(.message-content li) {
-  margin: 0.25em 0;
-}
-
-/* ========================================================
-   2. 修复代码块外层间隙与样式
-   ======================================================== */
-.code-block-wrapper {
-  margin: 8px 0;
-  border: 1px solid rgba(23, 32, 26, 0.16);
-  border-radius: 12px;
-  overflow: hidden;
-  background: linear-gradient(180deg, #222b24 0%, #1a211c 100%);
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
-    0 12px 32px rgba(0, 0, 0, 0.15);
-}
-
-.code-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.06);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-  font-size: 12px;
-  font-weight: 600;
-  color: #a3b5a8;
-}
-
-.language {
-  font-family: ui-monospace, monospace;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-/* 彻底覆盖 Element Plus 按钮默认的高亮 hover 变量，适配暗色代码块头 */
-:deep(.code-header .el-button) {
-  --el-button-bg-color: transparent;
-  --el-button-border-color: transparent;
-  --el-button-hover-bg-color: rgba(255, 255, 255, 0.12);
-  --el-button-hover-border-color: transparent;
-  --el-button-active-bg-color: rgba(255, 255, 255, 0.2);
-  --el-button-active-border-color: transparent;
-  --el-button-text-color: #a3b5a8;
-  --el-button-hover-text-color: #ffffff;
-}
-
-/* ========================================================
-   3. 其余组件原有样式保持不变
-   ======================================================== */
-.user-actions {
-  text-align: right;
-  border-top: 1px dashed rgba(23, 32, 26, 0.08);
-  margin-top: 6px;
-  padding-top: 6px;
-  opacity: 0.5;
-  transition: opacity 0.2s;
-}
-
-.message-row.user:hover .user-actions {
-  opacity: 1;
-}
-
-.stop-button {
-  --el-button-bg-color: #4f5d3a !important;
-  --el-button-border-color: #4f5d3a !important;
-  --el-button-hover-bg-color: #5f6f48 !important;
-  --el-button-hover-border-color: #5f6f48 !important;
-  --el-button-active-bg-color: #435033 !important;
-  --el-button-active-border-color: #435033 !important;
-}
-
-.inline-edit-box {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.inline-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 4px;
-}
-
-:deep(.inline-edit-input .el-textarea__inner) {
-  background: linear-gradient(180deg, #f8faf7 0%, #f2f6f3 100%);
-  border-color: rgba(52, 96, 78, 0.18);
-  border-radius: 10px;
-  color: #17201a;
-  transition:
-    border-color 0.22s ease,
-    box-shadow 0.22s ease;
-}
-
-:deep(.inline-edit-input .el-textarea__inner:focus) {
-  border-color: rgba(52, 96, 78, 0.45);
-  box-shadow: 0 0 0 3px rgba(52, 96, 78, 0.1);
-}
-
-.inline-cancel-btn {
-  --el-button-bg-color: #ffffff;
-  --el-button-border-color: rgba(52, 96, 78, 0.22);
-  --el-button-hover-bg-color: #eef4ef;
-  --el-button-hover-border-color: #34604e;
-  --el-button-active-bg-color: #dcebe2;
-  --el-button-active-border-color: #2d5848;
-  --el-button-text-color: #34604e;
-  --el-button-hover-text-color: #2d5848;
-}
-
-.inline-send-btn {
-  --el-button-bg-color: #34604e;
-  --el-button-border-color: #34604e;
-  --el-button-hover-bg-color: #3d6f5b;
-  --el-button-hover-border-color: #3d6f5b;
-  --el-button-active-bg-color: #2d5848;
-  --el-button-active-border-color: #2d5848;
-  --el-button-disabled-bg-color: #d9e8df;
-  --el-button-disabled-border-color: #d9e8df;
-  --el-button-disabled-text-color: #7a9788;
-  --el-button-text-color: #f8fbf7;
-  --el-button-hover-text-color: #f8fbf7;
-}
-</style>

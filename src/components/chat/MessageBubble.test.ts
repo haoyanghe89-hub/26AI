@@ -1,9 +1,11 @@
 import { shallowMount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import MessageBubble from './MessageBubble.vue'
+import { i18n, setLocale } from '../../i18n'
 import type { ChatMessage } from '../../stores/chat'
 
 function mountMessage(message: ChatMessage, isSending: boolean) {
+  setLocale('zh-CN')
   return shallowMount(MessageBubble, {
     props: {
       message,
@@ -14,6 +16,7 @@ function mountMessage(message: ChatMessage, isSending: boolean) {
       editingContent: '',
     },
     global: {
+      plugins: [i18n],
       stubs: {
         ElButton: { template: '<button><slot /></button>' },
         ElTag: { template: '<span><slot /></span>' },
@@ -75,7 +78,7 @@ describe('MessageBubble', () => {
     const wrapper = mountMessage(message, false)
     await wrapper
       .findAll('button')
-      .find((button) => button.text().includes('重新回复'))
+      .find((button) => /重新回复|Regenerate/.test(button.text()))
       ?.trigger('click')
 
     expect(wrapper.emitted('regenerate-message')).toEqual([['assistant-ready']])
