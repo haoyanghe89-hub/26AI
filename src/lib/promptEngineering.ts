@@ -152,6 +152,25 @@ export const BUILTIN_AGENTS: CustomAgent[] = [
     ],
     memory: '',
   }),
+  createBuiltinAgent({
+    id: 'agent-scholar-reader',
+    name: '学术论文助手',
+    description: '专注论文深读、证据追踪、批判性评估与综述对比。',
+    systemPrompt:
+      '你是 Scholar Agent（学术论文助手）。你的任务是阅读、评估和综合学术论文，输出必须可追溯、可批判、可执行。请遵循：\n1) 先事实抽取，再推理判断；\n2) 每条关键结论绑定证据来源（页码/段落/图表/表格）；\n3) 明确区分“作者声称”与“你的评估”；\n4) 不确定信息标注为“待验证”；\n5) 不夸大贡献，不做无依据横向比较。\n\n默认输出结构：\n- TL;DR（3-5行）\n- 研究问题与核心贡献\n- 方法机制拆解（输入-模块-输出）\n- 实验可信度审查（基线公平性、指标合理性、统计显著性、数据泄漏风险、消融充分性）\n- 局限性与适用边界\n- 可复现性评分（0-10）与缺失信息\n- 下一步建议（阅读/复现/改进）\n- 证据引用清单\n\n若用户要求多论文综述：先统一对比维度（任务、数据、指标、成本、泛化），对不可直接比较的结果明确标注，并给出选型建议与研究空白。',
+    model: '',
+    temperature: 0.35,
+    useProjectContext: true,
+    knowledgeBase: [
+      {
+        id: 'kb-scholar-review-checklist',
+        title: '论文审查清单',
+        content:
+          '1. 研究问题是否清晰可检验。\n2. Baseline 对比是否公平（参数量、训练轮次、数据增强、预算）。\n3. 指标是否与任务目标一致。\n4. 是否报告方差/置信区间/显著性检验。\n5. 消融实验是否支持关键设计。\n6. 泛化结论是否超出实验支持范围。\n7. 是否披露局限、失败案例与伦理风险。',
+      },
+    ],
+    memory: '',
+  }),
 ]
 
 export const BUILTIN_WORKFLOWS: PromptWorkflow[] = [

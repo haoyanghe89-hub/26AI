@@ -1646,6 +1646,7 @@ export const useChatStore = defineStore('chat', () => {
         } else if (event.type === 'delta') {
           reactiveAssistant.content = (reactiveAssistant.content as string) + event.content
         } else if (event.type === 'tool_call') {
+          console.log(`[tool_call] ${event.name}`, event.arguments)
           toolLogs.push({ name: event.name, arguments: event.arguments })
           reactiveAssistant.toolLogs = [...toolLogs]
         } else if (event.type === 'tool_result') {
@@ -1794,6 +1795,7 @@ export const useChatStore = defineStore('chat', () => {
             task.output = (task.output || '') + event.content
           }
         } else if (event.type === 'task_tool_call') {
+          console.log(`[task_tool_call] #${event.taskIndex} ${event.name}`, event.arguments)
           const task = plan.tasks[event.taskIndex]
           if (task) {
             if (!task.toolLogs) task.toolLogs = []

@@ -294,7 +294,17 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'PUT' && routePath === '/api/state') {
       const body = await readJson(req)
-      sendJson(res, 200, await saveUserState(req.user.id, body))
+      if (!req.user?.id) {
+        sendJson(res, 401, { error: 'Unauthorized' })
+        return
+      }
+      try {
+        const result = await saveUserState(req.user.id, body)
+        sendJson(res, 200, result)
+      } catch (saveError) {
+        console.error('[api/state] saveUserState failed:', saveError)
+        sendJson(res, 500, { error: saveError instanceof Error ? saveError.message : 'Save failed' })
+      }
       return
     }
 
@@ -1514,7 +1524,7 @@ async function handleStreamChat(req, res, body) {
  * 3. 如果没有 tool_calls，把 content 模拟成流式发送
  */
 async function runChatWithTools(ctx, body, projectRoot, res) {
-  const MAX_TOOL_ROUNDS = 3
+  const MAX_TOOL_ROUNDS = 20
   let messages = ctx.messages.map((m) => ({ ...m }))
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
@@ -2078,7 +2088,7 @@ function buildTaskExecutionContext(goal, previousTasks, currentTask, completedRe
  * 与 runChatWithTools 类似，但事件名带 task_ 前缀
  */
 async function runTaskWithTools(ctx, taskContext, projectRoot, res, taskIndex) {
-  const MAX_TOOL_ROUNDS = 3
+  const MAX_TOOL_ROUNDS = 20
   const messages = [{ role: 'user', content: taskContext.userPrompt }]
 
   let fullContent = ''

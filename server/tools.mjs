@@ -7,6 +7,8 @@ import { spawn } from 'node:child_process'
  * 每个工具包含 OpenAI-compatible function schema + 执行函数
  */
 
+let totalToolCallCount = 0
+
 const ALLOWED_SHELL_COMMANDS = new Set([
   'ls',
   'cat',
@@ -144,6 +146,8 @@ export const TOOL_DEFINITIONS = [
  * @param {object} context - 执行上下文 { projectRoot }
  */
 export async function executeTool(name, args, context) {
+  totalToolCallCount++
+  console.log(`[tools] 工具调用 #${totalToolCallCount}: ${name}`)
   try {
     switch (name) {
       case 'read_file':

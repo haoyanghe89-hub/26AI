@@ -147,7 +147,26 @@ export async function saveUserState(userId, state) {
       ? state.settings
       : {}
 
-  db.exec('BEGIN IMMEDIATE')
+  // SQLite 事务带重试，防止并发写入冲突
+  const MAX_RETRIES = 3
+  let transactionStarted = false
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      db.exec('BEGIN IMMEDIATE')
+      transactionStarted = true
+      break
+    } catch (err) {
+      if (attempt < MAX_RETRIES - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)))
+      } else {
+        throw err
+      }
+    }
+  }
+  if (!transactionStarted) {
+    throw new Error('Unable to begin transaction')
+  }
+
   try {
     db.prepare('DELETE FROM chat_sessions WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM prompt_assets WHERE user_id = ?').run(userId)
@@ -186,11 +205,11 @@ export async function saveUserState(userId, state) {
           String(message.id),
           index,
           message.role === 'assistant' ? 'assistant' : 'user',
-          json(message.content ?? ''),
-          message.attachments ? json(message.attachments) : null,
-          message.toolLogs ? json(message.toolLogs) : null,
-          message.plan ? json(message.plan) : null,
-          message.meta ? json(message.meta) : null,
+          safeJson(message.content ?? ''),
+          message.attachments ? safeJson(message.attachments) : null,
+          message.toolLogs ? safeJson(message.toolLogs) : null,
+          message.plan ? safeJson(message.plan) : null,
+          message.meta ? safeJson(message.meta) : null,
           String(message.createdAt || now),
         )
       })
@@ -204,7 +223,7 @@ export async function saveUserState(userId, state) {
       'INSERT INTO user_settings (user_id, key, value_json, updated_at) VALUES (?, ?, ?, ?)',
     )
     for (const [key, value] of Object.entries(settings)) {
-      insertSetting.run(userId, key, json(value), now)
+      insertSetting.run(userId, key, safeJson(value), now)
     }
 
     const insertProject = db.prepare(
@@ -212,16 +231,30 @@ export async function saveUserState(userId, state) {
     )
     for (const project of projects) {
       if (!project?.id) continue
-      insertProject.run(userId, String(project.id), json(project), String(project.updatedAt || now))
+      insertProject.run(userId, String(project.id), safeJson(project), String(project.updatedAt || now))
     }
 
     db.exec('COMMIT')
   } catch (error) {
-    db.exec('ROLLBACK')
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      // Preserve the original write error if the transaction is already closed.
+    }
+    console.error('[persistence] saveUserState error:', error)
     throw error
   }
 
   return { saved: true, updatedAt: now }
+}
+
+function safeJson(value) {
+  try {
+    return JSON.stringify(value)
+  } catch (err) {
+    console.error('[persistence] JSON stringify failed:', err)
+    return JSON.stringify({ __serializationError: String(err.message || err) })
+  }
 }
 
 function loadPromptAssets(userId, type) {

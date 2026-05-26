@@ -1970,16 +1970,6 @@ async function regenerateMessage(messageId: string) {
           </el-tag>
         </div>
 
-        <!-- === 修改：仅在有项目时显示，并添加退出按钮 === -->
-        <div v-if="chat.activeProjectId" class="composer-project-indicator">
-          <span
-            >{{ t('chat.activeProject') }}<strong>{{ activeProjectLabel }}</strong></span
-          >
-          <el-button link @click="chat.setActiveProject('')">
-            <el-icon><Close /></el-icon> {{ t('chat.exitProjectMode') }}
-          </el-button>
-        </div>
-
         <div v-if="chat.activeProjectId" class="composer-original-root-indicator">
           <span class="original-root-label">
             <el-icon><Folder /></el-icon>
@@ -1989,6 +1979,16 @@ async function regenerateMessage(messageId: string) {
                 : t('chat.originalPathLoading')
             }}
           </span>
+        </div>
+
+        <!-- === 修改：仅在有项目时显示，并添加退出按钮 === -->
+        <div v-if="chat.activeProjectId" class="composer-project-indicator">
+          <span
+            >{{ t('chat.activeProject') }}<strong>{{ activeProjectLabel }}</strong></span
+          >
+          <el-button link @click="chat.setActiveProject('')">
+            <el-icon><Close /></el-icon> {{ t('chat.exitProjectMode') }}
+          </el-button>
         </div>
 
         <div v-if="activeComposerTemplate" class="composer-template-indicator">
