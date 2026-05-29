@@ -38,7 +38,7 @@ const messages = {
     },
     app: {
       skipToMain: '跳到主内容',
-      aiStudio: 'AI Studio',
+      aiStudio: '宠物 AI 管家',
     },
     auth: {
       authenticating: '真实认证进行中',
@@ -46,9 +46,9 @@ const messages = {
       localAccount: '本地真实账号',
       smsReady: '短信已接入',
       smsPending: '短信待接入',
-      loginTwentys1x: '登录 Twentys1x',
-      welcome: '欢迎一起构建',
-      intro: '登录后继续你的会话、项目与 AI 工作流，把灵感、代码和知识沉淀成可以反复使用的创作空间。',
+      loginTwentys1x: '登录宠物 AI 管家',
+      welcome: '管理每一位毛孩子',
+      intro: '登录后继续宠物档案、健康日志、提醒、就医清单和 AI 照护咨询。',
       form: '登录表单',
       chooseLoginMode: '选择登录方式',
       accountPassword: '账号密码',
@@ -62,7 +62,7 @@ const messages = {
       qrReadyDesc: '点击下方按钮进入{provider}官方授权页。',
       qrUnavailableDesc: '该能力需要站点管理员接入第三方开放平台后才会显示真实二维码。',
       goAuthorize: '前往{provider}授权',
-      qrReadyNote: '将跳转到{provider}官方授权页，完成后自动回到 Twentys1x。',
+      qrReadyNote: '将跳转到{provider}官方授权页，完成后自动回到宠物 AI 管家。',
       qrUnavailableNote: '{provider}扫码登录暂未开通，请先使用账号密码登录，或联系管理员开通第三方登录。',
       phone: '手机号',
       phonePlaceholder: '请输入手机号',
@@ -407,7 +407,7 @@ const messages = {
     },
     app: {
       skipToMain: 'Skip to main content',
-      aiStudio: 'AI Studio',
+      aiStudio: 'Pet AI Manager',
     },
     auth: {
       authenticating: 'Real authentication in progress',
@@ -415,10 +415,10 @@ const messages = {
       localAccount: 'Local account',
       smsReady: 'SMS enabled',
       smsPending: 'SMS pending',
-      loginTwentys1x: 'Log in to Twentys1x',
-      welcome: 'Welcome back',
+      loginTwentys1x: 'Log in to Pet AI Manager',
+      welcome: 'Care for every pet at home',
       intro:
-        'Sign in to continue your conversations, projects, and AI workflows, turning ideas, code, and knowledge into reusable creative space.',
+        'Sign in to continue pet profiles, health logs, reminders, vet checklists, and AI care conversations.',
       form: 'Login form',
       chooseLoginMode: 'Choose login method',
       accountPassword: 'Account',
@@ -433,7 +433,7 @@ const messages = {
       qrUnavailableDesc:
         'This requires the site administrator to connect the third-party platform before a real QR code is shown.',
       goAuthorize: 'Authorize with {provider}',
-      qrReadyNote: 'You will be redirected to {provider} and returned to Twentys1x after completion.',
+      qrReadyNote: 'You will be redirected to {provider} and returned to Pet AI Manager after completion.',
       qrUnavailableNote:
         '{provider} QR login is not available yet. Use account login or ask an administrator to enable third-party login.',
       phone: 'Phone',

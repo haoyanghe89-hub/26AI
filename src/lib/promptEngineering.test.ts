@@ -75,8 +75,8 @@ describe('promptEngineering', () => {
   })
 
   it('ships built-in prompt assets for templates, agents, and workflows', () => {
-    expect(BUILTIN_PROMPT_TEMPLATES.map((item) => item.name)).toContain('代码重构')
-    expect(BUILTIN_AGENTS.map((item) => item.name)).toContain('前端开发助手')
+    expect(BUILTIN_PROMPT_TEMPLATES.map((item) => item.name)).toContain('生成喂养计划')
+    expect(BUILTIN_AGENTS.map((item) => item.name)).toContain('宠物 AI 管家')
     expect(BUILTIN_WORKFLOWS[0].steps.length).toBeGreaterThan(1)
   })
 
@@ -85,7 +85,7 @@ describe('promptEngineering', () => {
       name: '测试工作流',
       steps: [{ id: 's1', title: '分析', prompt: '输入：{{input}}', agentId: '', templateId: '' }],
     })
-    expect(workflow.steps[0].agentId).toBe('agent-general-assistant')
+    expect(workflow.steps[0].agentId).toBe('agent-pet-care-manager')
     expect(workflow.steps[0].prompt).toContain('{{input}}')
   })
 })

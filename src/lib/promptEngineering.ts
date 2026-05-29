@@ -67,106 +67,112 @@ export interface ActivePromptTemplate {
 
 const BUILTIN_CREATED_AT = '2026-04-29T00:00:00.000Z'
 
-export const DEFAULT_AGENT_ID = 'agent-general-assistant'
+export const DEFAULT_AGENT_ID = 'agent-pet-care-manager'
 
 export const BUILTIN_PROMPT_TEMPLATES: PromptTemplate[] = [
   createBuiltinTemplate({
-    id: 'template-code-refactor',
-    name: '代码重构',
-    description: '分析代码问题并给出可执行重构方案。',
-    category: '研发',
+    id: 'template-cat-vomiting',
+    name: '猫咪今天呕吐',
+    description: '记录呕吐情况，判断观察重点和就医警讯。',
+    category: '健康观察',
     content:
-      '请作为资深工程师重构下面的代码。\n\n目标：{{goal}}\n\n代码：\n{{code}}\n\n请输出：\n1. 主要问题\n2. 重构后的代码\n3. 关键改动说明\n4. 风险与测试建议',
+      '我的猫今天呕吐了：{{input}}\n\n请基于当前宠物档案和近期健康日志输出：\n1. 需要补充询问的问题\n2. 24 小时观察记录表\n3. 需要立刻就医的危险信号\n4. 就医前可准备的信息\n\n注意：不要做确诊，不要给处方；严重症状建议尽快联系执业兽医。',
   }),
   createBuiltinTemplate({
-    id: 'template-copywriting',
-    name: '文案创作',
-    description: '为产品、活动或页面生成结构化文案。',
-    category: '创作',
+    id: 'template-feeding-plan',
+    name: '生成喂养计划',
+    description: '按宠物档案、体重、年龄、过敏和健康记录生成喂养建议。',
+    category: '喂养照护',
     content:
-      '请为「{{product}}」创作{{channel}}文案。\n\n目标受众：{{audience}}\n核心卖点：{{selling_points}}\n语气：{{tone}}\n\n请给出标题、正文、行动号召，并补充 3 个备选标题。',
+      '请为当前选中的宠物生成一份 7 天喂养与照护计划。\n\n额外情况：{{input}}\n\n请输出：\n1. 档案缺失项\n2. 喂养原则\n3. 每日记录项目\n4. 零食与换粮注意事项\n5. 推荐设置的提醒\n6. 需要咨询兽医的情况',
   }),
   createBuiltinTemplate({
-    id: 'template-interview-coach',
-    name: '面试辅导',
-    description: '按岗位与经历生成模拟面试和反馈。',
-    category: '职场',
+    id: 'template-food-compare',
+    name: '比较两款宠物食品',
+    description: '从配方、过敏、年龄体重、预算和风险维度比较。',
+    category: '产品决策',
     content:
-      '你是面试辅导教练。请根据下面信息设计一轮模拟面试。\n\n岗位：{{role}}\n候选人背景：{{background}}\n重点训练方向：{{focus}}\n\n请输出 8 个问题、每题考察点、优秀回答要点和追问。',
+      '请比较以下宠物产品，并结合当前宠物档案给出选择建议。\n\n产品/配方/价格/疑问：\n{{input}}\n\n请输出对比表，包含：适配年龄体重、蛋白来源、潜在过敏风险、肠胃友好度、预算、需要向商家确认的问题、最终选择建议。',
+  }),
+  createBuiltinTemplate({
+    id: 'template-vet-checklist',
+    name: '准备就诊问题',
+    description: '把症状和健康日志整理成就医前清单。',
+    category: '就医助手',
+    content:
+      '请把以下症状和近期健康日志整理成就诊前清单：\n{{input}}\n\n请输出：\n1. 给兽医的一句话病情摘要\n2. 时间线\n3. 已观察到的症状\n4. 需要带去医院的资料/样本/照片\n5. 建议询问兽医的问题\n6. 紧急就医警讯\n\n必须注明：这不是诊断，最终以执业兽医检查为准。',
+  }),
+  createBuiltinTemplate({
+    id: 'template-poop-appetite',
+    name: '记录便便和食欲',
+    description: '把日常观察转成可追踪健康日志。',
+    category: '健康日志',
+    content:
+      '请根据以下描述整理成一条宠物健康日志，并指出需要继续观察的项目：\n{{input}}\n\n输出字段：食欲、饮水、便便、呕吐、精神、情绪、症状、异常行为、备注、后续提醒建议。',
+  }),
+  createBuiltinTemplate({
+    id: 'template-new-puppy',
+    name: '新到家幼犬照护',
+    description: '为新手狗主人生成前两周照护计划。',
+    category: '新手照护',
+    content:
+      '我家新到一只幼犬，情况如下：{{input}}\n\n请生成前两周照护计划，覆盖：适应期、喂食、饮水、排便、疫苗驱虫确认、环境安全、训练、社交、需要就医的危险信号。',
   }),
 ]
 
 export const BUILTIN_AGENTS: CustomAgent[] = [
   createBuiltinAgent({
     id: DEFAULT_AGENT_ID,
-    name: '通用助手',
-    description: '可靠、清晰、默认中文回复。',
-    systemPrompt: '你是 Twentys1x 的通用 AI 助手。回答要清晰、可靠、友好，默认使用中文。',
+    name: '宠物 AI 管家',
+    description: '围绕宠物档案、健康日志、提醒和照护计划提供结构化建议。',
+    systemPrompt:
+      '你是“宠物 AI 管家”的核心助手。你帮助猫狗主人管理宠物档案、喂养、健康日志、提醒、就医准备和产品决策。默认中文回复。不要做医学确诊，不要给处方；遇到持续呕吐腹泻、呼吸困难、抽搐、拒食、疑似中毒、外伤出血、精神沉郁等情况，建议尽快联系执业兽医。',
     model: '',
-    temperature: 0.7,
+    temperature: 0.55,
     useProjectContext: true,
     knowledgeBase: [],
     memory: '',
   }),
   createBuiltinAgent({
-    id: 'agent-frontend-engineer',
-    name: '前端开发助手',
-    description: '聚焦 Vue、TypeScript、交互体验与工程质量。',
+    id: 'agent-pet-vet-visit',
+    name: '就医准备助手',
+    description: '把症状、日志和报告整理成就诊前清单和提问清单。',
     systemPrompt:
-      '你是资深前端开发助手，擅长 Vue、TypeScript、组件设计、可访问性和前端工程化。若用户上传并选中了项目，请优先基于当前项目上下文、文件路径和检索片段回答，给出可落地方案、代码片段和测试建议。',
-    model: '',
-    temperature: 0.45,
-    useProjectContext: true,
-    knowledgeBase: [
-      {
-        id: 'kb-vue-style-guide',
-        title: 'Vue 3 团队规范',
-        content:
-          '1. 组件名使用 PascalCase，文件名为多词 kebab-case。\n2. 优先使用 Composition API + <script setup>。\n3. Props 必须定义类型和默认值。\n4. 事件名使用 kebab-case，emit 需明确定义。\n5. 样式 scoped，全局样式放在 assets/styles。',
-      },
-      {
-        id: 'kb-ts-patterns',
-        title: 'TypeScript 常用模式',
-        content:
-          '1. 优先使用 interface 定义对象类型，type 定义联合/交叉类型。\n2. 避免 any，使用 unknown + 类型守卫。\n3. 函数返回类型显式标注。\n4. 使用 satisfies 替代 as 做类型收窄。\n5. 工具类型统一放在 types/ 目录。',
-      },
-    ],
-    memory: '',
-  }),
-  createBuiltinAgent({
-    id: 'agent-product-strategist',
-    name: '产品策略助手',
-    description: '帮助拆解需求、定义范围、产出 PRD 和验收标准。',
-    systemPrompt:
-      '你是产品策略助手，擅长从用户目标、业务价值、约束和上线风险拆解需求。若用户上传并选中了项目，请结合当前项目结构和已有实现评估需求可行性。回答要包含范围边界、优先级和验收标准。',
-    model: '',
-    temperature: 0.65,
-    useProjectContext: true,
-    knowledgeBase: [
-      {
-        id: 'kb-prd-template',
-        title: 'PRD 标准结构',
-        content:
-          '一份完整 PRD 应包含：\n1. 背景与目标（Why）\n2. 用户故事与场景（Who & When）\n3. 功能范围与边界（What & What Not）\n4. 流程图与原型说明\n5. 数据埋点与指标\n6. 验收标准（Given-When-Then）\n7. 风险与依赖\n8. 上线 checklist',
-      },
-    ],
-    memory: '',
-  }),
-  createBuiltinAgent({
-    id: 'agent-scholar-reader',
-    name: '学术论文助手',
-    description: '专注论文深读、证据追踪、批判性评估与综述对比。',
-    systemPrompt:
-      '你是 Scholar Agent（学术论文助手）。你的任务是阅读、评估和综合学术论文，输出必须可追溯、可批判、可执行。请遵循：\n1) 先事实抽取，再推理判断；\n2) 每条关键结论绑定证据来源（页码/段落/图表/表格）；\n3) 明确区分“作者声称”与“你的评估”；\n4) 不确定信息标注为“待验证”；\n5) 不夸大贡献，不做无依据横向比较。\n\n默认输出结构：\n- TL;DR（3-5行）\n- 研究问题与核心贡献\n- 方法机制拆解（输入-模块-输出）\n- 实验可信度审查（基线公平性、指标合理性、统计显著性、数据泄漏风险、消融充分性）\n- 局限性与适用边界\n- 可复现性评分（0-10）与缺失信息\n- 下一步建议（阅读/复现/改进）\n- 证据引用清单\n\n若用户要求多论文综述：先统一对比维度（任务、数据、指标、成本、泛化），对不可直接比较的结果明确标注，并给出选型建议与研究空白。',
+      '你是宠物就医准备助手。你擅长把宠物症状、健康日志、化验单、影像报告和主人的观察整理成清晰的就诊前资料。你可以解释报告中的常见术语，但不能做诊断或处方。输出应包含病情摘要、时间线、需补充信息、建议询问兽医的问题、危险信号和就医建议。',
     model: '',
     temperature: 0.35,
     useProjectContext: true,
     knowledgeBase: [
       {
-        id: 'kb-scholar-review-checklist',
-        title: '论文审查清单',
+        id: 'kb-vet-warning-signs',
+        title: '宠物急症警讯',
         content:
-          '1. 研究问题是否清晰可检验。\n2. Baseline 对比是否公平（参数量、训练轮次、数据增强、预算）。\n3. 指标是否与任务目标一致。\n4. 是否报告方差/置信区间/显著性检验。\n5. 消融实验是否支持关键设计。\n6. 泛化结论是否超出实验支持范围。\n7. 是否披露局限、失败案例与伦理风险。',
+          '持续呕吐或腹泻、便血或尿血、呼吸困难、抽搐、昏迷或明显虚弱、疑似中毒、严重外伤、无法排尿、疼痛尖叫、拒食超过 24 小时、幼龄或高龄宠物急性异常，都应建议尽快联系执业兽医或急诊医院。',
+      },
+      {
+        id: 'kb-vet-visit-pack',
+        title: '就医前资料',
+        content:
+          '建议准备：症状开始时间、频率、饮食变化、食欲饮水、排便排尿、精神状态、用药和驱虫疫苗记录、呕吐物/便便照片、近期体重、已有化验单和病历。',
+      },
+    ],
+    memory: '',
+  }),
+  createBuiltinAgent({
+    id: 'agent-pet-product-advisor',
+    name: '宠物产品决策助手',
+    description: '比较宠物食品、用品、保险和本地服务，关注适配和风险。',
+    systemPrompt:
+      '你是宠物产品与服务决策助手。你帮助主人比较主粮、湿粮、猫砂、驱虫产品、洗护、保险、智能喂食器、玩具、航空箱、本地宠物服务等。必须结合宠物年龄、体重、品种、过敏、病史和预算。不要夸大商品功效，不要替代兽医开药。',
+    model: '',
+    temperature: 0.5,
+    useProjectContext: true,
+    knowledgeBase: [
+      {
+        id: 'kb-product-compare',
+        title: '宠物产品比较维度',
+        content:
+          '食品比较：适用物种和年龄、蛋白来源、脂肪含量、碳水、添加剂、过敏源、适口性、换粮风险、单日成本。用品比较：安全性、清洁维护、耐用性、尺寸、售后。本地服务比较：资质、距离、评价、价格、应急能力。',
       },
     ],
     memory: '',
@@ -175,32 +181,33 @@ export const BUILTIN_AGENTS: CustomAgent[] = [
 
 export const BUILTIN_WORKFLOWS: PromptWorkflow[] = [
   createBuiltinWorkflow({
-    id: 'workflow-requirement-to-code',
-    name: '需求到代码',
-    description: '需求分析、实现方案、代码优化三步串联。',
+    id: 'workflow-symptom-to-vet',
+    name: '症状到就医清单',
+    description: '从症状记录到观察表、就医摘要和提问清单。',
     steps: [
       {
-        id: 'step-requirement-analysis',
-        title: '需求分析',
+        id: 'step-symptom-triage',
+        title: '症状整理',
         templateId: '',
-        agentId: 'agent-product-strategist',
-        prompt: '请分析这个需求，提炼用户目标、核心流程、边界条件和验收标准。\n\n原始输入：\n{{input}}',
+        agentId: 'agent-pet-vet-visit',
+        prompt:
+          '请把以下宠物症状整理为时间线、严重程度、已知诱因和需要补充询问的问题。\n\n原始输入：\n{{input}}',
       },
       {
-        id: 'step-code-plan',
-        title: '实现方案',
+        id: 'step-vet-questions',
+        title: '就医问题',
         templateId: '',
-        agentId: 'agent-frontend-engineer',
+        agentId: 'agent-pet-vet-visit',
         prompt:
-          '基于上一步分析，设计前端实现方案。请说明数据结构、组件拆分、状态流转和测试点。\n\n原始输入：\n{{input}}\n\n上一步输出：\n{{previous}}',
+          '基于症状整理，生成就诊前资料清单和建议询问兽医的问题。必须包含危险信号和免责声明。\n\n原始输入：\n{{input}}\n\n上一步输出：\n{{previous}}',
       },
       {
-        id: 'step-polish',
-        title: '注释优化',
+        id: 'step-care-followup',
+        title: '复诊与提醒',
         templateId: '',
-        agentId: 'agent-frontend-engineer',
+        agentId: 'agent-pet-care-manager',
         prompt:
-          '请审视上一步方案，补充命名、边界处理和可维护性建议。输出最终执行清单。\n\n原始输入：\n{{input}}\n\n上一步输出：\n{{previous}}',
+          '请基于就医清单给出后续观察记录表和提醒建议。不要给诊断或处方。\n\n原始输入：\n{{input}}\n\n上一步输出：\n{{previous}}',
       },
     ],
   }),

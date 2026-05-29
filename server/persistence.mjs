@@ -70,6 +70,15 @@ export async function initPersistence() {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (user_id, id)
     );
+
+    CREATE TABLE IF NOT EXISTS pet_state_collections (
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      id TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (user_id, type, id)
+    );
   `)
 }
 
@@ -125,6 +134,10 @@ export async function loadUserState(userId) {
     promptTemplates: loadPromptAssets(userId, 'template'),
     customAgents: loadPromptAssets(userId, 'agent'),
     promptWorkflows: loadPromptAssets(userId, 'workflow'),
+    pets: loadStateCollection(userId, 'pet'),
+    healthLogs: loadStateCollection(userId, 'health_log'),
+    careReminders: loadStateCollection(userId, 'care_reminder'),
+    carePlans: loadStateCollection(userId, 'care_plan'),
     settings: loadSettings(userId),
     projects: db
       .prepare('SELECT value_json FROM project_metadata WHERE user_id = ? ORDER BY updated_at DESC')
@@ -141,6 +154,10 @@ export async function saveUserState(userId, state) {
   const promptTemplates = Array.isArray(state?.promptTemplates) ? state.promptTemplates : []
   const customAgents = Array.isArray(state?.customAgents) ? state.customAgents : []
   const promptWorkflows = Array.isArray(state?.promptWorkflows) ? state.promptWorkflows : []
+  const pets = Array.isArray(state?.pets) ? state.pets : []
+  const healthLogs = Array.isArray(state?.healthLogs) ? state.healthLogs : []
+  const careReminders = Array.isArray(state?.careReminders) ? state.careReminders : []
+  const carePlans = Array.isArray(state?.carePlans) ? state.carePlans : []
   const projects = Array.isArray(state?.projects) ? state.projects : []
   const settings =
     state?.settings && typeof state.settings === 'object' && !Array.isArray(state.settings)
@@ -172,6 +189,7 @@ export async function saveUserState(userId, state) {
     db.prepare('DELETE FROM prompt_assets WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM user_settings WHERE user_id = ?').run(userId)
     db.prepare('DELETE FROM project_metadata WHERE user_id = ?').run(userId)
+    db.prepare('DELETE FROM pet_state_collections WHERE user_id = ?').run(userId)
 
     const insertSession = db.prepare(
       `INSERT INTO chat_sessions
@@ -218,6 +236,10 @@ export async function saveUserState(userId, state) {
     savePromptAssets(userId, 'template', promptTemplates, now)
     savePromptAssets(userId, 'agent', customAgents, now)
     savePromptAssets(userId, 'workflow', promptWorkflows, now)
+    saveStateCollection(userId, 'pet', pets, now)
+    saveStateCollection(userId, 'health_log', healthLogs, now)
+    saveStateCollection(userId, 'care_reminder', careReminders, now)
+    saveStateCollection(userId, 'care_plan', carePlans, now)
 
     const insertSetting = db.prepare(
       'INSERT INTO user_settings (user_id, key, value_json, updated_at) VALUES (?, ?, ?, ?)',
@@ -280,6 +302,29 @@ function savePromptAssets(userId, type, assets, now) {
   }
 }
 
+function loadStateCollection(userId, type) {
+  return db
+    .prepare(
+      `SELECT value_json
+       FROM pet_state_collections
+       WHERE user_id = ? AND type = ?
+       ORDER BY updated_at DESC`,
+    )
+    .all(userId, type)
+    .map((row) => parseJson(row.value_json, null))
+    .filter(Boolean)
+}
+
+function saveStateCollection(userId, type, items, now) {
+  const insert = db.prepare(
+    'INSERT INTO pet_state_collections (user_id, type, id, value_json, updated_at) VALUES (?, ?, ?, ?, ?)',
+  )
+  for (const item of items) {
+    if (!item?.id) continue
+    insert.run(userId, type, String(item.id), safeJson(item), String(item.updatedAt || item.createdAt || now))
+  }
+}
+
 function loadSettings(userId) {
   return Object.fromEntries(
     db
@@ -296,9 +341,10 @@ function countUserRows(userId) {
         `SELECT
           (SELECT COUNT(*) FROM prompt_assets WHERE user_id = ?) +
           (SELECT COUNT(*) FROM user_settings WHERE user_id = ?) +
-          (SELECT COUNT(*) FROM project_metadata WHERE user_id = ?) AS total`,
+          (SELECT COUNT(*) FROM project_metadata WHERE user_id = ?) +
+          (SELECT COUNT(*) FROM pet_state_collections WHERE user_id = ?) AS total`,
       )
-      .get(userId, userId, userId).total || 0,
+      .get(userId, userId, userId, userId).total || 0,
   )
 }
 

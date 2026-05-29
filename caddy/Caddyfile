@@ -1,4 +1,4 @@
-# Twentys1x AI Studio - Caddy Reverse Proxy Configuration
+# Pet AI Manager - Caddy Reverse Proxy Configuration
 # Caddy automatically obtains and renews Let's Encrypt certificates
 
 {$DOMAIN:localhost} {

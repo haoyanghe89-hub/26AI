@@ -8,9 +8,9 @@ describe('messageSegments', () => {
     )
 
     expect(segments).toEqual([
-      { type: 'text', content: '说明' },
+      { type: 'text', content: '<p>说明</p>\n' },
       { type: 'code', language: 'ts', content: 'const value = 1', index: 0 },
-      { type: 'text', content: '继续' },
+      { type: 'text', content: '<p>继续</p>\n' },
       { type: 'code', language: 'json', content: '{"ok":true}', index: 1 },
     ])
   })
@@ -19,14 +19,14 @@ describe('messageSegments', () => {
     const segments = parseMessageSegments('前文\n```vue\n<template>\n  <div>')
 
     expect(segments).toEqual([
-      { type: 'text', content: '前文' },
+      { type: 'text', content: '<p>前文</p>\n' },
       { type: 'code', language: 'vue', content: '<template>\n  <div>', index: 0 },
     ])
   })
 
   it('formats compact markdown text', () => {
     expect(formatMessageText('# 标题\n\n**重点** 和 `code`')).toBe(
-      '<h1>标题</h1><strong>重点</strong> 和 <code>code</code>',
+      '<h1>标题</h1>\n<p><strong>重点</strong> 和 <code>code</code></p>\n',
     )
   })
 

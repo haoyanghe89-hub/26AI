@@ -194,6 +194,83 @@ export interface ImportedProject {
   chunkCount: number
 }
 
+export type PetSpecies = 'cat' | 'dog' | 'other'
+export type PetGender = 'female' | 'male' | 'unknown'
+export type SterilizationStatus = 'sterilized' | 'not_sterilized' | 'unknown'
+export type ReminderType =
+  | 'feeding'
+  | 'water'
+  | 'deworming'
+  | 'vaccination'
+  | 'grooming'
+  | 'medication'
+  | 'vet_follow_up'
+  | 'other'
+
+export interface PetProfile {
+  id: string
+  name: string
+  species: PetSpecies
+  breed: string
+  gender: PetGender
+  birthday: string
+  ageLabel: string
+  weightKg: number | null
+  sterilizationStatus: SterilizationStatus
+  allergies: string
+  medicalHistory: string
+  vaccinationStatus: string
+  dewormingStatus: string
+  foodPreferences: string
+  avatarUrl: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface HealthLog {
+  id: string
+  petId: string
+  loggedAt: string
+  appetite: string
+  waterIntake: string
+  poop: string
+  vomiting: string
+  energyLevel: number
+  mood: string
+  weightKg: number | null
+  symptoms: string
+  medication: string
+  abnormalBehavior: string
+  notes: string
+  createdAt: string
+}
+
+export interface CareReminder {
+  id: string
+  petId: string
+  type: ReminderType
+  title: string
+  dueAt: string
+  repeat: string
+  status: 'pending' | 'done'
+  notes: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CarePlan {
+  id: string
+  petId: string
+  title: string
+  summary: string
+  feeding: string[]
+  care: string[]
+  warnings: string[]
+  reminders: string[]
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ProjectTreeNode {
   name: string
   path: string
@@ -216,6 +293,12 @@ const STORAGE_KEYS = {
   activeNormalAgent: 'twentys1x:active-normal-agent',
   activeProjectAgent: 'twentys1x:active-project-agent',
   promptWorkflows: 'twentys1x:prompt-workflows',
+  pets: 'twentys1x:pets',
+  healthLogs: 'twentys1x:health-logs',
+  careReminders: 'twentys1x:care-reminders',
+  carePlans: 'twentys1x:care-plans',
+  activePet: 'twentys1x:active-pet',
+  productStateVersion: 'twentys1x:product-state-version',
   inferenceMode: 'twentys1x:inference-mode',
   localModel: 'twentys1x:local-model',
   hybridFallback: 'twentys1x:hybrid-fallback',
@@ -404,9 +487,12 @@ export const AI_PROVIDERS: AiProvider[] = [
 
 const DEFAULT_PROVIDER: ProviderId = 'kimi'
 const DEFAULT_MODEL = 'kimi-k2.6'
-const DEFAULT_PROJECT_AGENT_ID = 'agent-frontend-engineer'
+const DEFAULT_PROJECT_AGENT_ID = 'agent-pet-vet-visit'
 const DEFAULT_INFERENCE_MODE: InferenceMode = 'cloud'
 const DEFAULT_LOCAL_MODEL = 'qwen2.5'
+const PRODUCT_STATE_VERSION = 'pet-ai-manager-fresh-start-2026-05-29'
+const PET_MEDICAL_DISCLAIMER =
+  '安全提示：宠物 AI 管家不能替代兽医诊断。若出现持续呕吐/腹泻、呼吸困难、抽搐、明显疼痛、精神沉郁、拒食超过 24 小时、疑似中毒、外伤出血或幼龄/高龄宠物急性异常，请尽快联系执业兽医或急诊医院。'
 
 function getProvider(id: ProviderId) {
   return (
@@ -431,7 +517,7 @@ function createSession(): ChatSession {
   const now = new Date().toISOString()
   return {
     id: crypto.randomUUID(),
-    title: '新的会话',
+    title: '新的宠物咨询',
     tags: [],
     createdAt: now,
     updatedAt: now,
@@ -501,6 +587,7 @@ function isAttachmentKind(value: unknown): value is PreparedFile['kind'] {
 }
 
 function loadSessions(): ChatSession[] {
+  if (!hasFreshProductState()) return [createSession()]
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.sessions)
     const parsed = raw ? JSON.parse(raw) : null
@@ -513,6 +600,7 @@ function loadSessions(): ChatSession[] {
 }
 
 function loadPromptTemplates(): PromptTemplate[] {
+  if (!hasFreshProductState()) return BUILTIN_PROMPT_TEMPLATES
   return mergePromptAssets(
     BUILTIN_PROMPT_TEMPLATES,
     loadJsonArray<PromptTemplate>(STORAGE_KEYS.promptTemplates),
@@ -525,6 +613,7 @@ function loadPromptTemplates(): PromptTemplate[] {
 }
 
 function loadCustomAgents(): CustomAgent[] {
+  if (!hasFreshProductState()) return BUILTIN_AGENTS
   return mergePromptAssets(BUILTIN_AGENTS, loadJsonArray<CustomAgent>(STORAGE_KEYS.customAgents)).map(
     (item) =>
       normalizeAgent(
@@ -535,6 +624,7 @@ function loadCustomAgents(): CustomAgent[] {
 }
 
 function loadPromptWorkflows(): PromptWorkflow[] {
+  if (!hasFreshProductState()) return BUILTIN_WORKFLOWS
   return mergePromptAssets(
     BUILTIN_WORKFLOWS,
     loadJsonArray<PromptWorkflow>(STORAGE_KEYS.promptWorkflows),
@@ -544,6 +634,266 @@ function loadPromptWorkflows(): PromptWorkflow[] {
       BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
     ),
   )
+}
+
+function createSeedPets(): PetProfile[] {
+  const now = new Date().toISOString()
+  return [
+    {
+      id: 'pet-seed-cat-mochi',
+      name: '糯米',
+      species: 'cat',
+      breed: '英短',
+      gender: 'female',
+      birthday: '2022-04-18',
+      ageLabel: '4 岁左右',
+      weightKg: 4.2,
+      sterilizationStatus: 'sterilized',
+      allergies: '暂无已知过敏',
+      medicalHistory: '偶发吐毛球，肠胃偏敏感。',
+      vaccinationStatus: '核心疫苗已完成，建议每年复核抗体或补强。',
+      dewormingStatus: '上次体内外驱虫：2026-05-10。',
+      foodPreferences: '偏好鸡肉冻干和低敏湿粮，不喜欢鱼味太重的罐头。',
+      avatarUrl: '',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'pet-seed-dog-lucky',
+      name: 'Lucky',
+      species: 'dog',
+      breed: '柯基',
+      gender: 'male',
+      birthday: '2021-09-02',
+      ageLabel: '4 岁半',
+      weightKg: 11.8,
+      sterilizationStatus: 'sterilized',
+      allergies: '疑似对牛肉零食敏感。',
+      medicalHistory: '需要控制体重，注意腰椎与关节压力。',
+      vaccinationStatus: '年度疫苗待预约。',
+      dewormingStatus: '建议月底安排一次体外驱虫。',
+      foodPreferences: '偏好鸭肉粮，训练奖励适合低脂小颗粒。',
+      avatarUrl: '',
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]
+}
+
+function createSeedHealthLogs(): HealthLog[] {
+  const now = new Date()
+  const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
+  return [
+    {
+      id: 'log-seed-cat-1',
+      petId: 'pet-seed-cat-mochi',
+      loggedAt: iso(0),
+      appetite: '正常',
+      waterIntake: '略少',
+      poop: '成形',
+      vomiting: '无',
+      energyLevel: 4,
+      mood: '放松',
+      weightKg: 4.2,
+      symptoms: '',
+      medication: '',
+      abnormalBehavior: '',
+      notes: '今天玩逗猫棒 15 分钟。',
+      createdAt: iso(0),
+    },
+    {
+      id: 'log-seed-cat-2',
+      petId: 'pet-seed-cat-mochi',
+      loggedAt: iso(2),
+      appetite: '正常',
+      waterIntake: '正常',
+      poop: '偏软',
+      vomiting: '吐毛球一次',
+      energyLevel: 4,
+      mood: '黏人',
+      weightKg: 4.2,
+      symptoms: '吐毛球',
+      medication: '',
+      abnormalBehavior: '',
+      notes: '观察 24 小时，如频繁呕吐需就医。',
+      createdAt: iso(2),
+    },
+    {
+      id: 'log-seed-dog-1',
+      petId: 'pet-seed-dog-lucky',
+      loggedAt: iso(1),
+      appetite: '偏好零食',
+      waterIntake: '正常',
+      poop: '成形',
+      vomiting: '无',
+      energyLevel: 5,
+      mood: '兴奋',
+      weightKg: 11.8,
+      symptoms: '',
+      medication: '',
+      abnormalBehavior: '散步时拉拽明显',
+      notes: '晚间散步 35 分钟。',
+      createdAt: iso(1),
+    },
+  ]
+}
+
+function createSeedReminders(): CareReminder[] {
+  const now = new Date()
+  const iso = (daysAhead: number, hour = 9) => {
+    const due = new Date(now)
+    due.setDate(due.getDate() + daysAhead)
+    due.setHours(hour, 0, 0, 0)
+    return due.toISOString()
+  }
+  const createdAt = now.toISOString()
+  return [
+    {
+      id: 'reminder-seed-cat-water',
+      petId: 'pet-seed-cat-mochi',
+      type: 'water',
+      title: '检查糯米饮水量',
+      dueAt: iso(0, 20),
+      repeat: '每日',
+      status: 'pending',
+      notes: '肠胃敏感猫建议观察饮水与尿量。',
+      createdAt,
+      updatedAt: createdAt,
+    },
+    {
+      id: 'reminder-seed-dog-vaccine',
+      petId: 'pet-seed-dog-lucky',
+      type: 'vaccination',
+      title: '预约 Lucky 年度疫苗',
+      dueAt: iso(7, 10),
+      repeat: '每年',
+      status: 'pending',
+      notes: '带上疫苗本，顺便询问体重控制。',
+      createdAt,
+      updatedAt: createdAt,
+    },
+  ]
+}
+
+function loadPets(): PetProfile[] {
+  if (!hasFreshProductState()) return createSeedPets()
+  const stored = loadJsonArray<PetProfile>(STORAGE_KEYS.pets).map(normalizePet)
+  return stored.length ? stored : createSeedPets()
+}
+
+function loadHealthLogs(): HealthLog[] {
+  if (!hasFreshProductState()) return createSeedHealthLogs()
+  const stored = loadJsonArray<HealthLog>(STORAGE_KEYS.healthLogs).map(normalizeHealthLog)
+  return stored.length ? stored : createSeedHealthLogs()
+}
+
+function loadCareReminders(): CareReminder[] {
+  if (!hasFreshProductState()) return createSeedReminders()
+  const stored = loadJsonArray<CareReminder>(STORAGE_KEYS.careReminders).map(normalizeReminder)
+  return stored.length ? stored : createSeedReminders()
+}
+
+function loadCarePlans(): CarePlan[] {
+  if (!hasFreshProductState()) return []
+  return loadJsonArray<CarePlan>(STORAGE_KEYS.carePlans).map(normalizeCarePlan)
+}
+
+function hasFreshProductState() {
+  return localStorage.getItem(STORAGE_KEYS.productStateVersion) === PRODUCT_STATE_VERSION
+}
+
+function normalizePet(value: Partial<PetProfile>): PetProfile {
+  const now = new Date().toISOString()
+  return {
+    id: String(value.id || crypto.randomUUID()),
+    name: String(value.name || '未命名宠物').slice(0, 40),
+    species: value.species === 'dog' || value.species === 'other' ? value.species : 'cat',
+    breed: String(value.breed || ''),
+    gender: value.gender === 'female' || value.gender === 'male' ? value.gender : 'unknown',
+    birthday: String(value.birthday || ''),
+    ageLabel: String(value.ageLabel || ''),
+    weightKg: normalizeNullableNumber(value.weightKg),
+    sterilizationStatus:
+      value.sterilizationStatus === 'sterilized' || value.sterilizationStatus === 'not_sterilized'
+        ? value.sterilizationStatus
+        : 'unknown',
+    allergies: String(value.allergies || ''),
+    medicalHistory: String(value.medicalHistory || ''),
+    vaccinationStatus: String(value.vaccinationStatus || ''),
+    dewormingStatus: String(value.dewormingStatus || ''),
+    foodPreferences: String(value.foodPreferences || ''),
+    avatarUrl: String(value.avatarUrl || ''),
+    createdAt: String(value.createdAt || now),
+    updatedAt: String(value.updatedAt || now),
+  }
+}
+
+function normalizeHealthLog(value: Partial<HealthLog>): HealthLog {
+  const now = new Date().toISOString()
+  return {
+    id: String(value.id || crypto.randomUUID()),
+    petId: String(value.petId || ''),
+    loggedAt: String(value.loggedAt || now),
+    appetite: String(value.appetite || ''),
+    waterIntake: String(value.waterIntake || ''),
+    poop: String(value.poop || ''),
+    vomiting: String(value.vomiting || ''),
+    energyLevel: Math.max(1, Math.min(5, Number(value.energyLevel || 3))),
+    mood: String(value.mood || ''),
+    weightKg: normalizeNullableNumber(value.weightKg),
+    symptoms: String(value.symptoms || ''),
+    medication: String(value.medication || ''),
+    abnormalBehavior: String(value.abnormalBehavior || ''),
+    notes: String(value.notes || ''),
+    createdAt: String(value.createdAt || now),
+  }
+}
+
+function normalizeReminder(value: Partial<CareReminder>): CareReminder {
+  const now = new Date().toISOString()
+  const validTypes: ReminderType[] = [
+    'feeding',
+    'water',
+    'deworming',
+    'vaccination',
+    'grooming',
+    'medication',
+    'vet_follow_up',
+    'other',
+  ]
+  return {
+    id: String(value.id || crypto.randomUUID()),
+    petId: String(value.petId || ''),
+    type: validTypes.includes(value.type as ReminderType) ? (value.type as ReminderType) : 'other',
+    title: String(value.title || '新的照护提醒'),
+    dueAt: String(value.dueAt || now),
+    repeat: String(value.repeat || '一次'),
+    status: value.status === 'done' ? 'done' : 'pending',
+    notes: String(value.notes || ''),
+    createdAt: String(value.createdAt || now),
+    updatedAt: String(value.updatedAt || now),
+  }
+}
+
+function normalizeCarePlan(value: Partial<CarePlan>): CarePlan {
+  const now = new Date().toISOString()
+  return {
+    id: String(value.id || crypto.randomUUID()),
+    petId: String(value.petId || ''),
+    title: String(value.title || '护理计划'),
+    summary: String(value.summary || ''),
+    feeding: Array.isArray(value.feeding) ? value.feeding.map(String) : [],
+    care: Array.isArray(value.care) ? value.care.map(String) : [],
+    warnings: Array.isArray(value.warnings) ? value.warnings.map(String) : [],
+    reminders: Array.isArray(value.reminders) ? value.reminders.map(String) : [],
+    createdAt: String(value.createdAt || now),
+    updatedAt: String(value.updatedAt || now),
+  }
+}
+
+function normalizeNullableNumber(value: unknown) {
+  const next = Number(value)
+  return Number.isFinite(next) && next > 0 ? Number(next.toFixed(2)) : null
 }
 
 function loadJsonArray<T>(key: string): T[] {
@@ -595,6 +945,26 @@ async function hydrateJsonRecord(key: string, fallback: Record<string, string>) 
 async function hydrateSessions(fallback: ChatSession[]) {
   const stored = await getStoredJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null)
   return Array.isArray(stored) && stored.length ? stored.map(normalizeSession) : fallback
+}
+
+async function hydratePets(fallback: PetProfile[]) {
+  const stored = await getStoredJson<PetProfile[] | null>(STORAGE_KEYS.pets, null)
+  return Array.isArray(stored) && stored.length ? stored.map(normalizePet) : fallback
+}
+
+async function hydrateHealthLogs(fallback: HealthLog[]) {
+  const stored = await getStoredJson<HealthLog[] | null>(STORAGE_KEYS.healthLogs, null)
+  return Array.isArray(stored) && stored.length ? stored.map(normalizeHealthLog) : fallback
+}
+
+async function hydrateCareReminders(fallback: CareReminder[]) {
+  const stored = await getStoredJson<CareReminder[] | null>(STORAGE_KEYS.careReminders, null)
+  return Array.isArray(stored) && stored.length ? stored.map(normalizeReminder) : fallback
+}
+
+async function hydrateCarePlans(fallback: CarePlan[]) {
+  const stored = await getStoredJson<CarePlan[] | null>(STORAGE_KEYS.carePlans, null)
+  return Array.isArray(stored) ? stored.map(normalizeCarePlan) : fallback
 }
 
 function readAsDataUrl(file: File) {
@@ -831,6 +1201,11 @@ export const useChatStore = defineStore('chat', () => {
     localStorage.getItem(STORAGE_KEYS.activeProjectAgent) || DEFAULT_PROJECT_AGENT_ID,
   )
   const promptWorkflows = ref<PromptWorkflow[]>(loadPromptWorkflows())
+  const pets = ref<PetProfile[]>(loadPets())
+  const activePetId = ref(localStorage.getItem(STORAGE_KEYS.activePet) || pets.value[0]?.id || '')
+  const healthLogs = ref<HealthLog[]>(loadHealthLogs())
+  const careReminders = ref<CareReminder[]>(loadCareReminders())
+  const carePlans = ref<CarePlan[]>(loadCarePlans())
   const pendingFiles = ref<PreparedFile[]>([])
   const providerServerConfigured = ref<Record<string, boolean>>({})
   const localModelStatus = ref<LocalModelStatus>({
@@ -935,6 +1310,31 @@ export const useChatStore = defineStore('chat', () => {
   const activeProject = computed(
     () => projects.value.find((project) => project.id === activeProjectId.value) || null,
   )
+  const activePet = computed(
+    () => pets.value.find((pet) => pet.id === activePetId.value) || pets.value[0] || null,
+  )
+  const activePetHealthLogs = computed(() =>
+    healthLogs.value
+      .filter((log) => log.petId === activePet.value?.id)
+      .sort((a, b) => b.loggedAt.localeCompare(a.loggedAt)),
+  )
+  const activePetReminders = computed(() =>
+    careReminders.value
+      .filter((reminder) => reminder.petId === activePet.value?.id)
+      .sort((a, b) => a.dueAt.localeCompare(b.dueAt)),
+  )
+  const pendingCareTasks = computed(() =>
+    careReminders.value
+      .filter((reminder) => reminder.status !== 'done')
+      .sort((a, b) => a.dueAt.localeCompare(b.dueAt))
+      .slice(0, 8),
+  )
+  const activePetCarePlan = computed(
+    () =>
+      carePlans.value
+        .filter((plan) => plan.petId === activePet.value?.id)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0] || null,
+  )
 
   function resolveAgentId(agentId: string, fallback: string) {
     if (customAgents.value.some((agent) => agent.id === agentId)) return agentId
@@ -966,6 +1366,16 @@ export const useChatStore = defineStore('chat', () => {
     scheduleServerStatePersist()
   }
 
+  function savePetState() {
+    void setStoredJson(STORAGE_KEYS.pets, pets.value)
+    void setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+    void setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
+    void setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
+    persist(STORAGE_KEYS.activePet, activePetId.value)
+    persist(STORAGE_KEYS.productStateVersion, PRODUCT_STATE_VERSION)
+    scheduleServerStatePersist()
+  }
+
   function collectPersistedSettings() {
     return {
       provider: selectedProviderId.value,
@@ -975,8 +1385,10 @@ export const useChatStore = defineStore('chat', () => {
       hybridFallbackToCloud: hybridFallbackToCloud.value,
       enableTools: enableTools.value,
       enablePlanning: enablePlanning.value,
+      productStateVersion: PRODUCT_STATE_VERSION,
       activeSession: activeSessionId.value,
       activeProject: activeProjectId.value,
+      activePet: activePetId.value,
       activeAgent: activeAgentId.value,
       activeNormalAgent: activeNormalAgentId.value,
       activeProjectAgent: activeProjectAgentId.value,
@@ -1003,6 +1415,10 @@ export const useChatStore = defineStore('chat', () => {
           promptTemplates: promptTemplates.value,
           customAgents: customAgents.value,
           promptWorkflows: promptWorkflows.value,
+          pets: pets.value,
+          healthLogs: healthLogs.value,
+          careReminders: careReminders.value,
+          carePlans: carePlans.value,
           projects: projects.value,
           settings: collectPersistedSettings(),
         }),
@@ -1069,6 +1485,161 @@ export const useChatStore = defineStore('chat', () => {
     scheduleServerStatePersist()
   }
 
+  function resetToFreshPetProjectState() {
+    const session = createSession()
+    sessions.value = [session]
+    activeSessionId.value = session.id
+    promptTemplates.value = BUILTIN_PROMPT_TEMPLATES
+    customAgents.value = BUILTIN_AGENTS
+    promptWorkflows.value = BUILTIN_WORKFLOWS
+    pets.value = createSeedPets()
+    activePetId.value = pets.value[0]?.id || ''
+    healthLogs.value = createSeedHealthLogs()
+    careReminders.value = createSeedReminders()
+    carePlans.value = []
+    activeNormalAgentId.value = DEFAULT_AGENT_ID
+    activeProjectAgentId.value = DEFAULT_PROJECT_AGENT_ID
+    pendingFiles.value = []
+  }
+
+  function setActivePet(petId: string) {
+    const next = pets.value.some((pet) => pet.id === petId) ? petId : pets.value[0]?.id || ''
+    activePetId.value = next
+    persist(STORAGE_KEYS.activePet, next)
+    scheduleServerStatePersist()
+  }
+
+  function savePetProfile(profile: Partial<PetProfile>) {
+    const now = new Date().toISOString()
+    const existing = profile.id ? pets.value.find((pet) => pet.id === profile.id) : undefined
+    const normalized = normalizePet({
+      ...existing,
+      ...profile,
+      id: existing?.id || profile.id || crypto.randomUUID(),
+      createdAt: existing?.createdAt || profile.createdAt || now,
+      updatedAt: now,
+    })
+    pets.value = [normalized, ...pets.value.filter((pet) => pet.id !== normalized.id)]
+    if (!activePetId.value || !pets.value.some((pet) => pet.id === activePetId.value)) {
+      activePetId.value = normalized.id
+    }
+    savePetState()
+    return normalized
+  }
+
+  function deletePetProfile(petId: string) {
+    if (pets.value.length <= 1) return false
+    pets.value = pets.value.filter((pet) => pet.id !== petId)
+    healthLogs.value = healthLogs.value.filter((log) => log.petId !== petId)
+    careReminders.value = careReminders.value.filter((reminder) => reminder.petId !== petId)
+    carePlans.value = carePlans.value.filter((plan) => plan.petId !== petId)
+    if (activePetId.value === petId) activePetId.value = pets.value[0]?.id || ''
+    savePetState()
+    return true
+  }
+
+  function addHealthLog(log: Partial<HealthLog>) {
+    const petId = String(log.petId || activePetId.value || pets.value[0]?.id || '')
+    if (!petId) return null
+    const normalized = normalizeHealthLog({
+      ...log,
+      id: log.id || crypto.randomUUID(),
+      petId,
+      loggedAt: log.loggedAt || new Date().toISOString(),
+      createdAt: log.createdAt || new Date().toISOString(),
+    })
+    healthLogs.value = [normalized, ...healthLogs.value.filter((item) => item.id !== normalized.id)]
+    const pet = pets.value.find((item) => item.id === petId)
+    if (pet && normalized.weightKg) {
+      pet.weightKg = normalized.weightKg
+      pet.updatedAt = new Date().toISOString()
+    }
+    savePetState()
+    return normalized
+  }
+
+  function saveCareReminder(reminder: Partial<CareReminder>) {
+    const now = new Date().toISOString()
+    const existing = reminder.id ? careReminders.value.find((item) => item.id === reminder.id) : undefined
+    const normalized = normalizeReminder({
+      ...existing,
+      ...reminder,
+      id: existing?.id || reminder.id || crypto.randomUUID(),
+      petId: reminder.petId || existing?.petId || activePetId.value,
+      createdAt: existing?.createdAt || reminder.createdAt || now,
+      updatedAt: now,
+    })
+    careReminders.value = [normalized, ...careReminders.value.filter((item) => item.id !== normalized.id)]
+    savePetState()
+    return normalized
+  }
+
+  function toggleCareReminderDone(reminderId: string) {
+    const reminder = careReminders.value.find((item) => item.id === reminderId)
+    if (!reminder) return false
+    reminder.status = reminder.status === 'done' ? 'pending' : 'done'
+    reminder.updatedAt = new Date().toISOString()
+    savePetState()
+    return true
+  }
+
+  function generateCarePlanForActivePet() {
+    const pet = activePet.value
+    if (!pet) return null
+    const recent = activePetHealthLogs.value.slice(0, 3)
+    const now = new Date().toISOString()
+    const speciesLabel = pet.species === 'dog' ? '狗狗' : pet.species === 'cat' ? '猫咪' : '宠物'
+    const weightText = pet.weightKg ? `${pet.weightKg}kg` : '体重待补充'
+    const sensitive = [pet.allergies, pet.medicalHistory, recent.map((log) => log.symptoms).join('、')]
+      .join(' ')
+      .includes('敏感')
+    const plan = normalizeCarePlan({
+      id: crypto.randomUUID(),
+      petId: pet.id,
+      title: `${pet.name} 的喂养与照护计划`,
+      summary: `${pet.name} 是${pet.breed || speciesLabel}，当前${weightText}。计划基于档案、过敏史、近期日志生成，适合作为日常照护参考。`,
+      feeding: [
+        `按${speciesLabel}年龄、体重和体况分 2-3 餐稳定喂食，先记录 7 天食量、体重和便便状态。`,
+        sensitive
+          ? '存在肠胃或过敏风险，换粮采用 7-10 天渐进过渡，避免同时更换多种食物。'
+          : '保持主粮稳定，零食热量控制在全天摄入的 10% 以内。',
+        pet.foodPreferences
+          ? `偏好记录：${pet.foodPreferences}。选品时优先避开过敏项并关注蛋白来源。`
+          : '建议补充食物偏好和不耐受记录，方便后续选粮比较。',
+      ],
+      care: [
+        pet.species === 'cat'
+          ? '每日清理猫砂盆并观察尿团、便便形态。'
+          : '每日散步与嗅闻活动，避免过量跳跃或爆冲。',
+        '每周记录体重、食欲、饮水、精神状态和异常行为。',
+        '疫苗、驱虫、美容、复诊请使用提醒，完成后更新档案状态。',
+      ],
+      warnings: [
+        PET_MEDICAL_DISCLAIMER,
+        '若异常症状持续、加重或伴随拒食/精神沉郁，请停止自行观察并尽快就医。',
+      ],
+      reminders: [
+        '今天：记录食欲、饮水、便便和精神状态。',
+        pet.vaccinationStatus ? `疫苗：${pet.vaccinationStatus}` : '补充疫苗状态并设置年度提醒。',
+        pet.dewormingStatus ? `驱虫：${pet.dewormingStatus}` : '补充驱虫状态并设置周期提醒。',
+      ],
+      createdAt: now,
+      updatedAt: now,
+    })
+    carePlans.value = [plan, ...carePlans.value.filter((item) => item.petId !== pet.id)]
+    saveCareReminder({
+      petId: pet.id,
+      type: 'feeding',
+      title: `执行 ${pet.name} 的今日喂养记录`,
+      dueAt: now,
+      repeat: '每日',
+      status: 'pending',
+      notes: '记录实际食量、饮水和便便，便于趋势判断。',
+    })
+    savePetState()
+    return plan
+  }
+
   async function hydrateClientState() {
     if (hasHydratedClientState.value) return
     hasHydratedClientState.value = true
@@ -1089,6 +1660,12 @@ export const useChatStore = defineStore('chat', () => {
       storedActiveNormalAgent,
       storedActiveProjectAgent,
       storedPromptWorkflows,
+      storedPets,
+      storedActivePet,
+      storedHealthLogs,
+      storedCareReminders,
+      storedCarePlans,
+      storedProductStateVersion,
     ] = await Promise.all([
       getSecureJson<Record<string, string>>(STORAGE_KEYS.apiKeys, providerApiKeys.value),
       hydrateJsonRecord(STORAGE_KEYS.models, providerModels.value),
@@ -1105,8 +1682,15 @@ export const useChatStore = defineStore('chat', () => {
       getStoredString(STORAGE_KEYS.activeNormalAgent),
       getStoredString(STORAGE_KEYS.activeProjectAgent),
       getStoredJson<PromptWorkflow[]>(STORAGE_KEYS.promptWorkflows, promptWorkflows.value),
+      hydratePets(pets.value),
+      getStoredString(STORAGE_KEYS.activePet),
+      hydrateHealthLogs(healthLogs.value),
+      hydrateCareReminders(careReminders.value),
+      hydrateCarePlans(carePlans.value),
+      getStoredString(STORAGE_KEYS.productStateVersion),
     ])
 
+    const isFreshProductState = storedProductStateVersion === PRODUCT_STATE_VERSION
     providerApiKeys.value = { ...providerApiKeys.value, ...storedApiKeys }
     providerModels.value = { ...providerModels.value, ...storedModels }
     selectedProviderId.value = normalizeProviderId(storedProvider || selectedProviderId.value)
@@ -1119,36 +1703,52 @@ export const useChatStore = defineStore('chat', () => {
     const storedEnablePlanning = await getStoredString(STORAGE_KEYS.enablePlanning)
     enablePlanning.value =
       storedEnablePlanning === null ? enablePlanning.value : storedEnablePlanning === 'true'
-    sessions.value = storedSessions
-    promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
-      normalizePromptTemplate(
-        item,
-        BUILTIN_PROMPT_TEMPLATES.find((template) => template.id === item.id),
-      ),
-    )
-    customAgents.value = mergePromptAssets(BUILTIN_AGENTS, storedCustomAgents).map((item) =>
-      normalizeAgent(
-        item,
-        BUILTIN_AGENTS.find((agent) => agent.id === item.id),
-      ),
-    )
-    promptWorkflows.value = mergePromptAssets(BUILTIN_WORKFLOWS, storedPromptWorkflows).map((item) =>
-      normalizeWorkflow(
-        item,
-        BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
-      ),
-    )
+    if (!isFreshProductState) {
+      resetToFreshPetProjectState()
+    } else {
+      sessions.value = storedSessions
+      promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
+        normalizePromptTemplate(
+          item,
+          BUILTIN_PROMPT_TEMPLATES.find((template) => template.id === item.id),
+        ),
+      )
+      customAgents.value = mergePromptAssets(BUILTIN_AGENTS, storedCustomAgents).map((item) =>
+        normalizeAgent(
+          item,
+          BUILTIN_AGENTS.find((agent) => agent.id === item.id),
+        ),
+      )
+      promptWorkflows.value = mergePromptAssets(BUILTIN_WORKFLOWS, storedPromptWorkflows).map((item) =>
+        normalizeWorkflow(
+          item,
+          BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
+        ),
+      )
+      pets.value = storedPets.length ? storedPets : createSeedPets()
+      healthLogs.value = storedHealthLogs
+      careReminders.value = storedCareReminders
+      carePlans.value = storedCarePlans
+    }
     activeSessionId.value =
-      storedActiveSession && storedSessions.some((session) => session.id === storedActiveSession)
+      isFreshProductState &&
+      storedActiveSession &&
+      sessions.value.some((session) => session.id === storedActiveSession)
         ? storedActiveSession
-        : storedSessions[0].id
-    activeProjectId.value = storedActiveProject || activeProjectId.value
+        : sessions.value[0].id
+    activeProjectId.value = isFreshProductState ? storedActiveProject || activeProjectId.value : ''
+    activePetId.value =
+      isFreshProductState && storedActivePet && pets.value.some((pet) => pet.id === storedActivePet)
+        ? storedActivePet
+        : pets.value[0]?.id || ''
     activeNormalAgentId.value = resolveAgentId(
-      storedActiveNormalAgent || storedActiveAgent || activeNormalAgentId.value,
+      isFreshProductState
+        ? storedActiveNormalAgent || storedActiveAgent || activeNormalAgentId.value
+        : DEFAULT_AGENT_ID,
       DEFAULT_AGENT_ID,
     )
     activeProjectAgentId.value = resolveAgentId(
-      storedActiveProjectAgent || activeProjectAgentId.value,
+      isFreshProductState ? storedActiveProjectAgent || activeProjectAgentId.value : DEFAULT_PROJECT_AGENT_ID,
       DEFAULT_PROJECT_AGENT_ID,
     )
 
@@ -1158,12 +1758,15 @@ export const useChatStore = defineStore('chat', () => {
     savePromptTemplates()
     saveCustomAgents()
     savePromptWorkflows()
+    savePetState()
     persist(STORAGE_KEYS.provider, selectedProviderId.value)
     persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
     persist(STORAGE_KEYS.localModel, localModel.value)
     persist(STORAGE_KEYS.hybridFallback, String(hybridFallbackToCloud.value))
     persist(STORAGE_KEYS.activeSession, activeSessionId.value)
     persist(STORAGE_KEYS.activeProject, activeProjectId.value)
+    persist(STORAGE_KEYS.activePet, activePetId.value)
+    persist(STORAGE_KEYS.productStateVersion, PRODUCT_STATE_VERSION)
     persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
     persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
     persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
@@ -1181,6 +1784,32 @@ export const useChatStore = defineStore('chat', () => {
 
       isApplyingServerState.value = true
       if (data?.empty) {
+        hasHydratedServerState.value = true
+        isApplyingServerState.value = false
+        await persistServerState()
+        return
+      }
+
+      const settings = data?.settings && typeof data.settings === 'object' ? data.settings : {}
+      if (settings.productStateVersion !== PRODUCT_STATE_VERSION) {
+        resetToFreshPetProjectState()
+        projects.value = []
+        activeProjectId.value = ''
+        await setStoredJson(STORAGE_KEYS.sessions, sessions.value)
+        await setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+        await setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
+        await setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+        await setStoredJson(STORAGE_KEYS.pets, pets.value)
+        await setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+        await setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
+        await setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
+        persist(STORAGE_KEYS.activeSession, activeSessionId.value)
+        persist(STORAGE_KEYS.activeProject, activeProjectId.value)
+        persist(STORAGE_KEYS.activePet, activePetId.value)
+        persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
+        persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
+        persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
+        persist(STORAGE_KEYS.productStateVersion, PRODUCT_STATE_VERSION)
         hasHydratedServerState.value = true
         isApplyingServerState.value = false
         await persistServerState()
@@ -1218,8 +1847,17 @@ export const useChatStore = defineStore('chat', () => {
           BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
         ),
       )
+      pets.value = Array.isArray(data.pets) && data.pets.length ? data.pets.map(normalizePet) : pets.value
+      healthLogs.value = Array.isArray(data.healthLogs)
+        ? data.healthLogs.map(normalizeHealthLog)
+        : healthLogs.value
+      careReminders.value = Array.isArray(data.careReminders)
+        ? data.careReminders.map(normalizeReminder)
+        : careReminders.value
+      carePlans.value = Array.isArray(data.carePlans)
+        ? data.carePlans.map(normalizeCarePlan)
+        : carePlans.value
 
-      const settings = data?.settings && typeof data.settings === 'object' ? data.settings : {}
       providerModels.value = {
         ...providerModels.value,
         ...(settings.providerModels && typeof settings.providerModels === 'object'
@@ -1241,6 +1879,10 @@ export const useChatStore = defineStore('chat', () => {
           ? String(settings.activeSession)
           : sessions.value[0].id
       activeProjectId.value = String(settings.activeProject || activeProjectId.value || '')
+      activePetId.value =
+        settings.activePet && pets.value.some((pet) => pet.id === settings.activePet)
+          ? String(settings.activePet)
+          : pets.value[0]?.id || ''
       activeNormalAgentId.value = resolveAgentId(
         String(settings.activeNormalAgent || settings.activeAgent || activeNormalAgentId.value),
         DEFAULT_AGENT_ID,
@@ -1258,6 +1900,10 @@ export const useChatStore = defineStore('chat', () => {
       await setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
       await setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
       await setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+      await setStoredJson(STORAGE_KEYS.pets, pets.value)
+      await setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+      await setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
+      await setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
       await setStoredJson(STORAGE_KEYS.models, providerModels.value)
       persist(STORAGE_KEYS.provider, selectedProviderId.value)
       persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
@@ -1267,6 +1913,8 @@ export const useChatStore = defineStore('chat', () => {
       persist(STORAGE_KEYS.enablePlanning, String(enablePlanning.value))
       persist(STORAGE_KEYS.activeSession, activeSessionId.value)
       persist(STORAGE_KEYS.activeProject, activeProjectId.value)
+      persist(STORAGE_KEYS.activePet, activePetId.value)
+      persist(STORAGE_KEYS.productStateVersion, PRODUCT_STATE_VERSION)
       persist(STORAGE_KEYS.activeAgent, activeAgentId.value)
       persist(STORAGE_KEYS.activeNormalAgent, activeNormalAgentId.value)
       persist(STORAGE_KEYS.activeProjectAgent, activeProjectAgentId.value)
@@ -1556,9 +2204,71 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function updateTitle(session: ChatSession, text: string) {
-    if (session.messages.length > 1 || session.title !== '新的会话') return
+    if (session.messages.length > 1 || (session.title !== '新的会话' && session.title !== '新的宠物咨询'))
+      return
     const compact = text.replace(/\s+/g, ' ').trim()
-    session.title = compact ? compact.slice(0, 24) : '附件会话'
+    session.title = compact ? compact.slice(0, 24) : '宠物附件咨询'
+  }
+
+  function buildPetSystemPrompt(basePrompt?: string) {
+    const pet = activePet.value
+    const recentLogs = activePetHealthLogs.value.slice(0, 5)
+    const reminders = activePetReminders.value.filter((item) => item.status !== 'done').slice(0, 5)
+    const petContext = pet
+      ? [
+          `当前选中的宠物：${pet.name}`,
+          `物种：${pet.species === 'dog' ? '狗' : pet.species === 'cat' ? '猫' : '其他'}`,
+          pet.breed ? `品种：${pet.breed}` : '品种：待补充',
+          pet.gender !== 'unknown' ? `性别：${pet.gender === 'female' ? '母' : '公'}` : '性别：待补充',
+          pet.birthday || pet.ageLabel ? `年龄/生日：${pet.ageLabel || pet.birthday}` : '年龄/生日：待补充',
+          pet.weightKg ? `体重：${pet.weightKg}kg` : '体重：待补充',
+          `绝育状态：${formatSterilizationStatus(pet.sterilizationStatus)}`,
+          pet.allergies ? `过敏：${pet.allergies}` : '过敏：待补充',
+          pet.medicalHistory ? `病史：${pet.medicalHistory}` : '病史：待补充',
+          pet.vaccinationStatus ? `疫苗：${pet.vaccinationStatus}` : '疫苗：待补充',
+          pet.dewormingStatus ? `驱虫：${pet.dewormingStatus}` : '驱虫：待补充',
+          pet.foodPreferences ? `食物偏好：${pet.foodPreferences}` : '食物偏好：待补充',
+        ].join('\n')
+      : '当前没有选中的宠物，请先引导用户创建宠物档案。'
+
+    const logContext = recentLogs.length
+      ? recentLogs
+          .map(
+            (log) =>
+              `- ${log.loggedAt.slice(0, 10)}：食欲 ${log.appetite || '未填'}，饮水 ${log.waterIntake || '未填'}，便便 ${log.poop || '未填'}，呕吐 ${log.vomiting || '未填'}，精神 ${log.energyLevel}/5，症状 ${log.symptoms || '无'}，备注 ${log.notes || '无'}`,
+          )
+          .join('\n')
+      : '暂无健康日志。'
+
+    const reminderContext = reminders.length
+      ? reminders.map((item) => `- ${item.title}：${item.dueAt.slice(0, 16)}，${item.repeat}`).join('\n')
+      : '暂无待办提醒。'
+
+    return [
+      basePrompt?.trim() || '',
+      '你是“宠物 AI 管家”的宠物家庭管理助手，服务猫狗主人和多宠家庭。',
+      '你的回答必须围绕当前宠物档案、近期健康日志、提醒和用户上传文件来组织。',
+      '当关键档案缺失时，先提出必要的澄清问题；当信息足够时，输出结构化内容，如护理计划、就医清单、危险信号、产品对比表、提醒建议。',
+      '禁止把建议表述成确诊或处方。可以解释常见可能性、观察要点和就医准备，但必须提醒严重症状及时找执业兽医。',
+      PET_MEDICAL_DISCLAIMER,
+      '',
+      '【宠物档案】',
+      petContext,
+      '',
+      '【近期健康日志】',
+      logContext,
+      '',
+      '【待办提醒】',
+      reminderContext,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  function formatSterilizationStatus(status: SterilizationStatus) {
+    if (status === 'sterilized') return '已绝育'
+    if (status === 'not_sterilized') return '未绝育'
+    return '待补充'
   }
 
   async function sendMessage(
@@ -2010,7 +2720,7 @@ export const useChatStore = defineStore('chat', () => {
         localModel: effectiveLocalModel.value,
         hybridFallbackToCloud: hybridFallbackToCloud.value,
         temperature: options.runtime?.temperature,
-        systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
+        systemPrompt: buildPetSystemPrompt(options.runtime?.systemPrompt),
         apiKey: apiKey.value.trim() || undefined,
         projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
         useWorkspaceContext,
@@ -2479,7 +3189,7 @@ export const useChatStore = defineStore('chat', () => {
         localModel: effectiveLocalModel.value,
         hybridFallbackToCloud: hybridFallbackToCloud.value,
         temperature: options.runtime?.temperature,
-        systemPrompt: options.runtime?.systemPrompt?.trim() || undefined,
+        systemPrompt: buildPetSystemPrompt(options.runtime?.systemPrompt),
         // 始终允许前端当前输入的 key 覆盖服务端环境变量，便于失效 key 的即时修复。
         apiKey: apiKey.value.trim() || undefined,
         projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
@@ -2876,6 +3586,16 @@ export const useChatStore = defineStore('chat', () => {
     sessions,
     activeSessionId,
     activeSession,
+    pets,
+    activePetId,
+    activePet,
+    healthLogs,
+    activePetHealthLogs,
+    careReminders,
+    activePetReminders,
+    pendingCareTasks,
+    carePlans,
+    activePetCarePlan,
     promptTemplates,
     customAgents,
     activeAgentId,
@@ -2930,6 +3650,13 @@ export const useChatStore = defineStore('chat', () => {
     setActiveAgent,
     setEnableTools,
     setEnablePlanning,
+    setActivePet,
+    savePetProfile,
+    deletePetProfile,
+    addHealthLog,
+    saveCareReminder,
+    toggleCareReminderDone,
+    generateCarePlanForActivePet,
     savePromptTemplate,
     deletePromptTemplate,
     saveCustomAgent,

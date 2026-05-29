@@ -1,1193 +1,341 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useI18n } from 'vue-i18n'
-import DOMPurify from 'dompurify'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
-  Delete,
-  Download,
-  Expand,
-  Paperclip,
-  Promotion,
-  Edit,
-  CircleClose,
-  FolderAdd,
-  Folder,
-  Files,
+  Bell,
+  ChatDotRound,
+  CircleCheck,
   Close,
-  Fold,
-  Search,
-  MagicStick,
-  ArrowDown,
-  MoreFilled,
-  CopyDocument,
-  Check,
-  Refresh,
-  VideoPlay,
-  DocumentChecked,
-  Cpu,
-  SwitchButton,
+  Document,
+  DocumentAdd,
+  Files,
+  FirstAidKit,
+  Food,
+  House,
   Plus,
-  Tools,
+  Promotion,
+  Setting,
   UploadFilled,
+  WarningFilled,
 } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
-import { ElMessage } from 'element-plus/es/components/message/index.mjs'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElDialog from 'element-plus/es/components/dialog/index.mjs'
 import ElIcon from 'element-plus/es/components/icon/index.mjs'
 import ElInput from 'element-plus/es/components/input/index.mjs'
-import ElTag from 'element-plus/es/components/tag/index.mjs'
-import ElTree from 'element-plus/es/components/tree/index.mjs'
-import Prism from 'prismjs'
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api.js'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
-import 'prismjs/components/prism-clike'
-import 'prismjs/components/prism-markup'
-import 'prismjs/components/prism-css'
-import 'prismjs/components/prism-scss'
-import 'prismjs/components/prism-javascript'
-import 'prismjs/components/prism-jsx'
-import 'prismjs/components/prism-typescript'
-import 'prismjs/components/prism-tsx'
-import 'prismjs/components/prism-json'
-import 'prismjs/components/prism-yaml'
-import 'prismjs/components/prism-bash'
-import 'prismjs/components/prism-python'
-import 'prismjs/components/prism-sql'
-import 'prismjs/components/prism-markdown'
-import 'prismjs/components/prism-diff'
-import MessageBubble from '../components/chat/MessageBubble.vue'
-import PromptLabPanel from '../components/chat/PromptLabPanel.vue'
-import SessionItem from '../components/chat/SessionItem.vue'
-import SessionTagVirtualFilter from '../components/chat/SessionTagVirtualFilter.vue'
-import SettingsPanel from '../components/chat/SettingsPanel.vue'
-import { useResizablePanels } from '../composables/useResizablePanels'
-import {
-  exportSessionMarkdown,
-  exportSessionsJson,
-  normalizeTags,
-  sessionMatchesQuery,
-} from '../lib/sessionManagement'
-import html2canvas from 'html2canvas'
-import jsPDF from 'jspdf'
-import type { PromptTemplate } from '../lib/promptEngineering'
-import { messagePreviewContent, type ChatAttachment, type ProviderId, useChatStore } from '../stores/chat'
-import { useAuthStore } from '../stores/auth'
-import { useRoute, useRouter } from 'vue-router'
+import ElInputNumber from 'element-plus/es/components/input-number/index.mjs'
 import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
-import { localeOptions, setLocale, type AppLocale } from '../i18n'
+import ElTag from 'element-plus/es/components/tag/index.mjs'
+import { ElMessage } from 'element-plus/es/components/message/index.mjs'
+import MessageBubble from '../components/chat/MessageBubble.vue'
+import SettingsPanel from '../components/chat/SettingsPanel.vue'
+import {
+  messagePreviewContent,
+  type CareReminder,
+  type ChatMessage,
+  type HealthLog,
+  type PetProfile,
+  type PetSpecies,
+  type ProviderId,
+  useChatStore,
+} from '../stores/chat'
+import { useAuthStore } from '../stores/auth'
+import type { PromptTemplate } from '../lib/promptEngineering'
+
+type ModuleId = 'overview' | 'health' | 'care' | 'vet' | 'products' | 'files' | 'reminders'
 
 const chat = useChatStore()
 const auth = useAuthStore()
-const route = useRoute()
 const router = useRouter()
-const { t, locale } = useI18n()
-const input = ref('')
-/** 当前会话输入区生效的模板（发送时套用到模型，界面仍显示用户原文） */
-const activeComposerTemplate = ref<Pick<PromptTemplate, 'id' | 'name' | 'content'> | null>(null)
-const appShellEl = ref<HTMLElement | null>(null)
+
+const activeModule = ref<ModuleId>('overview')
+const isCopilotOpen = ref(false)
+const settingsVisible = ref(false)
+const petDialogVisible = ref(false)
+const healthLogDialogVisible = ref(false)
+const reminderDialogVisible = ref(false)
+const mobilePetSwitcherOpen = ref(false)
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
+const petAvatarInputEl = ref<HTMLInputElement | null>(null)
+const copilotInput = ref('')
+const activeComposerTemplate = ref<Pick<PromptTemplate, 'id' | 'name' | 'content'> | null>(null)
 const copiedMessageId = ref<string | null>(null)
 const copiedCodeBlock = ref<{ id: string; index: number } | null>(null)
-const isWorkspaceCollapsed = ref(true)
-const isEditingFile = ref(false)
-const storedSessionManagerCollapsed = localStorage.getItem('twentys1x:session-manager-collapsed')
-const isSessionManagerCollapsed = ref(storedSessionManagerCollapsed === 'true')
-const storedSidebarCollapsed = localStorage.getItem('twentys1x:left-sidebar-collapsed')
-const isSidebarCollapsed = ref(storedSidebarCollapsed === 'true')
-const isMobileLayout = ref(false)
-const isNearMessagesBottom = ref(true)
-
-const PROJECT_PANEL_COLLAPSE_KEY = 'twentys1x:project-panel-collapsed'
-function readProjectPanelStored(): boolean | null {
-  const raw = localStorage.getItem(PROJECT_PANEL_COLLAPSE_KEY)
-  if (raw === 'true') return true
-  if (raw === 'false') return false
-  return null
-}
-const projectPanelUserToggled = ref(readProjectPanelStored() !== null)
-const isProjectPanelCollapsed = ref(readProjectPanelStored() ?? false)
-const isSummaryDialogVisible = ref(false)
-const summaryDraft = ref('')
-const copiedSummary = ref(false)
-const sessionSearchQuery = ref('')
-const activeSessionTag = ref('')
-const selectedSessionIds = ref<string[]>([])
-const isBatchDeleteDialogVisible = ref(false)
-const batchDeleteSearchQuery = ref('')
-const exportLoading = ref<'markdown' | 'json' | 'pdf' | null>(null)
-const attachmentPreview = ref<ChatAttachment | null>(null)
-const attachmentPreviewUrl = ref('')
-const monacoEditorEl = ref<HTMLElement | null>(null)
-let monacoEditor: monaco.editor.IStandaloneCodeEditor | null = null
-let monacoChangeDisposable: monaco.IDisposable | null = null
-const codeRunStatus = ref<'idle' | 'running' | 'success' | 'error'>('idle')
-const codeRunLogs = ref<string[]>([])
-const codeRunPreviewHtml = ref('')
-const copiedDebugOutput = ref(false)
-
-window.MonacoEnvironment = {
-  getWorker(_workerId, label) {
-    if (label === 'json') return new jsonWorker()
-    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
-    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
-    if (label === 'typescript' || label === 'javascript') return new tsWorker()
-    return new editorWorker()
-  },
-}
-
-// 气泡内联编辑状态
 const editingMessageId = ref<string | null>(null)
 const editingContent = ref('')
+const petDraft = reactive(createEmptyPetDraft())
+const logDraft = reactive(createEmptyLogDraft())
+const reminderDraft = reactive(createEmptyReminderDraft())
 
-const canSend = computed(() => {
-  return chat.isProviderReady && !chat.isSending && (input.value.trim() || chat.pendingFiles.length)
-})
-const providerStatusText = computed(() => {
-  if (chat.isProviderReady) {
-    if (chat.inferenceMode === 'local') return t('chat.readyLocal', { model: chat.localModel })
-    if (chat.inferenceMode === 'auto') return t('chat.readyHybrid')
-    return t('chat.readyProvider', { provider: chat.selectedProvider.name })
-  }
-  return chat.inferenceMode === 'local' ? t('chat.waitingLocal') : t('chat.waitingApiKey')
-})
-const modeSummaryText = computed(() => {
-  if (chat.inferenceMode === 'local') return t('settings.localSummary', { model: chat.localModel })
-  if (chat.inferenceMode === 'auto')
-    return t('settings.hybridSummary', { localModel: chat.localModel, model: chat.model })
-  return t('settings.providerSummary', { provider: chat.selectedProvider.name, model: chat.model })
-})
-const emptyStatePrompts = computed(() => [
-  t('chat.emptyPromptReview'),
-  t('chat.emptyPromptExplain'),
-  t('chat.emptyPromptPlan'),
-  t('chat.emptyPromptRefactor'),
-])
-const showJumpToBottom = computed(() => chat.visibleMessages.length > 0 && !isNearMessagesBottom.value)
-const isErrorDialogVisible = computed({
-  get: () => Boolean(chat.errorMessage),
-  set: (value: boolean) => {
-    if (!value) chat.clearErrorMessage()
-  },
-})
-const lastMessageSignature = computed(() => {
-  const message = chat.visibleMessages[chat.visibleMessages.length - 1]
-  if (!message) return ''
-  const text = typeof message.content === 'string' ? message.content : messagePreviewContent(message.content)
+const navItems: Array<{ id: ModuleId; label: string; hint: string; icon: typeof House }> = [
+  { id: 'overview', label: '总览', hint: '今日照护与风险', icon: House },
+  { id: 'health', label: '健康日志', hint: '时间线与趋势', icon: DocumentAdd },
+  { id: 'care', label: '护理计划', hint: '喂养、运动、疫苗', icon: Food },
+  { id: 'vet', label: '就医助手', hint: '问诊清单与警讯', icon: FirstAidKit },
+  { id: 'products', label: '商品决策', hint: '食品、保险、设备', icon: Food },
+  { id: 'files', label: '资料库', hint: '报告、发票、疫苗本', icon: Files },
+  { id: 'reminders', label: '提醒', hint: '喂食、驱虫、复诊', icon: Bell },
+]
+
+const activeModuleMeta = computed(
+  () => navItems.find((item) => item.id === activeModule.value) || navItems[0],
+)
+const petTemplates = computed(() => chat.promptTemplates.filter((item) => item.isBuiltin).slice(0, 6))
+const currentPetSummary = computed(() => {
+  const pet = chat.activePet
+  if (!pet) return '未选择宠物'
   return [
-    message.id,
-    message.role,
-    text.length,
-    message.toolLogs?.length ?? 0,
-    message.plan?.tasks?.length ?? 0,
-  ].join(':')
+    speciesLabel(pet.species),
+    pet.breed,
+    pet.ageLabel || pet.birthday,
+    pet.weightKg ? `${pet.weightKg}kg` : '体重待补充',
+  ]
+    .filter(Boolean)
+    .join(' · ')
 })
-
-// === 修改：优化无项目状态的显示文案 ===
-const activeProjectLabel = computed(() => chat.activeProject?.name || t('chat.normalChat'))
-/** 侧栏折叠态下展示当前上下文与上传项目数 */
-const projectPanelMetaText = computed(() => {
-  const n = chat.projects.length
-  if (isProjectPanelCollapsed.value) {
-    return n ? `${activeProjectLabel.value} · ${n} ${t('chat.project')}` : activeProjectLabel.value
-  }
-  return n ? `${n} ${t('chat.project')}` : t('chat.noProject')
+const healthStatus = computed(() => {
+  const latest = chat.activePetHealthLogs[0]
+  if (!latest) return { label: '待建立基线', tone: 'neutral' }
+  const abnormal = [latest.symptoms, latest.vomiting, latest.abnormalBehavior].some(
+    (value) => value && !/无|正常/.test(value),
+  )
+  if (abnormal || latest.energyLevel <= 2) return { label: '需要观察', tone: 'warn' }
+  return { label: '状态平稳', tone: 'good' }
 })
-const activeProjectObjectLabel = computed(() =>
-  chat.activeProject ? `${chat.activeProject.name} (${chat.activeProject.id})` : t('chat.noProjectRelation'),
-)
-const filteredSessions = computed(() =>
-  chat.sessions.filter((session) => {
-    const matchesTag = !activeSessionTag.value || session.tags?.includes(activeSessionTag.value)
-    return matchesTag && sessionMatchesQuery(session, sessionSearchQuery.value)
-  }),
-)
-const batchDeleteFilteredSessions = computed(() =>
-  chat.sessions.filter((session) => sessionMatchesQuery(session, batchDeleteSearchQuery.value)),
-)
-const selectedSessionIdSet = computed(() => new Set(selectedSessionIds.value))
-const selectedSessionCount = computed(() => selectedSessionIds.value.length)
-const filteredSessionIds = computed(() => batchDeleteFilteredSessions.value.map((session) => session.id))
-const isAllFilteredSessionsSelected = computed(
+const todayTasks = computed(() => {
+  const today = new Date().toISOString().slice(0, 10)
+  return chat.activePetReminders
+    .filter((item) => item.status !== 'done' && item.dueAt.slice(0, 10) <= today)
+    .slice(0, 6)
+})
+const recentLogs = computed(() => chat.activePetHealthLogs.slice(0, 6))
+const latestLog = computed(() => chat.activePetHealthLogs[0] || null)
+const latestWeight = computed(() => latestLog.value?.weightKg || chat.activePet?.weightKg || null)
+const previousWeight = computed(
   () =>
-    Boolean(filteredSessionIds.value.length) &&
-    filteredSessionIds.value.every((id) => selectedSessionIdSet.value.has(id)),
+    chat.activePetHealthLogs.find((log) => log.weightKg && log.id !== latestLog.value?.id)?.weightKg || null,
 )
-const canBatchDeleteSessions = computed(() => selectedSessionCount.value > 0)
-const activeSessionTagsText = computed({
-  get: () => chat.activeSession.tags?.join(', ') || '',
-  set: (value: string) => chat.setSessionTags(chat.activeSession.id, normalizeTags(value)),
+const weightTrend = computed(() => {
+  if (!latestWeight.value || !previousWeight.value) return '待积累'
+  const diff = Number((latestWeight.value - previousWeight.value).toFixed(2))
+  if (Math.abs(diff) < 0.05) return '稳定'
+  return diff > 0 ? `增加 ${diff}kg` : `下降 ${Math.abs(diff)}kg`
 })
-const canSummarizeActiveSession = computed(
-  () => chat.activeSession.messages.length > 1 && chat.isProviderReady,
+const aiInsights = computed(() => {
+  const insights: string[] = []
+  const latest = latestLog.value
+  if (!latest)
+    return ['还没有足够日志。先记录 3-7 天食欲、饮水、便便、精神和体重，AI 会形成更稳定的观察摘要。']
+  if (latest.appetite) insights.push(`最近记录显示食欲${latest.appetite}。`)
+  if (latest.waterIntake && /少|低/.test(latest.waterIntake))
+    insights.push('饮水偏少，建议继续观察饮水量和尿团/排尿变化。')
+  if (latest.vomiting && !/无|没有|正常/.test(latest.vomiting))
+    insights.push('记录到呕吐情况，如 24 小时内重复发生或伴随精神沉郁，请联系兽医。')
+  if (latest.poop && /软|稀|血/.test(latest.poop))
+    insights.push('便便状态存在异常信号，建议保留照片并记录饮食变化。')
+  if (!insights.length) insights.push('近期记录整体平稳，继续保持固定喂食和健康日志节奏。')
+  return insights
+})
+const promptChips = [
+  '今天呕吐了怎么办？',
+  '生成本周喂养计划',
+  '根据最近日志准备就医清单',
+  '比较两款猫粮',
+  '解释这份检查报告',
+]
+const canSend = computed(
+  () => chat.isProviderReady && !chat.isSending && (copilotInput.value.trim() || chat.pendingFiles.length),
 )
 
-const activeFileMonacoLanguage = computed(() => detectMonacoLanguage(chat.activeFilePath))
-const hasEditedFileChanges = computed(() => chat.editedFileContent !== chat.activeFileContent)
-const canRunActiveFile = computed(() => {
-  if (!chat.activeFilePath) return false
-  return ['javascript', 'typescript', 'html', 'css'].includes(activeFileMonacoLanguage.value)
-})
-const codeRunStatusLabel = computed(() => {
-  if (codeRunStatus.value === 'running') return t('chat.runStatusRunning')
-  if (codeRunStatus.value === 'success') return t('chat.runStatusSuccess')
-  if (codeRunStatus.value === 'error') return t('chat.runStatusError')
-  return t('chat.runStatusIdle')
-})
-const highlightedActiveFileDiff = computed(() => highlightCode(chat.activeFileDiff || '', 'diff'))
-const previewTitle = computed(
-  () => attachmentPreview.value?.name || chat.activeFilePath || t('chat.chooseFilePreview'),
+watch(
+  () => chat.visibleMessages.length,
+  () => scrollCopilotToBottom(),
 )
-const previewKind = computed(() => attachmentPreview.value?.kind || 'text')
-const canToggleCodePreview = computed(() => Boolean(chat.activeFilePath || attachmentPreview.value))
-const {
-  appShellStyle,
-  isDraggingPanels,
-  isCodePreviewVisible,
-  setCodePreviewVisible,
-  toggleCodePreview,
-  startResize,
-  clampPanelWidths,
-} = useResizablePanels(appShellEl, (visible) => {
-  if (!visible) isEditingFile.value = false
-})
-const appShellViewStyle = computed(() => ({
-  ...appShellStyle.value,
-  '--sidebar-left-width': isSidebarCollapsed.value ? '0px' : appShellStyle.value['--sidebar-left-width'],
-  '--sidebar-handle-width': isSidebarCollapsed.value ? '0px' : '8px',
-  '--workspace-width': isWorkspaceCollapsed.value ? '0px' : appShellStyle.value['--workspace-width'],
-  '--workspace-handle-width': isWorkspaceCollapsed.value ? '0px' : '8px',
-}))
 
-function syncSessionQueryParam() {
-  const q = route.query.session
-  const current = typeof q === 'string' ? q : Array.isArray(q) && q.length ? (q[0] as string) : ''
-  if (current === chat.activeSessionId) return
-  router.replace({ path: '/', query: { session: chat.activeSessionId } })
-}
-
-async function bootRouteSession() {
+onMounted(async () => {
   await auth.hydrate()
   await chat.hydrateClientState()
-  const raw = route.query.session
-  const sid = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.length ? (raw[0] as string) : ''
-  if (sid && chat.sessions.some((s) => s.id === sid)) {
-    chat.setActiveSession(sid)
-  }
-  syncSessionQueryParam()
-}
-
-async function logout() {
-  await auth.logout()
-  await router.replace('/login')
-}
-
-onMounted(() => {
-  void bootRouteSession()
-  chat.refreshProviderServerConfig()
-  chat.refreshLocalModels()
-  chat.refreshProjects()
-  syncMobileLayout()
-  window.addEventListener('message', handleCodeRunnerMessage)
-  window.addEventListener('resize', syncMobileLayout)
+  await chat.refreshProviderServerConfig()
+  await chat.refreshLocalModels()
 })
 
-watch(
-  () => chat.activeSessionId,
-  () => {
+function createEmptyPetDraft(): Partial<PetProfile> {
+  return {
+    name: '',
+    species: 'cat',
+    breed: '',
+    gender: 'unknown',
+    birthday: '',
+    ageLabel: '',
+    weightKg: null,
+    sterilizationStatus: 'unknown',
+    allergies: '',
+    medicalHistory: '',
+    vaccinationStatus: '',
+    dewormingStatus: '',
+    foodPreferences: '',
+    avatarUrl: '',
+  }
+}
+
+function createEmptyLogDraft(): Partial<HealthLog> {
+  return {
+    appetite: '正常',
+    waterIntake: '正常',
+    poop: '成形',
+    vomiting: '无',
+    energyLevel: 4,
+    mood: '平稳',
+    weightKg: chat.activePet?.weightKg ?? null,
+    symptoms: '',
+    medication: '',
+    abnormalBehavior: '',
+    notes: '',
+  }
+}
+
+function createEmptyReminderDraft(): Partial<CareReminder> {
+  const due = new Date()
+  due.setHours(20, 0, 0, 0)
+  return {
+    type: 'feeding',
+    title: '',
+    dueAt: due.toISOString().slice(0, 16),
+    repeat: '一次',
+    notes: '',
+    status: 'pending',
+  }
+}
+
+function resetObject<T extends object>(target: T, source: Partial<T>) {
+  for (const key of Object.keys(target) as Array<keyof T>) delete target[key]
+  Object.assign(target, source)
+}
+
+function setModule(moduleId: ModuleId) {
+  activeModule.value = moduleId
+  mobilePetSwitcherOpen.value = false
+}
+
+function openCopilot(prompt?: string, template?: PromptTemplate) {
+  if (template)
+    activeComposerTemplate.value = { id: template.id, name: template.name, content: template.content }
+  else activeComposerTemplate.value = null
+  if (prompt) copilotInput.value = prompt
+  isCopilotOpen.value = true
+  scrollCopilotToBottom()
+  nextTick(() => document.querySelector<HTMLTextAreaElement>('.copilot-composer textarea')?.focus())
+}
+
+function closeCopilot() {
+  isCopilotOpen.value = false
+}
+
+function openPetDialog(pet?: PetProfile) {
+  resetObject(petDraft, pet ? { ...pet } : createEmptyPetDraft())
+  petDialogVisible.value = true
+}
+
+function savePet() {
+  if (!String(petDraft.name || '').trim()) {
+    ElMessage.warning('请先填写宠物名字')
+    return
+  }
+  const pet = chat.savePetProfile({ ...petDraft })
+  chat.setActivePet(pet.id)
+  petDialogVisible.value = false
+  ElMessage.success('宠物档案已保存')
+}
+
+function openHealthLogDialog() {
+  resetObject(logDraft, createEmptyLogDraft())
+  healthLogDialogVisible.value = true
+}
+
+function saveHealthLog() {
+  const log = chat.addHealthLog({ ...logDraft, petId: chat.activePetId })
+  if (!log) return
+  healthLogDialogVisible.value = false
+  ElMessage.success('健康日志已记录')
+}
+
+function openReminderDialog() {
+  resetObject(reminderDraft, createEmptyReminderDraft())
+  reminderDialogVisible.value = true
+}
+
+function saveReminder() {
+  const dueAt = reminderDraft.dueAt
+    ? new Date(String(reminderDraft.dueAt)).toISOString()
+    : new Date().toISOString()
+  chat.saveCareReminder({ ...reminderDraft, petId: chat.activePetId, dueAt })
+  reminderDialogVisible.value = false
+  ElMessage.success('提醒已创建')
+}
+
+function generateCarePlan() {
+  const plan = chat.generateCarePlanForActivePet()
+  if (!plan) return
+  activeModule.value = 'care'
+  ElMessage.success('护理计划已生成')
+}
+
+function prepareVetVisit() {
+  activeModule.value = 'vet'
+  openCopilot('请根据当前宠物档案和最近健康日志，准备一份就医前清单。')
+}
+
+function comparePetFood() {
+  activeModule.value = 'products'
+  openCopilot('请比较两款宠物食品。我会提供配方、价格、适用阶段和疑问，请结合当前宠物档案给出表格。')
+}
+
+async function submitCopilot() {
+  const content = copilotInput.value
+  copilotInput.value = ''
+  const sent = await chat.sendMessage(content, { composerTemplate: activeComposerTemplate.value })
+  if (sent) {
     activeComposerTemplate.value = null
-    syncSessionQueryParam()
-    scrollToBottom()
-  },
-)
-
-watch(
-  () => route.query.session,
-  (q) => {
-    const sid = typeof q === 'string' ? q : Array.isArray(q) && q.length ? (q[0] as string) : ''
-    if (!sid || sid === chat.activeSessionId) return
-    if (chat.sessions.some((s) => s.id === sid)) {
-      chat.setActiveSession(sid)
-    }
-  },
-)
-
-watch(
-  () => chat.sessions.map((session) => session.id),
-  (sessionIds) => {
-    const validIds = new Set(sessionIds)
-    selectedSessionIds.value = selectedSessionIds.value.filter((id) => validIds.has(id))
-  },
-  { immediate: true },
-)
-
-watch(isBatchDeleteDialogVisible, (visible) => {
-  if (!visible) {
-    batchDeleteSearchQuery.value = ''
-    clearSessionSelection()
+    scrollCopilotToBottom()
+  } else {
+    copilotInput.value = content
   }
-})
-
-watch(
-  () => chat.projects.length,
-  (n) => {
-    if (projectPanelUserToggled.value) return
-    isProjectPanelCollapsed.value = n > 2
-  },
-  { immediate: true },
-)
-
-watch(attachmentPreview, async (attachment, _previous, onCleanup) => {
-  if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
-  attachmentPreviewUrl.value = ''
-  if (!attachment?.dataUrl || attachment.kind === 'text') return
-
-  let revoked = false
-  onCleanup(() => {
-    revoked = true
-  })
-
-  const blob = await fetch(attachment.dataUrl).then((response) => response.blob())
-  const objectUrl = URL.createObjectURL(blob)
-  if (revoked) {
-    URL.revokeObjectURL(objectUrl)
-    return
-  }
-  attachmentPreviewUrl.value = objectUrl
-})
-
-onUnmounted(() => {
-  if (attachmentPreviewUrl.value) URL.revokeObjectURL(attachmentPreviewUrl.value)
-  window.removeEventListener('message', handleCodeRunnerMessage)
-  window.removeEventListener('resize', syncMobileLayout)
-  disposeMonacoEditor()
-})
-
-watch(
-  [() => isCodePreviewVisible.value, () => attachmentPreview.value, () => chat.activeFilePath],
-  () => {
-    if (isCodePreviewVisible.value && !attachmentPreview.value && chat.activeFilePath) {
-      void nextTick(ensureMonacoEditor)
-      return
-    }
-    disposeMonacoEditor()
-  },
-  { flush: 'post' },
-)
-
-watch(
-  () => chat.editedFileContent,
-  (content) => {
-    if (!monacoEditor || monacoEditor.getValue() === content) return
-    monacoEditor.setValue(content)
-  },
-)
-
-watch(activeFileMonacoLanguage, (language) => {
-  const model = monacoEditor?.getModel()
-  if (model) monaco.editor.setModelLanguage(model, language)
-})
-
-watch(lastMessageSignature, () => {
-  if (isNearMessagesBottom.value) {
-    scrollToBottom()
-  }
-})
-
-function scrollToBottom() {
-  nextTick(() => {
-    const el = messagesEl.value
-    if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'auto' })
-    isNearMessagesBottom.value = true
-  })
-}
-
-function isScrolledNearBottom() {
-  const el = messagesEl.value
-  if (!el) return true
-  return el.scrollHeight - el.scrollTop - el.clientHeight < 96
-}
-
-function handleMessagesScroll() {
-  isNearMessagesBottom.value = isScrolledNearBottom()
-}
-
-function focusComposerInput() {
-  nextTick(() => {
-    const textarea = document.querySelector<HTMLTextAreaElement>('.composer textarea')
-    textarea?.focus()
-  })
-}
-
-function applyQuickPrompt(prompt: string) {
-  input.value = prompt
-  focusComposerInput()
-}
-
-function pickFiles() {
-  fileInputEl.value?.click()
-}
-
-async function pickProjectFolder() {
-  const importedProject = await chat.pickAndImportProjectFolder()
-  if (importedProject) {
-    await openProjectWorkspace(importedProject.id)
-    ElMessage({
-      message: t('chat.projectImported', { name: importedProject.name, count: importedProject.fileCount }),
-      type: 'success',
-      duration: 3000,
-      plain: true,
-    })
-  }
-}
-
-function clearSessionFilters() {
-  sessionSearchQuery.value = ''
-  activeSessionTag.value = ''
-}
-
-function isSessionSelected(id: string) {
-  return selectedSessionIdSet.value.has(id)
-}
-
-function toggleSessionSelection(id: string, checked: boolean) {
-  if (checked) {
-    if (!selectedSessionIdSet.value.has(id)) selectedSessionIds.value.push(id)
-    return
-  }
-  selectedSessionIds.value = selectedSessionIds.value.filter((value) => value !== id)
-}
-
-function handleToggleSelectAllFiltered(event: Event) {
-  const checked = (event.target as HTMLInputElement).checked
-  if (!checked) {
-    const filteredIdSet = new Set(filteredSessionIds.value)
-    selectedSessionIds.value = selectedSessionIds.value.filter((id) => !filteredIdSet.has(id))
-    return
-  }
-  const merged = new Set(selectedSessionIds.value)
-  for (const id of filteredSessionIds.value) merged.add(id)
-  selectedSessionIds.value = Array.from(merged)
-}
-
-function clearSessionSelection() {
-  selectedSessionIds.value = []
-}
-
-function openBatchDeleteDialog() {
-  batchDeleteSearchQuery.value = ''
-  clearSessionSelection()
-  isBatchDeleteDialogVisible.value = true
-}
-
-function toggleSidebar() {
-  isSidebarCollapsed.value = !isSidebarCollapsed.value
-  localStorage.setItem('twentys1x:left-sidebar-collapsed', String(isSidebarCollapsed.value))
-}
-
-function selectSession(id: string) {
-  chat.setActiveSession(id)
-  if (isMobileLayout.value) isSidebarCollapsed.value = true
-  scrollToBottom()
-}
-
-function selectProvider(value: string) {
-  chat.setProvider(value as ProviderId)
-}
-
-function selectModel(value: string) {
-  chat.setModel(value)
 }
 
 async function handleFiles(event: Event) {
-  const target = event.target as HTMLInputElement
-  await chat.prepareFiles(Array.from(target.files || []))
-  target.value = ''
+  const files = Array.from((event.target as HTMLInputElement).files || [])
+  ;(event.target as HTMLInputElement).value = ''
+  await chat.prepareFiles(files)
+  openCopilot('请解释我上传的宠物资料/检查报告，并整理对当前宠物档案有用的信息。')
 }
 
-function getExtensionFromMime(type: string) {
-  const normalized = String(type || '').toLowerCase()
-  if (!normalized.includes('/')) return ''
-  const subtype = normalized.split('/')[1] || ''
-  if (!subtype) return ''
-  const safeSubtype = subtype.split('+')[0]
-  if (safeSubtype === 'jpeg') return 'jpg'
-  return safeSubtype
-}
-
-function normalizePastedFile(file: File) {
-  if (file.name) return file
-  const ext = getExtensionFromMime(file.type)
-  const stamp = Date.now()
-  const fallbackName = ext ? `pasted-${stamp}.${ext}` : `pasted-${stamp}.bin`
-  return new File([file], fallbackName, {
-    type: file.type || 'application/octet-stream',
-    lastModified: file.lastModified || Date.now(),
-  })
-}
-
-async function handleComposerPaste(event: ClipboardEvent) {
-  const clipboard = event.clipboardData
-  if (!clipboard) return
-
-  const pastedFromItems = Array.from(clipboard.items || [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => Boolean(file))
-    .map(normalizePastedFile)
-
-  const pastedFiles =
-    pastedFromItems.length > 0
-      ? pastedFromItems
-      : Array.from(clipboard.files || [])
-          .filter((file) => file.size > 0)
-          .map(normalizePastedFile)
-
-  if (!pastedFiles.length) return
-  event.preventDefault()
-  await chat.prepareFiles(pastedFiles)
-}
-
-async function analyzeProject() {
-  const analyzed = await chat.analyzeActiveProject()
-  if (analyzed) scrollToBottom()
-}
-
-async function handleTreeNodeClick(node: any) {
-  if (node.isDirectory) return
-  isEditingFile.value = false
-  resetCodeRunner()
-  attachmentPreview.value = null
-  isWorkspaceCollapsed.value = false
-  setCodePreviewVisible(true)
-  await chat.loadProjectFile(node.path)
-  await nextTick()
-  clampPanelWidths()
-}
-
-async function openAttachmentPreview(attachment: ChatAttachment) {
-  if (!attachment.dataUrl || attachment.kind === 'text') return
-  attachmentPreview.value = attachment
-  isEditingFile.value = false
-  resetCodeRunner()
-  isWorkspaceCollapsed.value = false
-  setCodePreviewVisible(true)
-  await nextTick()
-  clampPanelWidths()
-}
-
-async function selectProjectFromSidebar(projectId: string) {
-  if (!projectId) {
-    chat.setActiveProject('')
-    if (isMobileLayout.value) isSidebarCollapsed.value = true
-    return
-  }
-  await openProjectWorkspace(projectId)
-  if (isMobileLayout.value) isSidebarCollapsed.value = true
-}
-
-async function openProjectWorkspace(projectId: string) {
-  chat.setActiveProject(projectId)
-  isWorkspaceCollapsed.value = isMobileLayout.value ? true : false
-  await chat.refreshActiveProjectTree()
-  await nextTick()
-  clampPanelWidths()
-}
-
-function syncMobileLayout() {
-  const isMobile = window.matchMedia('(max-width: 860px)').matches
-  if (isMobileLayout.value === isMobile) return
-  isMobileLayout.value = isMobile
-  if (isMobile) {
-    isSidebarCollapsed.value = true
-    isWorkspaceCollapsed.value = true
-  }
-}
-
-async function confirmDeleteProject(projectId: string, projectName: string) {
-  await ElMessageBox.confirm(
-    `<div class="military-dialog-content"><p>${t('chat.deleteProjectDesc')}</p><p class="emphasis">${t('chat.dialogActiveObject', { target: `${escapeHtml(projectName)}（${escapeHtml(projectId)}）` })}</p></div>`,
-    t('chat.deleteProject'),
-    {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      dangerouslyUseHTMLString: true,
-      customClass: 'military-dialog military-dialog--danger',
-    },
-  )
-  await chat.deleteProject(projectId)
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
-}
-
-function showModeToast(config: {
-  icon: string
-  title: string
-  desc: string
-  type: 'success' | 'info' | 'warning'
-}) {
-  ElMessage({
-    dangerouslyUseHTMLString: true,
-    message: `<div class="t1-mode-toast">
-      <div class="t1-mode-toast-icon">${config.icon}</div>
-      <div class="t1-mode-toast-body">
-        <div class="t1-mode-toast-title">${config.title}</div>
-        <div class="t1-mode-toast-desc">${config.desc}</div>
-      </div>
-    </div>`,
-    type: config.type,
-    duration: 2800,
-    showClose: true,
-    customClass: 't1-mode-toast-msg',
-  })
-}
-
-function toggleEnableTools() {
-  const next = !chat.enableTools
-  chat.setEnableTools(next)
-  showModeToast(
-    next
-      ? { icon: '🔧', title: t('chat.toolToastOnTitle'), desc: t('chat.toolToastOnDesc'), type: 'success' }
-      : { icon: '⚪', title: t('chat.toolToastOffTitle'), desc: t('chat.toolToastOffDesc'), type: 'info' },
-  )
-}
-
-function toggleEnablePlanning() {
-  const next = !chat.enablePlanning
-  chat.setEnablePlanning(next)
-  showModeToast(
-    next
-      ? {
-          icon: '🎯',
-          title: t('chat.planningToastOnTitle'),
-          desc: t('chat.planningToastOnDesc'),
-          type: 'warning',
-        }
-      : {
-          icon: '⚪',
-          title: t('chat.planningToastOffTitle'),
-          desc: t('chat.planningToastOffDesc'),
-          type: 'info',
-        },
-  )
-}
-
-async function submit() {
-  const content = input.value
-  input.value = '' // 点击发送后立即清空输入框
-  scrollToBottom() // 立即滚动到底部以显示用户刚发出的消息
-
-  const sent = chat.enablePlanning
-    ? await chat.sendPlanMessage(content)
-    : await chat.sendMessage(content, {
-        composerTemplate: activeComposerTemplate.value,
-      })
-  if (sent) {
-    scrollToBottom()
-  } else {
-    // 如果发送失败拦截，则恢复输入的内容
-    input.value = content
-  }
-}
-
-function applyPromptTemplate(payload: Pick<PromptTemplate, 'id' | 'name' | 'content'>) {
-  activeComposerTemplate.value = payload
-  focusComposerInput()
-}
-
-async function runPromptWorkflow(workflowId: string, workflowInput?: string) {
-  const content = (workflowInput ?? input.value).trim()
-  if (!content) return
-  if (!workflowInput) input.value = ''
-  scrollToBottom()
-  const ran = await chat.runPromptWorkflow(workflowId, content)
-  if (ran) {
-    scrollToBottom()
-  } else if (!workflowInput) {
-    input.value = content
-  }
-}
-
-function savePromptTemplate(value: Parameters<typeof chat.savePromptTemplate>[0]) {
-  chat.savePromptTemplate(value)
-}
-
-function saveCustomAgent(value: Parameters<typeof chat.saveCustomAgent>[0]) {
-  const agent = chat.saveCustomAgent(value)
-  chat.setActiveAgent(agent.id)
-}
-
-function savePromptWorkflow(value: Parameters<typeof chat.savePromptWorkflow>[0]) {
-  chat.savePromptWorkflow(value)
-}
-
-function handleEnter(event: Event | KeyboardEvent) {
-  if (event instanceof KeyboardEvent) {
-    if (event.shiftKey) return
-    // 中文输入法选词阶段按回车不应触发发送
-    if (event.isComposing || event.keyCode === 229 || event.key === 'Process') return
-  }
-  event.preventDefault()
-  submit()
-}
-
-async function confirmClear() {
-  await ElMessageBox.confirm(
-    `<div class="military-dialog-content"><p>${t('chat.clearHistoryDesc1')}</p><p>${t('chat.clearHistoryDesc2')}</p><p class="emphasis">${t('chat.dialogActiveObject', { target: activeProjectObjectLabel.value })}</p></div>`,
-    t('chat.clearHistory'),
-    {
-      confirmButtonText: t('chat.clearHistory'),
-      cancelButtonText: t('common.cancel'),
-      dangerouslyUseHTMLString: true,
-      customClass: 'military-dialog military-dialog--danger',
-    },
-  )
-  chat.clearAllSessions()
-  clearSessionSelection()
-}
-
-async function confirmBatchDeleteSessions() {
-  if (!canBatchDeleteSessions.value) return
-  const targetIds = [...selectedSessionIds.value]
-  const deletedCount = targetIds.length
-  await ElMessageBox.confirm(
-    t('session.batchDeleteConfirm', { count: deletedCount }),
-    t('session.batchDeleteConfirmTitle'),
-    {
-      confirmButtonText: t('common.delete'),
-      cancelButtonText: t('common.cancel'),
-      type: 'warning',
-    },
-  )
-  for (const id of targetIds) {
-    chat.deleteSession(id)
-  }
-  ElMessage.success(t('session.batchDeleted', { count: deletedCount }))
-  clearSessionSelection()
-  isBatchDeleteDialogVisible.value = false
-}
-
-async function exportActiveSessionMarkdown() {
-  exportLoading.value = 'markdown'
-  await nextTick()
-  try {
-    downloadText(
-      `${safeFileName(chat.activeSession.title)}.md`,
-      exportSessionMarkdown(chat.activeSession),
-      'text/markdown;charset=utf-8',
-    )
-  } finally {
-    exportLoading.value = null
-  }
-}
-
-async function exportFilteredSessionsJson() {
-  exportLoading.value = 'json'
-  await nextTick()
-  try {
-    const sessions = filteredSessions.value.length ? filteredSessions.value : chat.sessions
-    downloadText('twentys1x-sessions.json', exportSessionsJson(sessions), 'application/json;charset=utf-8')
-  } finally {
-    exportLoading.value = null
-  }
-}
-
-const importFileInput = ref<HTMLInputElement | null>(null)
-
-function triggerImportJson() {
-  importFileInput.value?.click()
-}
-
-async function handleImportJson(event: Event) {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  target.value = ''
+async function handlePetAvatar(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  ;(event.target as HTMLInputElement).value = ''
   if (!file) return
-
-  try {
-    const text = await file.text()
-    const result = chat.importSessions(text)
-    const imported = result.imported || 0
-    const skipped = result.skipped || 0
-    if (imported > 0) {
-      ElMessage({
-        message: t('chat.importSuccess', { imported, skipped }),
-        type: 'success',
-        duration: 3000,
-        plain: true,
-      })
-    }
-    if (result.errors?.length) {
-      ElMessage({
-        message: result.errors.join('; '),
-        type: 'warning',
-        duration: 5000,
-        plain: true,
-      })
-    }
-  } catch (err) {
-    ElMessage({
-      message: err instanceof Error ? err.message : '导入失败',
-      type: 'error',
-      duration: 3000,
-      plain: true,
-    })
-  }
+  petDraft.avatarUrl = await readFileAsDataUrl(file)
 }
 
-function buildSessionPdfHtml(): string {
-  const session = chat.activeSession
-  const title = escapeHtml(session.title || 'Chat Session')
-  const lines: string[] = [
-    '<!DOCTYPE html><html><head><meta charset="utf-8"><style>',
-    'body{font-family:system-ui,-apple-system,sans-serif;color:#1f2a23;background:#fff;padding:40px;max-width:800px;margin:0 auto;line-height:1.6}',
-    'h1{font-size:22px;margin-bottom:8px;color:#17201a}',
-    '.meta{font-size:12px;color:#6b7f72;margin-bottom:24px;border-bottom:1px solid #e4eae6;padding-bottom:12px}',
-    '.msg{margin-bottom:16px}',
-    '.speaker{font-weight:600;font-size:13px;color:#34604e;margin-bottom:4px}',
-    '.text{font-size:14px;white-space:pre-wrap;word-break:break-word}',
-    'pre{background:#f5f7f5;padding:12px;border-radius:8px;overflow-x:auto;font-size:13px}',
-    'code{background:rgba(23,32,26,0.06);padding:0.15em 0.4em;border-radius:5px;font-size:0.85em}',
-    '</style></head><body>',
-    `<h1>${title}</h1>`,
-    `<p class="meta">Created: ${escapeHtml(session.createdAt || '')} | Updated: ${escapeHtml(session.updatedAt || '')}${session.tags?.length ? ' | Tags: ' + escapeHtml(session.tags.join(', ')) : ''}</p>`,
-  ]
-
-  for (const msg of session.messages) {
-    const speaker = msg.role === 'user' ? 'User' : 'Assistant'
-    const rawText = typeof msg.content === 'string' ? msg.content : ''
-    // Wrap raw text preserving line breaks
-    const textHtml = rawText
-      .split('\n')
-      .map((line) => escapeHtml(line))
-      .join('<br>')
-    lines.push(
-      `<div class="msg"><div class="speaker">${speaker} · ${escapeHtml(msg.createdAt || '')}</div>`,
-      `<div class="text">${textHtml}</div></div>`,
-    )
-  }
-
-  lines.push('</body></html>')
-  return lines.join('\n')
-}
-
-async function exportActiveSessionPdf() {
-  exportLoading.value = 'pdf'
-  await nextTick()
-  try {
-    const title = chat.activeSession.title || 'Chat Session'
-    const fileName = `${safeFileName(title)}.pdf`
-
-    // Try server-side Puppeteer endpoint first
-    try {
-      const html = buildSessionPdfHtml()
-      const response = await fetch('/api/export/pdf', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ html }),
-      })
-      if (response.ok) {
-        const blob = await response.blob()
-        const url = URL.createObjectURL(blob)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = fileName
-        link.click()
-        URL.revokeObjectURL(url)
-        return
-      }
-    } catch {
-      // Server endpoint failed, fall through to client-side
-    }
-
-    // Fallback: client-side html2canvas + jspdf
-    const session = chat.activeSession
-    const container = document.createElement('div')
-    container.style.cssText =
-      'padding: 40px; max-width: 800px; margin: 0 auto; font-family: system-ui, -apple-system, sans-serif; color: #1f2a23; background: #fff;'
-    const metaTags = session.tags?.length ? ` | Tags: ${escapeHtml(session.tags.join(', '))}` : ''
-    container.innerHTML = `
-      <h1 style="font-size: 22px; margin-bottom: 8px; color: #17201a;">${escapeHtml(title)}</h1>
-      <p style="font-size: 12px; color: #6b7f72; margin-bottom: 24px; border-bottom: 1px solid #e4eae6; padding-bottom: 12px;">
-        Created: ${session.createdAt || ''} | Updated: ${session.updatedAt || ''}${metaTags}
-      </p>
-    `
-
-    for (const msg of session.messages) {
-      const speaker = msg.role === 'user' ? 'User' : 'Assistant'
-      const text = typeof msg.content === 'string' ? msg.content : ''
-      const block = document.createElement('div')
-      block.style.cssText = 'margin-bottom: 16px;'
-      block.innerHTML = `
-        <div style="font-weight: 600; font-size: 13px; color: #34604e; margin-bottom: 4px;">${speaker} · ${msg.createdAt || ''}</div>
-        <div style="font-size: 14px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;">${escapeHtml(text)}</div>
-      `
-      container.appendChild(block)
-    }
-
-    document.body.appendChild(container)
-    const originalOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-
-    try {
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#ffffff',
-      })
-
-      const imgData = canvas.toDataURL('image/png')
-      const imgWidth = 210
-      const pageHeight = 297
-      const imgHeight = (canvas.height * imgWidth) / canvas.width
-
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      let heightLeft = imgHeight
-      let position = 0
-
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-      heightLeft -= pageHeight
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight
-        pdf.addPage()
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight)
-        heightLeft -= pageHeight
-      }
-
-      pdf.save(fileName)
-    } catch (err) {
-      ElMessage({
-        message: `PDF export failed: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        type: 'error',
-        duration: 4000,
-        plain: true,
-      })
-    } finally {
-      document.body.removeChild(container)
-      document.body.style.overflow = originalOverflow
-    }
-  } finally {
-    exportLoading.value = null
-  }
-}
-
-async function summarizeActiveSession() {
-  const summarized = await chat.summarizeActiveSession()
-  if (summarized) scrollToBottom()
-}
-
-function toggleSessionManager() {
-  isSessionManagerCollapsed.value = !isSessionManagerCollapsed.value
-  localStorage.setItem('twentys1x:session-manager-collapsed', String(isSessionManagerCollapsed.value))
-}
-
-function toggleProjectPanel() {
-  isProjectPanelCollapsed.value = !isProjectPanelCollapsed.value
-  projectPanelUserToggled.value = true
-  localStorage.setItem(PROJECT_PANEL_COLLAPSE_KEY, String(isProjectPanelCollapsed.value))
-}
-
-function openSummaryDialog() {
-  summaryDraft.value = chat.activeSession.summary?.content || ''
-  copiedSummary.value = false
-  isSummaryDialogVisible.value = true
-}
-
-function saveSummaryDraft() {
-  chat.updateSessionSummary(chat.activeSession.id, summaryDraft.value)
-  isSummaryDialogVisible.value = false
-}
-
-async function copySummaryDraft() {
-  const content = summaryDraft.value.trim()
-  if (!content) return
-
-  try {
-    await navigator.clipboard.writeText(content)
-    copiedSummary.value = true
-    setTimeout(() => (copiedSummary.value = false), 2000)
-  } catch (err) {
-    console.error(t('chat.copiedSummaryFailed'), err)
-  }
-}
-
-function downloadText(fileName: string, content: string, type: string) {
-  const blob = new Blob([content], { type })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  link.click()
-  URL.revokeObjectURL(url)
-}
-
-function safeFileName(value: string) {
-  const name = value.trim().replace(/[\\/:*?"<>|]+/g, '-')
-  return name || 'session'
-}
-
-function getFileExtension(name: string) {
-  const extension = name.includes('.') ? name.split('.').pop() || '' : ''
-  return extension.toLowerCase()
-}
-
-function detectMonacoLanguage(filePath: string) {
-  const extension = getFileExtension(filePath || '')
-  const languageByExt: Record<string, string> = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    mjs: 'javascript',
-    cjs: 'javascript',
-    vue: 'html',
-    html: 'html',
-    xml: 'xml',
-    svg: 'html',
-    css: 'css',
-    scss: 'scss',
-    sass: 'scss',
-    less: 'less',
-    json: 'json',
-    yml: 'yaml',
-    yaml: 'yaml',
-    md: 'markdown',
-    sh: 'shell',
-    bash: 'shell',
-    py: 'python',
-    sql: 'sql',
-  }
-  return languageByExt[extension] || 'plaintext'
-}
-
-function highlightCode(code: string, language: string) {
-  const safeCode = String(code || '')
-  const grammar = Prism.languages[language]
-  if (!safeCode) return ''
-  if (!grammar) return escapeHtml(safeCode)
-  return DOMPurify.sanitize(Prism.highlight(safeCode, grammar, language))
-}
-
-function ensureMonacoEditor() {
-  if (!monacoEditorEl.value || attachmentPreview.value || !chat.activeFilePath) return
-  if (monacoEditor) {
-    monacoEditor.layout()
-    return
-  }
-
-  monaco.editor.defineTheme('twentys1x-light', {
-    base: 'vs',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: '8b948e' },
-      { token: 'keyword', foreground: '5a5f32' },
-      { token: 'string', foreground: '456846' },
-      { token: 'number', foreground: '7a6234' },
-      { token: 'type', foreground: '2f5a4c' },
-    ],
-    colors: {
-      'editor.background': '#ffffff',
-      'editor.foreground': '#1f2a23',
-      'editorLineNumber.foreground': '#8f9691',
-      'editor.lineHighlightBackground': '#f5f8f4',
-      'editor.selectionBackground': '#c9decf',
-      'editorCursor.foreground': '#2d5848',
-    },
-  })
-
-  monacoEditor = monaco.editor.create(monacoEditorEl.value, {
-    value: chat.editedFileContent,
-    language: activeFileMonacoLanguage.value,
-    theme: 'twentys1x-light',
-    automaticLayout: true,
-    fontFamily: "'JetBrains Mono', ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', monospace",
-    fontSize: 12,
-    lineHeight: 19,
-    minimap: { enabled: false },
-    scrollBeyondLastLine: false,
-    tabSize: 2,
-    wordWrap: 'off',
-    renderWhitespace: 'selection',
-    fixedOverflowWidgets: true,
-  })
-  monacoChangeDisposable = monacoEditor.onDidChangeModelContent(() => {
-    chat.editedFileContent = monacoEditor?.getValue() || ''
-    chat.activeFileDiff = ''
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = reject
+    reader.readAsDataURL(file)
   })
 }
 
-function disposeMonacoEditor() {
-  monacoChangeDisposable?.dispose()
-  monacoChangeDisposable = null
-  monacoEditor?.dispose()
-  monacoEditor = null
-}
-
-function closeCodePreview() {
-  attachmentPreview.value = null
-  resetCodeRunner()
-  setCodePreviewVisible(false)
-}
-
-function toggleCodePreviewPanel() {
-  if (!canToggleCodePreview.value) return
-  toggleCodePreview()
-}
-
-function toggleWorkspaceTree() {
-  isWorkspaceCollapsed.value = !isWorkspaceCollapsed.value
-  if (!isWorkspaceCollapsed.value) nextTick(clampPanelWidths)
-}
-
-function getFileTypeLabel(name: string) {
-  const ext = getFileExtension(name)
-  if (!ext) return 'FILE'
-  return ext.length > 5 ? ext.slice(0, 5).toUpperCase() : ext.toUpperCase()
-}
-
-function getFileTypeClass(name: string) {
-  const ext = getFileExtension(name)
-  if (['js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs'].includes(ext)) return 'code'
-  if (['vue', 'html', 'css', 'scss', 'sass', 'less'].includes(ext)) return 'style'
-  if (['json', 'yaml', 'yml', 'toml', 'ini'].includes(ext)) return 'config'
-  if (['md', 'txt'].includes(ext)) return 'doc'
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico'].includes(ext)) return 'asset'
-  return 'other'
-}
-
-// ==================== 停止生成功能 ====================
-function stopGeneration() {
-  // 规避 TypeScript 检查：如果 store 中实现了 stop 方法则调用
-  const store = chat as any
-  if (typeof store.stop === 'function') {
-    store.stop()
-  }
-}
-
-// ==================== 气泡内联编辑功能 ====================
-function startInlineEdit(message: any) {
-  // 1. 点击重新编辑时，相当于触发停止模型
-  stopGeneration()
-
-  // 2. 开启当前气泡的编辑模式
+function startInlineEdit(message: ChatMessage) {
   editingMessageId.value = message.id
   editingContent.value =
     typeof message.content === 'string' ? message.content : messagePreviewContent(message.content)
+}
+
+async function submitInlineEdit() {
+  const content = editingContent.value
+  editingMessageId.value = null
+  editingContent.value = ''
+  await chat.sendMessage(content)
 }
 
 function cancelInlineEdit() {
@@ -1195,470 +343,674 @@ function cancelInlineEdit() {
   editingContent.value = ''
 }
 
-async function submitInlineEdit() {
-  const content = editingContent.value
-  cancelInlineEdit()
-
-  scrollToBottom()
-  const sent = await chat.sendMessage(content)
-  if (sent) {
-    scrollToBottom()
-  }
-}
-
-// ==================== 复制与 Markdown 渲染功能 ====================
-
-async function copyMessage(messageId: string, content: any) {
-  const textToCopy = typeof content === 'string' ? content : messagePreviewContent(content)
-  try {
-    await navigator.clipboard.writeText(textToCopy)
-    copiedMessageId.value = messageId
-    setTimeout(() => (copiedMessageId.value = null), 2000)
-  } catch (err) {
-    console.error(t('chat.copyFailed'), err)
-  }
+async function copyMessage(messageId: string, content: ChatMessage['content']) {
+  await navigator.clipboard.writeText(typeof content === 'string' ? content : messagePreviewContent(content))
+  copiedMessageId.value = messageId
+  window.setTimeout(() => (copiedMessageId.value = null), 1600)
 }
 
 async function copyCodeBlock(messageId: string, code: string, blockIndex: number) {
-  try {
-    await navigator.clipboard.writeText(code)
-    copiedCodeBlock.value = { id: messageId, index: blockIndex }
-    setTimeout(() => (copiedCodeBlock.value = null), 2000)
-  } catch (err) {
-    console.error(t('chat.copyCodeFailed'), err)
-  }
+  await navigator.clipboard.writeText(code)
+  copiedCodeBlock.value = { id: messageId, index: blockIndex }
+  window.setTimeout(() => (copiedCodeBlock.value = null), 1600)
 }
 
-async function saveActiveFileFromMonaco() {
-  const saved = await chat.applyActiveFileWrite()
-  if (saved) isEditingFile.value = false
-}
-
-async function previewActiveFileDiffFromMonaco() {
-  await chat.previewActiveFileDiff()
-}
-
-async function runActiveCode() {
-  if (!canRunActiveFile.value || codeRunStatus.value === 'running') return
-
-  codeRunStatus.value = 'running'
-  codeRunLogs.value = [t('chat.runnerStarting')]
-  codeRunPreviewHtml.value = ''
-
-  try {
-    const language = activeFileMonacoLanguage.value
-    const source = chat.editedFileContent
-    const runnableSource = language === 'typescript' ? await transpileTypeScriptForBrowser(source) : source
-    codeRunPreviewHtml.value = buildCodeRunnerHtml(runnableSource, language)
-  } catch (error) {
-    codeRunStatus.value = 'error'
-    codeRunLogs.value.push(
-      formatRunnerMessage('error', error instanceof Error ? error.message : String(error)),
-    )
-  }
-}
-
-async function transpileTypeScriptForBrowser(source: string) {
-  const ts = await import('typescript')
-  const output = ts.transpileModule(source, {
-    compilerOptions: {
-      jsx: ts.JsxEmit.ReactJSX,
-      module: ts.ModuleKind.ESNext,
-      target: ts.ScriptTarget.ES2020,
-      isolatedModules: true,
-      esModuleInterop: true,
-    },
-    reportDiagnostics: true,
+function scrollCopilotToBottom() {
+  nextTick(() => {
+    const el = messagesEl.value
+    if (el) el.scrollTop = el.scrollHeight
   })
-  const diagnostics = output.diagnostics || []
-  const blocking = diagnostics.filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
-  if (blocking.length) {
-    throw new Error(
-      blocking.map((diagnostic) => ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')).join('\n'),
-    )
+}
+
+function speciesLabel(value?: PetSpecies) {
+  if (value === 'dog') return '狗狗'
+  if (value === 'cat') return '猫咪'
+  return '其他宠物'
+}
+
+function reminderTypeLabel(value: CareReminder['type']) {
+  const map: Record<CareReminder['type'], string> = {
+    feeding: '喂食',
+    water: '饮水',
+    deworming: '驱虫',
+    vaccination: '疫苗',
+    grooming: '美容',
+    medication: '用药',
+    vet_follow_up: '复诊',
+    other: '其他',
   }
-  return output.outputText
+  return map[value]
 }
 
-function buildCodeRunnerHtml(source: string, language: string) {
-  const escapedSource = JSON.stringify(source)
-  const closeScript = '</' + 'script>'
-  if (language === 'html') return buildHtmlRunner(source)
-  if (language === 'css') {
-    return buildHtmlRunner(
-      `<!doctype html><style>${source}</style><main class="runner-css-preview">${t('chat.cssInjected')}</main>`,
-    )
-  }
-  return `<!doctype html>
-<html>
-<head><meta charset="utf-8"><style>${runnerBaseCss()}</style></head>
-<body>
-  <main id="app">${t('chat.codeRunning')}</main>
-  <script>${runnerBridgeScript()}${closeScript}
-  <script type="module">
-    const source = ${escapedSource};
-    const blob = new Blob([source], { type: 'text/javascript' });
-    import(URL.createObjectURL(blob))
-      .then(() => window.__twentys1xDone())
-      .catch((error) => window.__twentys1xFail(error));
-  ${closeScript}
-</body>
-</html>`
+function formatDate(value: string) {
+  if (!value) return '待定'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 
-function buildHtmlRunner(html: string) {
-  const bridge = `<script>${runnerBridgeScript()}${'</' + 'script>'}`
-  if (/<\/body>/i.test(html)) return html.replace(/<\/body>/i, `${bridge}</body>`)
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${runnerBaseCss()}</style></head><body>${html}${bridge}</body></html>`
+function selectProvider(value: string) {
+  chat.setProvider(value as ProviderId)
 }
 
-function runnerBridgeScript() {
-  return `
-const send = (type, payload) => parent.postMessage({ source: 'twentys1x-code-runner', type, payload }, '*');
-const format = (items) => items.map((item) => {
-  if (item instanceof Error) return item.stack || item.message;
-  if (typeof item === 'string') return item;
-  try { return JSON.stringify(item, null, 2); } catch { return String(item); }
-}).join(' ');
-['log', 'info', 'warn', 'error'].forEach((level) => {
-  const original = console[level].bind(console);
-  console[level] = (...items) => {
-    original(...items);
-    send('log', { level, message: format(items) });
-  };
-});
-window.__twentys1xDone = () => send('done', {});
-window.__twentys1xFail = (error) => send('error', { message: error?.stack || error?.message || String(error) });
-window.addEventListener('error', (event) => send('error', { message: event.error?.stack || event.message }));
-window.addEventListener('unhandledrejection', (event) => send('error', { message: event.reason?.stack || event.reason?.message || String(event.reason) }));
-send('ready', {});
-`
-}
-
-function runnerBaseCss() {
-  return 'body{margin:0;padding:18px;font:14px/1.5 system-ui,sans-serif;color:#1f2a23;background:#fff}.runner-css-preview{padding:18px;border:1px dashed #9eb2a4;border-radius:8px;color:#456846}'
-}
-
-function handleCodeRunnerMessage(event: MessageEvent) {
-  const data = event.data
-  if (!data || data.source !== 'twentys1x-code-runner') return
-  if (data.type === 'ready') {
-    codeRunLogs.value.push(formatRunnerMessage('info', t('chat.runnerReady')))
-    return
-  }
-  if (data.type === 'log') {
-    codeRunLogs.value.push(formatRunnerMessage(data.payload?.level || 'log', data.payload?.message || ''))
-    return
-  }
-  if (data.type === 'done') {
-    codeRunStatus.value = 'success'
-    codeRunLogs.value.push(formatRunnerMessage('info', t('chat.runnerDone')))
-    return
-  }
-  if (data.type === 'error') {
-    codeRunStatus.value = 'error'
-    codeRunLogs.value.push(formatRunnerMessage('error', data.payload?.message || t('chat.runnerFailed')))
-  }
-}
-
-function handleLocaleChange(value: string) {
-  setLocale(value as AppLocale)
-}
-
-function formatRunnerMessage(level: string, message: string) {
-  return `[${level}] ${message}`
-}
-
-function resetCodeRunner() {
-  codeRunStatus.value = 'idle'
-  codeRunLogs.value = []
-  codeRunPreviewHtml.value = ''
-}
-
-async function copyDebugOutput() {
-  if (!codeRunLogs.value.length) return
-  await navigator.clipboard.writeText(codeRunLogs.value.join('\n'))
-  copiedDebugOutput.value = true
-  setTimeout(() => (copiedDebugOutput.value = false), 2000)
-}
-
-async function regenerateMessage(messageId: string) {
-  stopGeneration()
-  cancelInlineEdit()
-
-  const regenerated = await chat.regenerateMessage(messageId)
-  if (regenerated) {
-    scrollToBottom()
-  }
+async function logout() {
+  await auth.logout()
+  router.push({ name: 'login' })
 }
 </script>
 
 <template>
-  <div
-    ref="appShellEl"
-    class="app-shell"
-    :class="{
-      'is-resizing': isDraggingPanels,
-      'workspace-tree-hidden': isWorkspaceCollapsed,
-      'is-sidebar-collapsed': isSidebarCollapsed,
-    }"
-    :style="appShellViewStyle"
-  >
-    <aside class="sidebar">
+  <main class="app-shell" :class="{ 'copilot-open': isCopilotOpen }">
+    <aside class="desktop-sidebar">
       <div class="brand">
-        <div class="logo-mark" style="cursor: pointer" @click="chat.newSession">T1</div>
+        <div class="brand-mark">PM</div>
         <div>
-          <strong>Twentys1x</strong>
-          <span>AI Studio</span>
+          <p>Pet AI Manager</p>
+          <strong>宠物 AI 管家</strong>
         </div>
       </div>
 
-      <section
-        class="project-panel"
-        :class="{ 'is-collapsed': isProjectPanelCollapsed }"
-        :aria-label="t('chat.project')"
-      >
-        <div class="project-panel-toolbar">
-          <button
-            type="button"
-            class="project-panel-header"
-            :aria-expanded="!isProjectPanelCollapsed"
-            @click="toggleProjectPanel"
-          >
-            <span class="project-panel-title">
-              <el-icon><Files /></el-icon>
-              {{ t('chat.project') }}
-            </span>
-            <span class="project-panel-meta">{{ projectPanelMetaText }}</span>
-            <el-icon
-              class="project-panel-chevron t1-chevron"
-              :class="{ 'is-expanded': !isProjectPanelCollapsed }"
-            >
-              <ArrowDown />
-            </el-icon>
-          </button>
-          <el-button
-            class="panel-icon-button"
-            :icon="FolderAdd"
-            text
-            :title="t('chat.importProjectFolder')"
-            :loading="chat.isImportingProject"
-            @click.stop="pickProjectFolder"
-          />
+      <section class="pet-switcher">
+        <div class="section-label">
+          <span>当前宠物</span>
+          <el-button :icon="Plus" size="small" circle @click="openPetDialog()" />
         </div>
-        <div class="t1-collapse-wrap" :class="{ 'is-open': !isProjectPanelCollapsed }">
-          <div class="t1-collapse-inner">
-            <div class="project-panel-body">
-              <div class="project-list">
-                <button
-                  type="button"
-                  class="project-item"
-                  :class="{ active: !chat.activeProjectId }"
-                  @click="selectProjectFromSidebar('')"
-                >
-                  <el-icon><Promotion /></el-icon>
-                  <span>{{ t('chat.normalChat') }}</span>
-                  <small>{{ t('chat.noProjectLink') }}</small>
-                </button>
-
-                <button
-                  v-for="project in chat.projects"
-                  :key="project.id"
-                  type="button"
-                  class="project-item"
-                  :class="{ active: project.id === chat.activeProjectId }"
-                  @click="selectProjectFromSidebar(project.id)"
-                >
-                  <el-icon><Files /></el-icon>
-                  <span>{{ project.name }}</span>
-                  <small>{{ t('chat.fileCount', { count: project.fileCount }) }}</small>
-                  <el-icon
-                    class="delete-project"
-                    :title="t('chat.deleteProject')"
-                    @click.stop="confirmDeleteProject(project.id, project.name)"
-                  >
-                    <Delete />
-                  </el-icon>
-                </button>
-                <button
-                  v-if="!chat.projects.length"
-                  type="button"
-                  class="project-empty"
-                  @click="pickProjectFolder"
-                >
-                  {{ t('chat.importProjectCta') }}
-                </button>
-              </div>
-              <el-button
-                class="analyze-project-button"
-                plain
-                :disabled="!chat.activeProject"
-                :loading="chat.isAnalyzingProject"
-                @click="analyzeProject"
-              >
-                {{ t('chat.analyzeProject') }}
-              </el-button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <PromptLabPanel
-        :templates="chat.promptTemplates"
-        :agents="chat.customAgents"
-        :workflows="chat.promptWorkflows"
-        :active-agent-id="chat.activeAgentId"
-        :has-active-project="Boolean(chat.activeProjectId)"
-        :is-running-workflow="chat.isRunningWorkflow"
-        @apply-template="applyPromptTemplate"
-        @select-agent="chat.setActiveAgent"
-        @save-template="savePromptTemplate"
-        @delete-template="chat.deletePromptTemplate"
-        @save-agent="saveCustomAgent"
-        @delete-agent="chat.deleteCustomAgent"
-        @save-workflow="savePromptWorkflow"
-        @delete-workflow="chat.deletePromptWorkflow"
-        @run-workflow="runPromptWorkflow"
-      />
-
-      <section
-        class="session-manager"
-        :class="{ 'is-collapsed': isSessionManagerCollapsed }"
-        :aria-label="t('chat.sessionManager')"
-      >
         <button
+          v-for="pet in chat.pets"
+          :key="pet.id"
           type="button"
-          class="session-manager-header"
-          :aria-expanded="!isSessionManagerCollapsed"
-          @click="toggleSessionManager"
+          class="pet-switch-card"
+          :class="{ active: pet.id === chat.activePetId }"
+          @click="chat.setActivePet(pet.id)"
         >
-          <span class="session-manager-title">
-            <el-icon><Search /></el-icon>
-            {{ t('chat.sessionManager') }}
-          </span>
-          <span class="session-manager-count">{{ filteredSessions.length }}/{{ chat.sessions.length }}</span>
-          <el-icon
-            class="session-manager-chevron t1-chevron"
-            :class="{ 'is-expanded': !isSessionManagerCollapsed }"
-          >
-            <ArrowDown />
-          </el-icon>
+          <img v-if="pet.avatarUrl" :src="pet.avatarUrl" alt="" />
+          <span v-else>{{ pet.species === 'dog' ? 'D' : pet.species === 'cat' ? 'C' : 'P' }}</span>
+          <div>
+            <strong>{{ pet.name }}</strong>
+            <small>{{ speciesLabel(pet.species) }} · {{ pet.breed || '品种待补充' }}</small>
+          </div>
         </button>
-
-        <div class="t1-collapse-wrap" :class="{ 'is-open': !isSessionManagerCollapsed }">
-          <div class="t1-collapse-inner">
-            <div class="session-manager-body">
-              <el-input
-                v-model="sessionSearchQuery"
-                class="session-search"
-                clearable
-                :prefix-icon="Search"
-                :placeholder="t('chat.sessionSearchPlaceholder')"
-              />
-              <SessionTagVirtualFilter
-                v-if="chat.allSessionTags.length"
-                v-model="activeSessionTag"
-                :tags="chat.allSessionTags"
-                :all-label="t('common.all')"
-              />
-              <div class="session-export-actions">
-                <el-button
-                  size="small"
-                  plain
-                  :icon="Download"
-                  :loading="exportLoading === 'markdown'"
-                  @click="exportActiveSessionMarkdown"
-                  >{{ t('chat.exportCurrent') }}</el-button
-                >
-                <el-button
-                  size="small"
-                  plain
-                  :icon="Download"
-                  :loading="exportLoading === 'json'"
-                  @click="exportFilteredSessionsJson"
-                  >{{ t('chat.exportList') }}</el-button
-                >
-                <el-button
-                  size="small"
-                  plain
-                  :icon="Download"
-                  :loading="exportLoading === 'pdf'"
-                  @click="exportActiveSessionPdf"
-                  >{{ t('chat.exportPdf') }}</el-button
-                >
-                <el-button size="small" plain :icon="UploadFilled" @click="triggerImportJson">{{
-                  t('chat.importJson')
-                }}</el-button>
-                <el-button size="small" plain type="danger" :icon="Delete" @click="openBatchDeleteDialog">{{
-                  t('session.batchDelete')
-                }}</el-button>
-                <input
-                  ref="importFileInput"
-                  type="file"
-                  accept=".json"
-                  style="display: none"
-                  @change="handleImportJson"
-                />
-              </div>
-              <label class="session-tag-editor">
-                <span>{{ t('chat.currentSessionTags') }}</span>
-                <el-input
-                  v-model="activeSessionTagsText"
-                  size="small"
-                  :placeholder="t('chat.customSessionTags')"
-                />
-              </label>
-              <div class="session-summary-card" :class="{ empty: !chat.activeSession.summary }">
-                <div class="session-summary-head">
-                  <span>{{ t('chat.smartSummary') }}</span>
-                  <div class="session-summary-actions">
-                    <el-button
-                      v-if="chat.activeSession.summary"
-                      class="summary-more-button"
-                      size="small"
-                      text
-                      :icon="MoreFilled"
-                      :aria-label="t('chat.viewFullSummary')"
-                      @click="openSummaryDialog"
-                    />
-                    <el-button
-                      size="small"
-                      plain
-                      :icon="MagicStick"
-                      :loading="chat.isSummarizingSession"
-                      :disabled="!canSummarizeActiveSession"
-                      @click="summarizeActiveSession"
-                    >
-                      {{ chat.activeSession.summary ? t('chat.update') : t('chat.generate') }}
-                    </el-button>
-                  </div>
-                </div>
-                <p v-if="chat.activeSession.summary">{{ chat.activeSession.summary.content }}</p>
-                <p v-else>{{ t('chat.summaryEmpty') }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <p v-if="!chat.pets.length" class="empty-copy">还没有宠物档案。</p>
       </section>
 
-      <nav class="sessions" :aria-label="t('chat.historySessions')">
-        <SessionItem
-          v-for="session in filteredSessions"
-          :key="session.id"
-          :session="session"
-          :active="session.id === chat.activeSessionId"
-          @select="selectSession"
-        />
+      <nav class="module-nav" aria-label="宠物管理模块">
         <button
-          v-if="chat.sessions.length && !filteredSessions.length"
+          v-for="item in navItems"
+          :key="item.id"
           type="button"
-          class="session-empty-filter"
-          @click="clearSessionFilters"
+          :class="{ active: activeModule === item.id }"
+          @click="setModule(item.id)"
         >
-          {{ t('chat.clearFilter') }}
+          <el-icon><component :is="item.icon" /></el-icon>
+          <span>
+            <strong>{{ item.label }}</strong>
+            <small>{{ item.hint }}</small>
+          </span>
         </button>
       </nav>
 
+      <div class="sidebar-footer">
+        <el-button :icon="ChatDotRound" @click="openCopilot()">AI 咨询</el-button>
+        <el-button :icon="Setting" circle @click="settingsVisible = true" />
+      </div>
+    </aside>
+
+    <section class="mobile-topbar">
+      <button type="button" class="mobile-pet-pill" @click="mobilePetSwitcherOpen = !mobilePetSwitcherOpen">
+        <span class="pet-avatar-small">{{ chat.activePet?.species === 'dog' ? 'D' : 'C' }}</span>
+        <span>{{ chat.activePet?.name || '选择宠物' }}</span>
+      </button>
+      <el-button type="primary" :icon="ChatDotRound" @click="openCopilot()">AI 咨询</el-button>
+      <div v-if="mobilePetSwitcherOpen" class="mobile-pet-menu">
+        <button
+          v-for="pet in chat.pets"
+          :key="pet.id"
+          type="button"
+          @click="
+            chat.setActivePet(pet.id)
+            mobilePetSwitcherOpen = false
+          "
+        >
+          {{ pet.name }} · {{ speciesLabel(pet.species) }}
+        </button>
+        <button type="button" @click="openPetDialog()">新增宠物</button>
+      </div>
+    </section>
+
+    <section class="content-shell">
+      <header class="page-header">
+        <div>
+          <p class="eyebrow">Pet family OS</p>
+          <h1>{{ activeModuleMeta.label }}</h1>
+          <span>{{ activeModuleMeta.hint }}</span>
+        </div>
+        <div class="page-actions">
+          <el-button :icon="DocumentAdd" @click="openHealthLogDialog">记录健康</el-button>
+          <el-button type="primary" :icon="ChatDotRound" @click="openCopilot()">Ask AI / AI 咨询</el-button>
+        </div>
+      </header>
+
+      <section v-if="activeModule === 'overview'" class="module-page overview-page">
+        <article class="selected-pet-header">
+          <div class="pet-identity">
+            <img v-if="chat.activePet?.avatarUrl" :src="chat.activePet.avatarUrl" alt="" />
+            <span v-else>{{ chat.activePet?.species === 'dog' ? 'D' : 'C' }}</span>
+            <div>
+              <p class="eyebrow">Selected pet</p>
+              <h2>{{ chat.activePet?.name || '未选择宠物' }}</h2>
+              <small>{{ currentPetSummary }}</small>
+            </div>
+          </div>
+          <el-tag :class="`status-${healthStatus.tone}`" effect="light">{{ healthStatus.label }}</el-tag>
+          <div class="header-buttons">
+            <el-button @click="openHealthLogDialog">Add Log</el-button>
+            <el-button @click="generateCarePlan">Generate Care Plan</el-button>
+            <el-button type="primary" @click="openCopilot()">Ask AI</el-button>
+          </div>
+        </article>
+
+        <div class="overview-grid">
+          <article class="panel care-today">
+            <div class="panel-title">
+              <h3>Care Today / 今日照护</h3>
+              <el-button :icon="Bell" size="small" @click="openReminderDialog">提醒</el-button>
+            </div>
+            <div v-if="todayTasks.length" class="task-list compact">
+              <button
+                v-for="task in todayTasks"
+                :key="task.id"
+                type="button"
+                class="task-item"
+                @click="chat.toggleCareReminderDone(task.id)"
+              >
+                <span class="task-check"><CircleCheck /></span>
+                <span>
+                  <strong>{{ task.title }}</strong>
+                  <small :class="{ overdue: new Date(task.dueAt).getTime() < Date.now() }"
+                    >{{ formatDate(task.dueAt) }} · {{ reminderTypeLabel(task.type) }}</small
+                  >
+                </span>
+              </button>
+            </div>
+            <p v-else class="empty-copy">今天没有待办。可以添加喂食、饮水、驱虫、疫苗或复诊提醒。</p>
+          </article>
+
+          <article class="panel health-snapshot">
+            <div class="panel-title">
+              <h3>Health Snapshot / 健康快照</h3>
+              <el-tag v-if="latestLog?.symptoms" type="warning" effect="plain">有症状记录</el-tag>
+            </div>
+            <div class="snapshot-grid">
+              <div :class="{ abnormal: latestLog?.appetite && /差|少|拒/.test(latestLog.appetite) }">
+                <span>食欲</span><strong>{{ latestLog?.appetite || '待记录' }}</strong>
+              </div>
+              <div :class="{ abnormal: latestLog?.poop && /软|稀|血/.test(latestLog.poop) }">
+                <span>便便</span><strong>{{ latestLog?.poop || '待记录' }}</strong>
+              </div>
+              <div :class="{ abnormal: latestLog?.waterIntake && /少|低/.test(latestLog.waterIntake) }">
+                <span>饮水</span><strong>{{ latestLog?.waterIntake || '待记录' }}</strong>
+              </div>
+              <div :class="{ abnormal: latestLog && latestLog.energyLevel <= 2 }">
+                <span>精神</span><strong>{{ latestLog ? `${latestLog.energyLevel}/5` : '待记录' }}</strong>
+              </div>
+              <div>
+                <span>体重趋势</span><strong>{{ weightTrend }}</strong>
+              </div>
+            </div>
+          </article>
+
+          <article class="panel ai-insights">
+            <div class="panel-title">
+              <h3>AI Insights / AI 洞察</h3>
+              <el-button
+                size="small"
+                @click="openCopilot('请基于当前宠物档案和最近健康日志，生成一段简短照护洞察。')"
+                >深入分析</el-button
+              >
+            </div>
+            <ul>
+              <li v-for="insight in aiInsights" :key="insight">{{ insight }}</li>
+            </ul>
+            <p class="disclaimer">AI 不能替代兽医诊断；持续或严重异常请联系执业兽医。</p>
+          </article>
+
+          <article class="panel recent-logs">
+            <div class="panel-title">
+              <h3>Recent Logs / 最近日志</h3>
+              <div class="filter-chips"><span>全部</span><span>症状</span><span>体重</span></div>
+            </div>
+            <div v-if="recentLogs.length" class="timeline">
+              <div v-for="log in recentLogs.slice(0, 4)" :key="log.id" class="timeline-card">
+                <strong>{{ new Date(log.loggedAt).toLocaleDateString('zh-CN') }}</strong>
+                <p>
+                  食欲 {{ log.appetite || '未填' }} · 便便 {{ log.poop || '未填' }} · 呕吐
+                  {{ log.vomiting || '未填' }} · 精神 {{ log.energyLevel }}/5
+                </p>
+                <small>{{ log.symptoms || log.notes || '暂无异常' }}</small>
+              </div>
+            </div>
+            <p v-else class="empty-copy">还没有健康日志。</p>
+          </article>
+
+          <article class="panel quick-actions">
+            <h3>Quick Actions / 快捷操作</h3>
+            <div class="quick-grid">
+              <button type="button" @click="openHealthLogDialog">Record Health Log</button>
+              <button type="button" @click="generateCarePlan">Create Feeding Plan</button>
+              <button type="button" @click="prepareVetVisit">Prepare Vet Visit</button>
+              <button type="button" @click="comparePetFood">Compare Pet Food</button>
+              <button type="button" @click="fileInputEl?.click()">Upload Medical Report</button>
+              <button type="button" @click="openReminderDialog">Set Reminder</button>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="activeModule === 'health'" class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>健康日志</h2>
+            <p>记录食欲、饮水、便便、呕吐、精神、症状和体重，形成长期趋势。</p>
+          </div>
+          <el-button type="primary" :icon="Plus" @click="openHealthLogDialog">新增日志</el-button>
+        </div>
+        <div class="trend-row">
+          <article class="trend-card">
+            <span>最近食欲</span><strong>{{ latestLog?.appetite || '待记录' }}</strong>
+          </article>
+          <article class="trend-card">
+            <span>最近饮水</span><strong>{{ latestLog?.waterIntake || '待记录' }}</strong>
+          </article>
+          <article class="trend-card">
+            <span>最近便便</span><strong>{{ latestLog?.poop || '待记录' }}</strong>
+          </article>
+          <article class="trend-card">
+            <span>体重</span><strong>{{ latestWeight ? `${latestWeight}kg` : '待记录' }}</strong>
+          </article>
+        </div>
+        <div v-if="recentLogs.length" class="timeline large">
+          <article v-for="log in chat.activePetHealthLogs" :key="log.id" class="log-detail-card">
+            <header>
+              <strong>{{ new Date(log.loggedAt).toLocaleString('zh-CN') }}</strong
+              ><el-tag v-if="log.symptoms" type="warning">异常</el-tag>
+            </header>
+            <p>
+              食欲 {{ log.appetite }} · 饮水 {{ log.waterIntake }} · 便便 {{ log.poop }} · 呕吐
+              {{ log.vomiting }} · 精神 {{ log.energyLevel }}/5 · 情绪 {{ log.mood }}
+            </p>
+            <small
+              >症状：{{ log.symptoms || '无' }}；用药：{{ log.medication || '无' }}；异常行为：{{
+                log.abnormalBehavior || '无'
+              }}</small
+            >
+            <small>{{ log.notes || '无备注' }}</small>
+          </article>
+        </div>
+        <p v-else class="empty-state">还没有日志。先记录今天的食欲、饮水、便便和精神状态。</p>
+      </section>
+
+      <section v-else-if="activeModule === 'care'" class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>护理计划</h2>
+            <p>喂养、日常护理、运动、美容、用药、疫苗和驱虫安排。</p>
+          </div>
+          <el-button type="primary" :icon="Food" @click="generateCarePlan">生成/更新计划</el-button>
+        </div>
+        <article v-if="chat.activePetCarePlan" class="care-plan-card">
+          <h3>{{ chat.activePetCarePlan.title }}</h3>
+          <p>{{ chat.activePetCarePlan.summary }}</p>
+          <div class="plan-columns">
+            <section>
+              <h4>Feeding / 喂养</h4>
+              <ul>
+                <li v-for="item in chat.activePetCarePlan.feeding" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+            <section>
+              <h4>Routine / 日常护理</h4>
+              <ul>
+                <li v-for="item in chat.activePetCarePlan.care" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+            <section>
+              <h4>Warnings / 警讯</h4>
+              <ul>
+                <li v-for="item in chat.activePetCarePlan.warnings" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+            <section>
+              <h4>Reminder Suggestions / 提醒建议</h4>
+              <ul>
+                <li v-for="item in chat.activePetCarePlan.reminders" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+          </div>
+        </article>
+        <p v-else class="empty-state">
+          还没有护理计划。点击生成后会基于档案、体重、过敏和近期日志创建第一版。
+        </p>
+      </section>
+
+      <section v-else-if="activeModule === 'vet'" class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>就医助手</h2>
+            <p>把症状、健康日志和资料整理成问诊清单，不做诊断或处方。</p>
+          </div>
+          <el-button type="primary" :icon="FirstAidKit" @click="prepareVetVisit">生成就医清单</el-button>
+        </div>
+        <div class="vet-grid">
+          <article class="panel">
+            <h3>Symptom Triage / 症状分诊</h3>
+            <p>基于近期日志识别需要观察的症状、发生频率和就医紧急度。</p>
+            <el-button @click="openCopilot('请根据最近健康日志做一次症状分诊。')">Ask AI</el-button>
+          </article>
+          <article class="panel">
+            <h3>Vet Checklist / 就诊清单</h3>
+            <p>整理一句话病情摘要、时间线、需要携带的资料、照片或样本。</p>
+            <el-button @click="prepareVetVisit">生成</el-button>
+          </article>
+          <article class="panel">
+            <h3>Report Explanation / 报告解释</h3>
+            <p>上传化验单、疫苗记录或病历，AI 用主人能理解的语言解释。</p>
+            <el-button @click="fileInputEl?.click()">上传资料</el-button>
+          </article>
+          <article class="panel warning-panel">
+            <WarningFilled />
+            <h3>Emergency Warning Signs / 急症警讯</h3>
+            <p>
+              持续呕吐/腹泻、呼吸困难、抽搐、疑似中毒、无法排尿、明显疼痛、精神沉郁或拒食超过 24
+              小时，请尽快联系执业兽医或急诊医院。
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section v-else-if="activeModule === 'products'" class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>商品决策</h2>
+            <p>比较食品、猫砂/狗用品、保险、智能设备和本地服务。</p>
+          </div>
+          <el-button type="primary" :icon="ChatDotRound" @click="comparePetFood">开始比较</el-button>
+        </div>
+        <div class="decision-grid">
+          <article
+            class="decision-card"
+            @click="openCopilot('请比较两款猫粮/狗粮，结合当前宠物体重、过敏和病史输出表格。')"
+          >
+            <Food /><strong>Food comparison</strong><small>主粮、湿粮、冻干、零食</small>
+          </article>
+          <article
+            class="decision-card"
+            @click="openCopilot('请比较两种猫砂或宠物用品，关注安全、维护、成本和适配性。')"
+          >
+            <Document /><strong>Supplies</strong><small>猫砂、牵引、玩具、航空箱</small>
+          </article>
+          <article
+            class="decision-card"
+            @click="openCopilot('请比较宠物保险方案，列出等待期、免赔额、既往症、报销范围和预算。')"
+          >
+            <Files /><strong>Insurance</strong><small>保险方案和报销范围</small>
+          </article>
+          <article
+            class="decision-card"
+            @click="openCopilot('请比较智能喂食器、饮水机或猫砂盆，关注数据、清洁和多宠识别。')"
+          >
+            <Bell /><strong>Smart devices</strong><small>喂食器、饮水机、猫砂盆</small>
+          </article>
+        </div>
+        <p class="empty-state compact">推荐历史将在下一版沉淀为决策记录。</p>
+      </section>
+
+      <section v-else-if="activeModule === 'files'" class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>资料库</h2>
+            <p>集中管理检查报告、疫苗记录、发票、保险文件和病历。</p>
+          </div>
+          <el-button type="primary" :icon="UploadFilled" @click="fileInputEl?.click()">上传资料</el-button>
+        </div>
+        <div v-if="chat.pendingFiles.length" class="file-grid">
+          <article v-for="file in chat.pendingFiles" :key="file.id" class="file-card">
+            <Document /><strong>{{ file.name }}</strong
+            ><small>{{ file.kind }} · {{ Math.round(file.size / 1024) }}KB</small>
+            <el-button size="small" @click="chat.removePendingFile(file.id)">移除</el-button>
+          </article>
+        </div>
+        <p v-else class="empty-state">还没有资料。上传报告后可从 AI 护理助手中解释并关联到当前宠物。</p>
+      </section>
+
+      <section v-else class="module-page">
+        <div class="module-toolbar">
+          <div>
+            <h2>提醒</h2>
+            <p>喂食、饮水、用药、驱虫、疫苗、美容和复诊提醒。</p>
+          </div>
+          <el-button type="primary" :icon="Bell" @click="openReminderDialog">新增提醒</el-button>
+        </div>
+        <div v-if="chat.activePetReminders.length" class="reminder-list">
+          <article
+            v-for="reminder in chat.activePetReminders"
+            :key="reminder.id"
+            class="reminder-card"
+            :class="{ done: reminder.status === 'done' }"
+          >
+            <div>
+              <strong>{{ reminder.title }}</strong>
+              <p>
+                {{ reminderTypeLabel(reminder.type) }} · {{ formatDate(reminder.dueAt) }} ·
+                {{ reminder.repeat }}
+              </p>
+              <small>{{ reminder.notes || '无备注' }}</small>
+            </div>
+            <el-button @click="chat.toggleCareReminderDone(reminder.id)">{{
+              reminder.status === 'done' ? '恢复' : '完成'
+            }}</el-button>
+          </article>
+        </div>
+        <p v-else class="empty-state">还没有提醒。先添加喂食、饮水、驱虫、疫苗或复诊提醒。</p>
+      </section>
+    </section>
+
+    <aside class="copilot-panel" :class="{ open: isCopilotOpen }" aria-label="AI 护理助手">
+      <header class="copilot-header">
+        <div>
+          <p class="eyebrow">AI Copilot</p>
+          <h2>AI 护理助手</h2>
+        </div>
+        <el-button :icon="Close" circle @click="closeCopilot" />
+      </header>
+      <section class="copilot-pet-context">
+        <span class="pet-avatar-small">{{ chat.activePet?.species === 'dog' ? 'D' : 'C' }}</span>
+        <div>
+          <strong>{{ chat.activePet?.name || '未选择宠物' }}</strong>
+          <small>{{ currentPetSummary }}</small>
+        </div>
+      </section>
+      <div class="copilot-chips">
+        <button v-for="chip in promptChips" :key="chip" type="button" @click="openCopilot(chip)">
+          {{ chip }}
+        </button>
+      </div>
+      <div class="copilot-chips templates">
+        <button
+          v-for="template in petTemplates.slice(0, 4)"
+          :key="template.id"
+          type="button"
+          @click="openCopilot(template.name, template)"
+        >
+          {{ template.name }}
+        </button>
+      </div>
+      <div ref="messagesEl" class="copilot-messages">
+        <p v-if="!chat.visibleMessages.length" class="empty-copy">
+          打开一个问题，AI 会带着当前宠物档案、健康日志和提醒来回答。
+        </p>
+        <MessageBubble
+          v-for="message in chat.visibleMessages"
+          :key="message.id"
+          :message="message"
+          :is-sending="chat.isSending"
+          :copied-message-id="copiedMessageId"
+          :copied-code-block="copiedCodeBlock"
+          :is-editing="editingMessageId === message.id"
+          :editing-content="editingContent"
+          @update:editing-content="(value) => (editingContent = value)"
+          @start-inline-edit="startInlineEdit"
+          @cancel-inline-edit="cancelInlineEdit"
+          @submit-inline-edit="submitInlineEdit"
+          @copy-message="copyMessage"
+          @copy-code-block="copyCodeBlock"
+          @regenerate-message="chat.regenerateMessage"
+          @open-attachment="() => ElMessage.info('附件已加入 AI 上下文')"
+        />
+      </div>
+      <footer class="copilot-footer">
+        <input ref="fileInputEl" type="file" multiple class="sr-only" @change="handleFiles" />
+        <div v-if="activeComposerTemplate" class="active-template">
+          {{ activeComposerTemplate.name }}
+          <button type="button" @click="activeComposerTemplate = null">移除</button>
+        </div>
+        <div v-if="chat.pendingFiles.length" class="file-chip-row">
+          <el-tag
+            v-for="file in chat.pendingFiles"
+            :key="file.id"
+            closable
+            @close="chat.removePendingFile(file.id)"
+            >{{ file.name }}</el-tag
+          >
+        </div>
+        <div class="copilot-input-row">
+          <el-button :icon="UploadFilled" circle @click="fileInputEl?.click()" />
+          <el-input
+            v-model="copilotInput"
+            class="copilot-composer"
+            type="textarea"
+            resize="none"
+            :autosize="{ minRows: 2, maxRows: 5 }"
+            placeholder="向 AI 护理助手描述症状、产品、报告或护理目标..."
+            @keydown.enter.exact.prevent="submitCopilot"
+          />
+          <el-button type="primary" :icon="Promotion" :disabled="!canSend" @click="submitCopilot"
+            >发送</el-button
+          >
+        </div>
+      </footer>
+    </aside>
+
+    <button class="mobile-ai-fab" type="button" @click="openCopilot()"><ChatDotRound />AI</button>
+
+    <nav class="mobile-bottom-nav">
+      <button
+        v-for="item in navItems"
+        :key="item.id"
+        type="button"
+        :class="{ active: activeModule === item.id }"
+        @click="setModule(item.id)"
+      >
+        <component :is="item.icon" />
+        <span>{{ item.label }}</span>
+      </button>
+    </nav>
+
+    <el-dialog v-model="petDialogVisible" title="宠物档案" width="720px" class="pet-dialog">
+      <div class="form-grid">
+        <label>名字<el-input v-model="petDraft.name" placeholder="糯米 / Lucky" /></label>
+        <label
+          >物种<el-select v-model="petDraft.species"
+            ><el-option label="猫" value="cat" /><el-option label="狗" value="dog" /><el-option
+              label="其他"
+              value="other" /></el-select
+        ></label>
+        <label>品种<el-input v-model="petDraft.breed" /></label>
+        <label
+          >性别<el-select v-model="petDraft.gender"
+            ><el-option label="未知" value="unknown" /><el-option label="母" value="female" /><el-option
+              label="公"
+              value="male" /></el-select
+        ></label>
+        <label>生日<el-input v-model="petDraft.birthday" placeholder="2022-04-18" /></label>
+        <label>年龄描述<el-input v-model="petDraft.ageLabel" placeholder="4 岁左右" /></label>
+        <label>体重 kg<el-input-number v-model="petDraft.weightKg" :min="0" :precision="2" /></label>
+        <label
+          >绝育<el-select v-model="petDraft.sterilizationStatus"
+            ><el-option label="待补充" value="unknown" /><el-option
+              label="已绝育"
+              value="sterilized" /><el-option label="未绝育" value="not_sterilized" /></el-select
+        ></label>
+      </div>
+      <div class="form-stack">
+        <label>过敏<el-input v-model="petDraft.allergies" /></label>
+        <label>病史<el-input v-model="petDraft.medicalHistory" type="textarea" :rows="2" /></label>
+        <label>疫苗状态<el-input v-model="petDraft.vaccinationStatus" /></label>
+        <label>驱虫状态<el-input v-model="petDraft.dewormingStatus" /></label>
+        <label>食物偏好<el-input v-model="petDraft.foodPreferences" type="textarea" :rows="2" /></label>
+        <input
+          ref="petAvatarInputEl"
+          type="file"
+          accept="image/*"
+          class="sr-only"
+          @change="handlePetAvatar"
+        />
+        <el-button @click="petAvatarInputEl?.click()">上传头像/照片</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="petDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="savePet">保存档案</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="healthLogDialogVisible" title="新增健康日志" width="640px">
+      <div class="form-grid">
+        <label>食欲<el-input v-model="logDraft.appetite" /></label>
+        <label>饮水<el-input v-model="logDraft.waterIntake" /></label>
+        <label>便便<el-input v-model="logDraft.poop" /></label>
+        <label>呕吐<el-input v-model="logDraft.vomiting" /></label>
+        <label>精神 1-5<el-input-number v-model="logDraft.energyLevel" :min="1" :max="5" /></label>
+        <label>体重 kg<el-input-number v-model="logDraft.weightKg" :min="0" :precision="2" /></label>
+      </div>
+      <div class="form-stack">
+        <label>情绪<el-input v-model="logDraft.mood" /></label>
+        <label>症状<el-input v-model="logDraft.symptoms" /></label>
+        <label>用药<el-input v-model="logDraft.medication" /></label>
+        <label>异常行为<el-input v-model="logDraft.abnormalBehavior" /></label>
+        <label>备注<el-input v-model="logDraft.notes" type="textarea" :rows="3" /></label>
+      </div>
+      <template #footer>
+        <el-button @click="healthLogDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveHealthLog">保存日志</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="reminderDialogVisible" title="新增照护提醒" width="560px">
+      <div class="form-stack">
+        <label>标题<el-input v-model="reminderDraft.title" placeholder="喂食、换水、驱虫、复诊..." /></label>
+        <label
+          >类型<el-select v-model="reminderDraft.type"
+            ><el-option label="喂食" value="feeding" /><el-option label="饮水" value="water" /><el-option
+              label="驱虫"
+              value="deworming" /><el-option label="疫苗" value="vaccination" /><el-option
+              label="美容"
+              value="grooming" /><el-option label="用药" value="medication" /><el-option
+              label="复诊"
+              value="vet_follow_up" /><el-option label="其他" value="other" /></el-select
+        ></label>
+        <label>时间<el-input v-model="reminderDraft.dueAt" type="datetime-local" /></label>
+        <label>重复<el-input v-model="reminderDraft.repeat" placeholder="一次 / 每日 / 每月 / 每年" /></label>
+        <label>备注<el-input v-model="reminderDraft.notes" type="textarea" :rows="3" /></label>
+      </div>
+      <template #footer>
+        <el-button @click="reminderDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveReminder">保存提醒</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="settingsVisible" title="AI 与账户设置" width="720px">
       <SettingsPanel
         :providers="chat.providers"
         :selected-provider-id="chat.selectedProviderId"
@@ -1674,634 +1026,659 @@ async function regenerateMessage(messageId: string) {
         :is-refreshing-local-models="chat.isRefreshingLocalModels"
         @select-provider="selectProvider"
         @update-api-key="chat.setApiKey"
-        @select-model="selectModel"
+        @select-model="chat.setModel"
         @select-inference-mode="chat.setInferenceMode"
         @select-local-model="chat.setLocalModel"
         @update-hybrid-fallback="chat.setHybridFallbackToCloud"
         @refresh-local-models="chat.refreshLocalModels"
-        @clear-history="confirmClear"
-      />
-    </aside>
-
-    <div
-      v-if="isMobileLayout"
-      class="mobile-sidebar-backdrop"
-      :class="{ 'is-visible': !isSidebarCollapsed }"
-      @click="toggleSidebar"
-    ></div>
-
-    <el-button
-      class="sidebar-toggle-button"
-      :icon="isSidebarCollapsed ? Expand : Fold"
-      :title="isSidebarCollapsed ? t('chat.expandSidebar') : t('chat.collapseSidebar')"
-      :aria-label="isSidebarCollapsed ? t('chat.expandSidebar') : t('chat.collapseSidebar')"
-      circle
-      @click="toggleSidebar"
-    />
-
-    <el-dialog
-      v-model="isBatchDeleteDialogVisible"
-      class="session-batch-delete-dialog"
-      :title="t('session.batchDeleteDialogTitle')"
-      width="min(760px, 92vw)"
-      align-center
-    >
-      <div class="session-batch-delete-body">
-        <div class="session-batch-delete-toolbar">
-          <el-input
-            v-model="batchDeleteSearchQuery"
-            class="session-batch-delete-search"
-            clearable
-            :prefix-icon="Search"
-            :placeholder="t('session.batchDeleteSearchPlaceholder')"
-          />
-          <label class="session-batch-select-all">
-            <input
-              class="session-select-checkbox"
-              type="checkbox"
-              :checked="isAllFilteredSessionsSelected"
-              :disabled="!batchDeleteFilteredSessions.length"
-              @change="handleToggleSelectAllFiltered"
-            />
-            <span>{{ t('session.selectAllFiltered') }}</span>
-          </label>
-          <span class="session-batch-count">{{
-            t('session.selectedCount', { count: selectedSessionCount })
-          }}</span>
-        </div>
-        <div v-if="batchDeleteFilteredSessions.length" class="session-batch-delete-list">
-          <label
-            v-for="session in batchDeleteFilteredSessions"
-            :key="session.id"
-            class="session-batch-delete-item"
-            :class="{ selected: isSessionSelected(session.id) }"
-          >
-            <input
-              class="session-select-checkbox"
-              type="checkbox"
-              :checked="isSessionSelected(session.id)"
-              @change="toggleSessionSelection(session.id, ($event.target as HTMLInputElement).checked)"
-            />
-            <span class="session-batch-delete-item-main">
-              <span class="session-batch-delete-item-title">{{ session.title }}</span>
-              <span class="session-batch-delete-item-meta">
-                {{ session.updatedAt.replace('T', ' ').slice(0, 16) }} ·
-                {{ t('session.messagesCount', { count: session.messages.length }) }}
-              </span>
-            </span>
-          </label>
-        </div>
-        <div v-else class="session-batch-delete-empty">
-          {{ t('session.batchDeleteEmpty') }}
-        </div>
-      </div>
-      <template #footer>
-        <div class="session-batch-delete-footer">
-          <el-button @click="isBatchDeleteDialogVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="danger" :disabled="!canBatchDeleteSessions" @click="confirmBatchDeleteSessions">
-            {{ t('session.batchDelete') }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="isSummaryDialogVisible"
-      class="summary-dialog"
-      :title="t('chat.smartSummary')"
-      width="min(640px, 92vw)"
-    >
-      <el-input
-        v-model="summaryDraft"
-        class="summary-editor"
-        type="textarea"
-        :rows="12"
-        resize="vertical"
-        :placeholder="t('chat.editSummary')"
+        @clear-history="chat.clearAllSessions"
       />
       <template #footer>
-        <div class="summary-dialog-actions">
-          <el-button
-            plain
-            :icon="copiedSummary ? Check : CopyDocument"
-            :disabled="!summaryDraft.trim()"
-            @click="copySummaryDraft"
-          >
-            {{ copiedSummary ? t('common.copied') : t('common.copy') }}
-          </el-button>
-          <el-button @click="isSummaryDialogVisible = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" :disabled="!summaryDraft.trim()" @click="saveSummaryDraft">{{
-            t('common.save')
-          }}</el-button>
-        </div>
+        <el-button @click="logout">退出登录</el-button>
+        <el-button type="primary" @click="settingsVisible = false">完成</el-button>
       </template>
     </el-dialog>
-
-    <el-dialog
-      v-model="isErrorDialogVisible"
-      class="t1-error-dialog"
-      width="min(520px, 92vw)"
-      :show-close="true"
-      align-center
-    >
-      <div class="t1-error-dialog-body">
-        <div class="t1-error-dialog-icon" aria-hidden="true">
-          <el-icon><CircleClose /></el-icon>
-        </div>
-        <div class="t1-error-dialog-copy">
-          <h3>{{ t('chat.errorDialogTitle') }}</h3>
-          <p class="t1-error-dialog-description">{{ t('chat.errorDialogDescription') }}</p>
-          <p class="t1-error-dialog-message">{{ chat.errorMessage }}</p>
-        </div>
-      </div>
-      <template #footer>
-        <div class="t1-error-dialog-actions">
-          <el-button type="primary" @click="chat.clearErrorMessage()">
-            {{ t('chat.errorDialogAcknowledge') }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <div
-      v-if="!isSidebarCollapsed"
-      class="panel-resizer left"
-      :title="t('chat.collapseSidebar')"
-      @mousedown="startResize('left', $event)"
-    ></div>
-
-    <main
-      id="main-content"
-      class="chat-area"
-      :class="{ 'is-empty-chat': !chat.visibleMessages.length }"
-      tabindex="-1"
-    >
-      <header class="topbar">
-        <div class="topbar-title">
-          <!-- <p>当前会话</p> -->
-          <h4 :title="chat.activeSession.title">{{ chat.activeSession.title }}</h4>
-          <!-- <div class="active-project-indicator">当前项目：{{ activeProjectObjectLabel }}</div> -->
-        </div>
-        <div class="topbar-actions">
-          <el-button
-            v-if="isMobileLayout"
-            class="topbar-icon-button mobile-new-chat-btn"
-            :icon="Plus"
-            :title="t('chat.newSession')"
-            :aria-label="t('chat.newSession')"
-            circle
-            @click="chat.newSession"
-          />
-          <div v-if="auth.currentUser" class="topbar-user" :title="auth.currentUser.phone">
-            <span class="topbar-user-avatar">{{ auth.currentUser.avatarText }}</span>
-            <span class="topbar-user-name">{{ auth.currentUser.name }}</span>
-          </div>
-          <el-tag :type="chat.isProviderReady ? 'success' : 'warning'" round>
-            {{ providerStatusText }}
-          </el-tag>
-          <el-select
-            class="topbar-locale-select"
-            :model-value="locale"
-            size="small"
-            :aria-label="t('common.language')"
-            @change="handleLocaleChange"
-          >
-            <el-option
-              v-for="item in localeOptions"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-            />
-          </el-select>
-          <el-button
-            class="topbar-icon-button"
-            :icon="isWorkspaceCollapsed ? Expand : Fold"
-            :title="isWorkspaceCollapsed ? t('chat.expandFileTree') : t('chat.collapseFileTree')"
-            :aria-label="isWorkspaceCollapsed ? t('chat.expandFileTree') : t('chat.collapseFileTree')"
-            circle
-            @click="toggleWorkspaceTree"
-          />
-          <el-button
-            class="topbar-icon-button"
-            :icon="SwitchButton"
-            :title="t('chat.logout')"
-            :aria-label="t('chat.logout')"
-            circle
-            @click="logout"
-          />
-        </div>
-      </header>
-
-      <div
-        ref="messagesEl"
-        class="messages"
-        :aria-label="t('chat.messages')"
-        role="log"
-        aria-live="polite"
-        @scroll="handleMessagesScroll"
-      >
-        <div v-if="!chat.visibleMessages.length" class="empty-state">
-          <div class="empty-logo">T1</div>
-          <h2>{{ t('chat.emptyStateTitle') }}</h2>
-          <p>{{ t('chat.emptyStateDescription') }}</p>
-          <div class="empty-state-status">
-            <span class="empty-status-chip">{{ providerStatusText }}</span>
-            <span class="empty-status-chip">{{ modeSummaryText }}</span>
-            <span class="empty-status-chip">
-              {{
-                chat.activeProjectId ? `${t('chat.project')} · ${activeProjectLabel}` : t('chat.normalChat')
-              }}
-            </span>
-          </div>
-          <div class="empty-state-actions" :aria-label="t('chat.quickActions')">
-            <button
-              v-for="prompt in emptyStatePrompts"
-              :key="prompt"
-              type="button"
-              class="empty-state-action"
-              @click="applyQuickPrompt(prompt)"
-            >
-              {{ prompt }}
-            </button>
-          </div>
-        </div>
-
-        <div v-for="message in chat.visibleMessages" v-else :key="message.id" class="message-list-item">
-          <MessageBubble
-            :message="message"
-            :is-sending="chat.isSending"
-            :copied-message-id="copiedMessageId"
-            :copied-code-block="copiedCodeBlock"
-            :is-editing="editingMessageId === message.id"
-            :editing-content="editingContent"
-            @update:editing-content="editingContent = $event"
-            @start-inline-edit="startInlineEdit"
-            @cancel-inline-edit="cancelInlineEdit"
-            @submit-inline-edit="submitInlineEdit"
-            @copy-message="copyMessage"
-            @copy-code-block="copyCodeBlock"
-            @regenerate-message="regenerateMessage"
-            @open-attachment="openAttachmentPreview"
-          />
-        </div>
-      </div>
-
-      <button
-        v-if="showJumpToBottom"
-        type="button"
-        class="scroll-to-bottom-button"
-        :aria-label="t('chat.scrollToLatest')"
-        @click="scrollToBottom"
-      >
-        <el-icon><ArrowDown /></el-icon>
-        {{ t('chat.scrollToLatest') }}
-      </button>
-
-      <section class="composer-wrap">
-        <div v-if="chat.pendingFiles.length" class="attachment-list">
-          <el-tag
-            v-for="file in chat.pendingFiles"
-            :key="file.id"
-            closable
-            effect="plain"
-            @close="chat.removePendingFile(file.id)"
-          >
-            {{ file.name }}
-          </el-tag>
-        </div>
-
-        <div v-if="chat.activeProjectId" class="composer-original-root-indicator">
-          <span class="original-root-label">
-            <el-icon><Folder /></el-icon>
-            {{
-              chat.activeProject?.originalRoot
-                ? t('chat.originalPath', { path: chat.activeProject.originalRoot })
-                : t('chat.originalPathLoading')
-            }}
-          </span>
-        </div>
-
-        <!-- === 修改：仅在有项目时显示，并添加退出按钮 === -->
-        <div v-if="chat.activeProjectId" class="composer-project-indicator">
-          <span
-            >{{ t('chat.activeProject') }}<strong>{{ activeProjectLabel }}</strong></span
-          >
-          <el-button link @click="chat.setActiveProject('')">
-            <el-icon><Close /></el-icon> {{ t('chat.exitProjectMode') }}
-          </el-button>
-        </div>
-
-        <div v-if="activeComposerTemplate" class="composer-template-indicator">
-          <span class="composer-template-indicator__label">{{ t('chat.conversationTemplate') }}</span>
-          <el-tag
-            class="composer-template-tag"
-            closable
-            type="success"
-            effect="plain"
-            @close="activeComposerTemplate = null"
-          >
-            {{ activeComposerTemplate.name }}
-          </el-tag>
-        </div>
-
-        <div class="composer" @paste="handleComposerPaste">
-          <div class="composer-left-actions">
-            <el-button
-              class="icon-button"
-              :icon="Paperclip"
-              circle
-              :title="t('chat.addAttachment')"
-              @click="pickFiles"
-            />
-            <el-button
-              class="icon-button"
-              :type="chat.enableTools ? 'primary' : 'default'"
-              :icon="Tools"
-              circle
-              :title="chat.enableTools ? t('chat.toolsOn') : t('chat.enableTools')"
-              @click="toggleEnableTools"
-            />
-            <el-button
-              v-if="chat.activeProjectId"
-              class="icon-button"
-              :type="chat.enablePlanning ? 'warning' : 'default'"
-              :icon="Cpu"
-              circle
-              :title="chat.enablePlanning ? t('chat.planningOn') : t('chat.enablePlanning')"
-              @click="toggleEnablePlanning"
-            />
-          </div>
-          <!-- === 修改：动态更新 Placeholder 文案 === -->
-          <el-input
-            v-model="input"
-            type="textarea"
-            resize="vertical"
-            :autosize="{ minRows: 1, maxRows: 6 }"
-            :placeholder="
-              chat.activeProjectId
-                ? t('chat.askProviderWithProject', {
-                    provider: chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name,
-                    project: activeProjectLabel,
-                  })
-                : t('chat.askProvider', {
-                    provider: chat.inferenceMode === 'local' ? chat.localModel : chat.selectedProvider.name,
-                  })
-            "
-            @keydown.enter="handleEnter"
-          />
-
-          <!-- 发送/停止按钮动态切换 -->
-          <el-button
-            v-if="!chat.isSending"
-            class="send-button"
-            type="primary"
-            :icon="Promotion"
-            :disabled="!canSend"
-            @click="submit"
-          >
-            {{ t('common.send') }}
-          </el-button>
-
-          <el-button
-            v-else
-            class="send-button stop-button"
-            type="danger"
-            :icon="CircleClose"
-            @click="stopGeneration"
-          >
-            {{ t('common.stop') }}
-          </el-button>
-
-          <input ref="fileInputEl" class="file-input" type="file" multiple @change="handleFiles" />
-        </div>
-        <div class="composer-help-row">
-          <span>{{ t('chat.composerShortcutHint') }}</span>
-          <span>{{ providerStatusText }}</span>
-        </div>
-      </section>
-    </main>
-    <div
-      v-if="isCodePreviewVisible"
-      class="panel-resizer preview"
-      :title="t('chat.codePreview')"
-      @mousedown="startResize('preview', $event)"
-    ></div>
-
-    <aside v-if="isCodePreviewVisible" class="code-preview-panel">
-      <header class="code-preview-topbar">
-        <div class="code-preview-title">
-          <p>{{ attachmentPreview ? t('chat.attachmentPreview') : t('chat.codePreview') }}</p>
-          <h3>{{ previewTitle }}</h3>
-        </div>
-        <el-button
-          class="panel-icon-button"
-          text
-          :icon="Refresh"
-          :loading="chat.isLoadingFile"
-          :disabled="!chat.activeFilePath || Boolean(attachmentPreview)"
-          :title="t('chat.refreshFile')"
-          @click="chat.activeFilePath && chat.loadProjectFile(chat.activeFilePath, { force: true })"
-        />
-        <el-button
-          class="panel-icon-button"
-          text
-          :icon="Close"
-          :title="t('chat.closeCodePreview')"
-          @click="closeCodePreview"
-        />
-      </header>
-
-      <section class="code-preview-body">
-        <div v-if="attachmentPreview" class="attachment-preview">
-          <iframe
-            v-if="previewKind === 'document'"
-            class="attachment-preview-frame"
-            :src="attachmentPreviewUrl"
-            :title="attachmentPreview.name"
-          ></iframe>
-          <audio
-            v-else-if="previewKind === 'audio'"
-            class="attachment-preview-media"
-            :src="attachmentPreviewUrl"
-            controls
-          ></audio>
-          <video
-            v-else-if="previewKind === 'video'"
-            class="attachment-preview-video"
-            :src="attachmentPreviewUrl"
-            controls
-          ></video>
-          <img
-            v-else-if="previewKind === 'image'"
-            class="attachment-preview-image"
-            :src="attachmentPreviewUrl"
-            :alt="attachmentPreview.name"
-          />
-        </div>
-
-        <div v-else-if="chat.activeFilePath" class="file-actions">
-          <el-button
-            size="small"
-            type="primary"
-            :icon="DocumentChecked"
-            :loading="chat.isApplyingFileWrite"
-            :disabled="!hasEditedFileChanges"
-            @click="saveActiveFileFromMonaco"
-          >
-            {{ t('common.save') }}
-          </el-button>
-          <el-button
-            size="small"
-            plain
-            :loading="chat.isPreviewingFileDiff"
-            :disabled="!hasEditedFileChanges"
-            @click="previewActiveFileDiffFromMonaco"
-          >
-            Diff
-          </el-button>
-          <el-button
-            size="small"
-            plain
-            :icon="VideoPlay"
-            :loading="codeRunStatus === 'running'"
-            :disabled="!canRunActiveFile"
-            @click="runActiveCode"
-          >
-            {{ t('common.run') }}
-          </el-button>
-          <el-button
-            size="small"
-            plain
-            :icon="Edit"
-            :loading="chat.isOpeningExternalEditor"
-            @click="chat.openActiveFileInEditor('cursor')"
-          >
-            Cursor
-          </el-button>
-        </div>
-
-        <div v-if="!attachmentPreview && chat.activeFilePath" class="code-workbench">
-          <div ref="monacoEditorEl" class="monaco-editor-host" aria-label="Monaco code editor"></div>
-          <section class="code-runner-panel" :class="`status-${codeRunStatus}`">
-            <header class="code-runner-header">
-              <span class="code-runner-title">
-                <el-icon><Cpu /></el-icon>
-                {{ t('chat.debug') }}
-              </span>
-              <span class="code-runner-status">{{ codeRunStatusLabel }}</span>
-              <el-button
-                class="panel-icon-button"
-                text
-                :icon="CopyDocument"
-                :disabled="!codeRunLogs.length"
-                :title="copiedDebugOutput ? t('common.copied') : t('chat.copyDebugOutput')"
-                @click="copyDebugOutput"
-              />
-            </header>
-            <iframe
-              v-if="codeRunPreviewHtml"
-              class="code-runner-frame"
-              sandbox="allow-scripts"
-              :srcdoc="codeRunPreviewHtml"
-              :title="t('chat.codeSandboxTitle')"
-            ></iframe>
-            <pre
-              class="code-runner-log"
-            ><code>{{ codeRunLogs.length ? codeRunLogs.join('\n') : t('chat.runLogEmpty') }}</code></pre>
-          </section>
-        </div>
-        <div v-else-if="!attachmentPreview" class="code-empty">{{ t('chat.chooseFilePreview') }}</div>
-
-        <pre v-if="!attachmentPreview && chat.activeFileDiff" class="diff-preview">
-          <code class="language-diff" v-html="highlightedActiveFileDiff"></code>
-        </pre>
-      </section>
-    </aside>
-
-    <div
-      v-if="!isWorkspaceCollapsed"
-      class="panel-resizer right"
-      title="Workspace"
-      @mousedown="startResize('right', $event)"
-    ></div>
-
-    <aside v-if="!isWorkspaceCollapsed" class="workspace-panel-right">
-      <header class="workspace-topbar">
-        <div>
-          <p>Workspace</p>
-          <h2>{{ chat.activeProject?.name || t('chat.workspaceNoProject') }}</h2>
-        </div>
-        <div class="workspace-topbar-actions">
-          <el-button
-            class="panel-icon-button"
-            text
-            :icon="Refresh"
-            :loading="chat.isLoadingProjectTree || chat.isLoadingFile"
-            :disabled="!chat.activeProject"
-            :title="t('chat.refreshProjectFiles')"
-            @click="chat.refreshActiveProjectFiles"
-          />
-          <el-button
-            class="panel-icon-button"
-            text
-            :disabled="!canToggleCodePreview"
-            :title="isCodePreviewVisible ? t('chat.hideCodePreview') : t('chat.showCodePreview')"
-            @click="toggleCodePreviewPanel"
-          >
-            <span
-              class="split-panel-icon"
-              :class="{ collapsed: !isCodePreviewVisible }"
-              aria-hidden="true"
-            ></span>
-          </el-button>
-          <el-button
-            class="panel-icon-button"
-            text
-            :icon="Fold"
-            :title="t('chat.collapseFileTree')"
-            :aria-label="t('chat.collapseFileTree')"
-            @click="toggleWorkspaceTree"
-          />
-        </div>
-      </header>
-
-      <section class="file-tree-section">
-        <div class="workspace-section-title">
-          <span class="workspace-files-title"
-            >{{ t('chat.allFiles') }} <el-icon><ArrowDown /></el-icon
-          ></span>
-          <small v-if="chat.activeProject"
-            >{{ chat.activeProject.chunkCount }} {{ t('common.snippets') }}</small
-          >
-        </div>
-        <el-tree
-          v-if="chat.activeProjectTree.length"
-          class="project-tree"
-          :data="chat.activeProjectTree"
-          node-key="path"
-          :props="{ label: 'name', children: 'children' }"
-          :highlight-current="true"
-          :expand-on-click-node="true"
-          @node-click="handleTreeNodeClick"
-        >
-          <template #default="{ data }">
-            <span class="tree-node" :class="{ directory: data.isDirectory, file: !data.isDirectory }">
-              <template v-if="data.isDirectory">
-                <span class="tree-folder-name">{{ data.name }}</span>
-              </template>
-              <template v-else>
-                <span class="file-type-badge" :class="`type-${getFileTypeClass(data.name)}`">
-                  {{ getFileTypeLabel(data.name) }}
-                </span>
-                <span class="tree-file-name">{{ data.name }}</span>
-              </template>
-            </span>
-          </template>
-        </el-tree>
-        <button v-else type="button" class="project-empty" @click="pickProjectFolder">
-          {{ t('chat.importProjectFirst') }}
-        </button>
-      </section>
-    </aside>
-  </div>
+  </main>
 </template>
+
+<style scoped>
+.app-shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: 284px minmax(0, 1fr);
+  background: #f6f3ee;
+  color: #20251f;
+}
+.desktop-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  border-right: 1px solid #e0d9ce;
+  background: #fffaf3;
+}
+.brand,
+.sidebar-footer,
+.page-header,
+.module-toolbar,
+.panel-title,
+.selected-pet-header,
+.header-buttons,
+.copilot-header,
+.copilot-input-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.brand {
+  justify-content: flex-start;
+}
+.brand-mark,
+.pet-avatar-small,
+.pet-switch-card > span,
+.pet-identity > span {
+  display: grid;
+  place-items: center;
+  background: #2f624d;
+  color: #fff;
+  font-weight: 800;
+}
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+}
+.brand p,
+.eyebrow {
+  margin: 0 0 4px;
+  color: #728074;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+.brand strong,
+h1,
+h2,
+h3,
+h4,
+p {
+  margin-top: 0;
+}
+.section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #536052;
+  font-size: 13px;
+  font-weight: 700;
+}
+.pet-switcher {
+  border-bottom: 1px solid #eee6dc;
+  padding-bottom: 12px;
+}
+.pet-switch-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pet-switch-card.active {
+  background: #e9f5ed;
+  border-color: #c7dfcf;
+}
+.pet-switch-card img,
+.pet-switch-card > span {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.pet-switch-card strong,
+.pet-switch-card small,
+.module-nav strong,
+.module-nav small {
+  display: block;
+}
+small {
+  color: #69756c;
+}
+.module-nav {
+  display: grid;
+  gap: 4px;
+  overflow-y: auto;
+}
+.module-nav button {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+.module-nav button.active {
+  background: #2f624d;
+  color: #fff;
+}
+.module-nav button.active small {
+  color: #dbece1;
+}
+.sidebar-footer {
+  margin-top: auto;
+}
+.content-shell {
+  min-width: 0;
+  padding: 24px;
+  overflow-y: auto;
+}
+.page-header {
+  margin-bottom: 20px;
+}
+.page-header h1 {
+  margin-bottom: 4px;
+  font-size: 30px;
+}
+.module-page {
+  max-width: 1180px;
+}
+.selected-pet-header,
+.panel,
+.trend-card,
+.care-plan-card,
+.log-detail-card,
+.decision-card,
+.file-card,
+.reminder-card {
+  border: 1px solid #e4ded3;
+  border-radius: 8px;
+  background: #fffdf9;
+}
+.selected-pet-header {
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.pet-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.pet-identity img,
+.pet-identity > span {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  object-fit: cover;
+  font-size: 24px;
+}
+.pet-identity h2 {
+  margin-bottom: 4px;
+  font-size: 28px;
+}
+.status-good {
+  --el-tag-bg-color: #e7f6ec;
+  --el-tag-text-color: #276342;
+  --el-tag-border-color: #c7e5d1;
+}
+.status-warn {
+  --el-tag-bg-color: #fff3df;
+  --el-tag-text-color: #8a5715;
+  --el-tag-border-color: #f2d3a5;
+}
+.status-neutral {
+  --el-tag-bg-color: #eef1ef;
+  --el-tag-text-color: #59645d;
+  --el-tag-border-color: #d6ddd8;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 16px;
+}
+.panel {
+  padding: 16px;
+}
+.recent-logs,
+.quick-actions {
+  grid-column: 1 / -1;
+}
+.task-list,
+.timeline,
+.reminder-list,
+.file-grid {
+  display: grid;
+  gap: 10px;
+}
+.task-item {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #e9e2d8;
+  border-radius: 8px;
+  background: #fbfaf7;
+  padding: 10px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.task-check svg {
+  width: 20px;
+  height: 20px;
+  color: #2f624d;
+}
+.overdue,
+.abnormal strong {
+  color: #9a4d22;
+}
+.snapshot-grid,
+.trend-row,
+.decision-grid,
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.snapshot-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.snapshot-grid div,
+.trend-card {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f5f0;
+}
+.snapshot-grid span,
+.trend-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: #69756c;
+  font-size: 13px;
+}
+.snapshot-grid strong,
+.trend-card strong {
+  font-size: 20px;
+}
+.abnormal {
+  background: #fff3df !important;
+  border: 1px solid #f0cf9b;
+}
+.ai-insights ul,
+.care-plan-card ul {
+  padding-left: 18px;
+}
+.disclaimer {
+  margin-bottom: 0;
+  color: #756454;
+  font-size: 13px;
+}
+.filter-chips,
+.quick-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filter-chips span {
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #eef4ef;
+  color: #47604f;
+  font-size: 12px;
+}
+.timeline-card,
+.log-detail-card,
+.reminder-card {
+  padding: 12px;
+}
+.timeline-card {
+  border-left: 3px solid #9abca5;
+  background: #fbfaf7;
+  border-radius: 8px;
+}
+.quick-grid {
+  margin-top: 12px;
+}
+.quick-grid button,
+.decision-card {
+  border: 1px solid #e4ded3;
+  border-radius: 8px;
+  background: #fbfaf7;
+  padding: 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.quick-grid button {
+  min-width: 180px;
+}
+.module-toolbar {
+  margin-bottom: 16px;
+}
+.module-toolbar h2 {
+  margin-bottom: 6px;
+}
+.timeline.large {
+  gap: 12px;
+}
+.log-detail-card header,
+.reminder-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.log-detail-card p,
+.reminder-card p {
+  margin-bottom: 6px;
+}
+.care-plan-card {
+  padding: 18px;
+}
+.plan-columns,
+.vet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.plan-columns section {
+  padding: 12px;
+  border-radius: 8px;
+  background: #f8f5ef;
+}
+.warning-panel {
+  background: #fff6eb;
+  border-color: #efd3aa;
+}
+.warning-panel svg,
+.decision-card svg,
+.file-card svg {
+  width: 24px;
+  height: 24px;
+  color: #2f624d;
+}
+.decision-card,
+.file-card {
+  display: grid;
+  gap: 8px;
+}
+.reminder-card.done {
+  opacity: 0.58;
+}
+.empty-copy,
+.empty-state {
+  color: #70796f;
+}
+.empty-state {
+  padding: 22px;
+  border: 1px dashed #d8d0c4;
+  border-radius: 8px;
+  background: #fffdf9;
+}
+.empty-state.compact {
+  margin-top: 14px;
+}
+.copilot-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 40;
+  width: min(440px, 100vw);
+  height: 100vh;
+  display: grid;
+  grid-template-rows: auto auto auto auto 1fr auto;
+  gap: 12px;
+  padding: 18px;
+  background: #fffdf9;
+  border-left: 1px solid #ded8cd;
+  box-shadow: -18px 0 48px rgba(34, 39, 34, 0.14);
+  transform: translateX(104%);
+  transition: transform 180ms ease;
+}
+.copilot-panel.open {
+  transform: translateX(0);
+}
+.copilot-header h2 {
+  margin-bottom: 0;
+}
+.copilot-pet-context {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border-radius: 8px;
+  background: #edf7f0;
+}
+.pet-avatar-small {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+.copilot-chips,
+.file-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.copilot-chips button {
+  border: 1px solid #d9e2d9;
+  border-radius: 999px;
+  background: #f7fbf8;
+  color: #385844;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+.copilot-chips.templates button {
+  background: #fff8ec;
+}
+.copilot-messages {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.copilot-footer {
+  border-top: 1px solid #e6ded3;
+  padding-top: 10px;
+}
+.active-template {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #2f624d;
+  font-size: 13px;
+}
+.active-template button {
+  border: 0;
+  background: transparent;
+  color: #2f624d;
+  cursor: pointer;
+}
+.copilot-composer {
+  flex: 1;
+}
+.mobile-topbar,
+.mobile-bottom-nav,
+.mobile-ai-fab {
+  display: none;
+}
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.form-stack {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+label {
+  display: grid;
+  gap: 6px;
+  color: #4e574f;
+  font-size: 13px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+@media (max-width: 1060px) {
+  .desktop-sidebar {
+    display: none;
+  }
+  .app-shell {
+    display: block;
+    padding-bottom: 78px;
+  }
+  .mobile-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    background: rgba(255, 250, 243, 0.96);
+    border-bottom: 1px solid #e1d9cf;
+  }
+  .mobile-pet-pill {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid #d8e3d9;
+    border-radius: 999px;
+    background: #fff;
+    padding: 6px 10px;
+    color: inherit;
+  }
+  .mobile-pet-menu {
+    position: absolute;
+    top: 58px;
+    left: 14px;
+    right: 14px;
+    display: grid;
+    gap: 6px;
+    padding: 10px;
+    border: 1px solid #e4ded3;
+    border-radius: 8px;
+    background: #fffdf9;
+    box-shadow: 0 12px 30px rgba(33, 37, 32, 0.12);
+  }
+  .mobile-pet-menu button {
+    border: 0;
+    border-radius: 8px;
+    background: #f7f5f0;
+    padding: 10px;
+    text-align: left;
+  }
+  .content-shell {
+    padding: 16px;
+  }
+  .page-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .page-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .selected-pet-header,
+  .module-toolbar,
+  .log-detail-card header,
+  .reminder-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .overview-grid,
+  .plan-columns,
+  .vet-grid,
+  .snapshot-grid,
+  .trend-row,
+  .decision-grid,
+  .file-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .header-buttons {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .mobile-bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding: 8px;
+    background: #fffdf9;
+    border-top: 1px solid #ded8cd;
+  }
+  .mobile-bottom-nav button {
+    min-width: 82px;
+    display: grid;
+    place-items: center;
+    gap: 2px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #657067;
+    padding: 6px 4px;
+    font-size: 12px;
+  }
+  .mobile-bottom-nav button.active {
+    background: #e9f5ed;
+    color: #2f624d;
+    font-weight: 700;
+  }
+  .mobile-bottom-nav svg {
+    width: 20px;
+    height: 20px;
+  }
+  .mobile-ai-fab {
+    position: fixed;
+    right: 16px;
+    bottom: 86px;
+    z-index: 31;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 0;
+    border-radius: 999px;
+    background: #2f624d;
+    color: #fff;
+    padding: 12px 14px;
+    box-shadow: 0 10px 28px rgba(47, 98, 77, 0.28);
+  }
+  .mobile-ai-fab svg {
+    width: 18px;
+    height: 18px;
+  }
+  .copilot-panel {
+    width: 100vw;
+    border-left: 0;
+  }
+}
+</style>

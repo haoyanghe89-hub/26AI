@@ -165,9 +165,9 @@ onMounted(async () => {
     </div>
 
     <div class="login-brand">
-      <div class="logo-mark">T1</div>
+      <div class="logo-mark">PM</div>
       <div>
-        <strong>Twentys1x</strong>
+        <strong>宠物 AI 管家</strong>
         <span>{{ t('auth.authenticating') }}</span>
       </div>
     </div>
@@ -188,7 +188,7 @@ onMounted(async () => {
 
     <section class="login-center" :aria-label="t('auth.loginTwentys1x')">
       <div class="login-copy">
-        <p>Twentys1x AI Studio</p>
+        <p>Pet AI Manager</p>
         <!-- <h1>Secure Local Orbit</h1> -->
         <strong>{{ t('auth.welcome') }}</strong>
         <span>{{ t('auth.intro') }}</span>

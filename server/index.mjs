@@ -153,7 +153,7 @@ await initPersistence()
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
-  '你是 Twentys1x 的 AI 助手。请用清晰、可靠、友好的方式回答问题，默认使用中文，必要时给出结构化步骤。'
+  '你是宠物 AI 管家的 AI 助手。请围绕宠物档案、健康日志、照护提醒、就医准备和产品决策回答，默认使用中文。不要做医学确诊或处方，严重症状必须建议联系执业兽医。'
 
 const PROVIDERS = {
   openai: {
