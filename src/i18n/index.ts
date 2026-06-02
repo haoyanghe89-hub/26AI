@@ -4,10 +4,7 @@ export type AppLocale = 'zh-CN' | 'en-US'
 
 export const LOCALE_STORAGE_KEY = 'twentys1x:locale'
 
-export const localeOptions: Array<{ value: AppLocale; label: string }> = [
-  { value: 'zh-CN', label: '中文' },
-  { value: 'en-US', label: 'English' },
-]
+export const localeOptions: Array<{ value: AppLocale; label: string }> = [{ value: 'zh-CN', label: '中文' }]
 
 const messages = {
   'zh-CN': {
@@ -38,7 +35,7 @@ const messages = {
     },
     app: {
       skipToMain: '跳到主内容',
-      aiStudio: '宠物 AI 管家',
+      aiStudio: '宠物智能管家',
     },
     auth: {
       authenticating: '真实认证进行中',
@@ -46,9 +43,9 @@ const messages = {
       localAccount: '本地真实账号',
       smsReady: '短信已接入',
       smsPending: '短信待接入',
-      loginTwentys1x: '登录宠物 AI 管家',
+      loginTwentys1x: '登录宠物智能管家',
       welcome: '管理每一位毛孩子',
-      intro: '登录后继续宠物档案、健康日志、提醒、就医清单和 AI 照护咨询。',
+      intro: '登录后继续宠物档案、健康日志、提醒、就医清单和智能照护咨询。',
       form: '登录表单',
       chooseLoginMode: '选择登录方式',
       accountPassword: '账号密码',
@@ -62,7 +59,7 @@ const messages = {
       qrReadyDesc: '点击下方按钮进入{provider}官方授权页。',
       qrUnavailableDesc: '该能力需要站点管理员接入第三方开放平台后才会显示真实二维码。',
       goAuthorize: '前往{provider}授权',
-      qrReadyNote: '将跳转到{provider}官方授权页，完成后自动回到宠物 AI 管家。',
+      qrReadyNote: '将跳转到{provider}官方授权页，完成后自动回到宠物智能管家。',
       qrUnavailableNote: '{provider}扫码登录暂未开通，请先使用账号密码登录，或联系管理员开通第三方登录。',
       phone: '手机号',
       phonePlaceholder: '请输入手机号',
@@ -203,7 +200,7 @@ const messages = {
       cloudModel: '云端模型',
       localModel: '本地模型',
       autoHybrid: '自动混合',
-      provider: 'AI 供应商',
+      provider: '模型供应商',
       chooseOrInputModel: '选择或输入模型',
       chooseOrInputOllama: '选择或输入 Ollama 模型',
       connected: '已连接',
@@ -376,7 +373,7 @@ const messages = {
       securityTitle: '安全说明',
       dataLocal: '默认情况下，会话、API Key 与偏好设置保存在本地浏览器或本地服务中。',
       userControl: '用户可以清空历史记录、删除导入项目，并自行管理第三方 API Key。',
-      disclaimer: 'AI 输出可能不准确，重要决策请进行人工核验。',
+      disclaimer: '智能输出可能不准确，重要决策请进行人工核验。',
     },
   },
   'en-US': {
@@ -771,11 +768,8 @@ function resolveInitialLocale(): AppLocale {
       ? globalThis.localStorage
       : null
   const stored = storage?.getItem(LOCALE_STORAGE_KEY)
-  if (stored === 'zh-CN' || stored === 'en-US') return stored
-
-  const language =
-    typeof navigator !== 'undefined' && typeof navigator.language === 'string' ? navigator.language : 'zh-CN'
-  return language.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+  if (stored !== 'zh-CN') storage?.setItem(LOCALE_STORAGE_KEY, 'zh-CN')
+  return 'zh-CN'
 }
 
 export const i18n = createI18n({

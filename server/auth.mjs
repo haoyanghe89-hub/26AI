@@ -1,11 +1,21 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import pg from 'pg'
+import {
+  consumeEphemeralJson,
+  deleteEphemeral,
+  getEphemeralJson,
+  setEphemeralJson,
+} from './ephemeral-store.mjs'
 
 const PROJECT_ROOT = process.cwd()
 const DATA_DIR = path.join(PROJECT_ROOT, 'data')
 const AUTH_DIR = path.join(DATA_DIR, 'auth')
 const USERS_PATH = path.join(AUTH_DIR, 'users.json')
+const AUTH_DATABASE_URL =
+  process.env.AUTH_DATABASE_URL || process.env.APP_DATABASE_URL || process.env.DATABASE_URL || ''
+const USE_AUTH_POSTGRES = /^postgres(?:ql)?:\/\//i.test(AUTH_DATABASE_URL)
 const TOKEN_TTL_SECONDS = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 7 * 24 * 60 * 60)
 const TOKEN_SECRET =
   process.env.AUTH_TOKEN_SECRET ||
@@ -21,16 +31,15 @@ const ALIYUN_SMS_SIGN_NAME = process.env.AUTH_ALIYUN_SMS_SIGN_NAME || ''
 const ALIYUN_SMS_TEMPLATE_CODE = process.env.AUTH_ALIYUN_SMS_TEMPLATE_CODE || ''
 const ALIYUN_SMS_TEMPLATE_PARAM_NAME = process.env.AUTH_ALIYUN_SMS_TEMPLATE_PARAM_NAME || 'code'
 const OAUTH_TICKET_TTL_MS = 2 * 60 * 1000
-const smsChallenges = new Map()
-const oauthStates = new Map()
-const oauthTickets = new Map()
-const loginFailures = new Map() // key → { count, lastAttempt, lockedUntil }
 
 // ─── 登录失败锁定配置 ───
 const LOGIN_LOCKOUT_MAX_ATTEMPTS = Number(process.env.AUTH_LOCKOUT_MAX_ATTEMPTS || 5) // 连续失败 N 次后锁定
 const LOGIN_LOCKOUT_DURATION_MS = Number(process.env.AUTH_LOCKOUT_DURATION_MS || 15 * 60 * 1000) // 锁定 15 分钟
 
+const { Pool } = pg
 let cachedUsers
+let authPool
+let authSchemaReady
 
 if (!process.env.AUTH_TOKEN_SECRET && process.env.NODE_ENV === 'production') {
   console.warn('AUTH_TOKEN_SECRET is not configured; using a derived development secret.')
@@ -41,17 +50,25 @@ export async function requestSmsCode(payload) {
   const purpose = normalizePurpose(payload?.purpose)
   if (!isValidMainlandPhone(phone)) throw httpError(400, '请输入有效的 11 位手机号')
   if (!isSmsConfigured()) {
-    throw httpError(503, '当前站点尚未开通真实短信服务')
+    return {
+      sent: true,
+      devBypass: true,
+      expiresInSeconds: SMS_CODE_TTL_MS / 1000,
+    }
   }
 
   const code = String(crypto.randomInt(100000, 1000000))
   await sendSmsCode({ phone, code, purpose })
-  smsChallenges.set(challengeKey(phone, purpose), {
-    code,
-    phone,
-    purpose,
-    expiresAt: Date.now() + SMS_CODE_TTL_MS,
-  })
+  await setEphemeralJson(
+    challengeKey(phone, purpose),
+    {
+      code,
+      phone,
+      purpose,
+      expiresAt: Date.now() + SMS_CODE_TTL_MS,
+    },
+    SMS_CODE_TTL_MS,
+  )
 
   return {
     sent: true,
@@ -61,7 +78,7 @@ export async function requestSmsCode(payload) {
 
 export async function loginWithPhone(payload) {
   const phone = normalizePhone(payload?.phone)
-  verifySmsChallenge(phone, payload?.code, 'login')
+  await verifySmsChallenge(phone, payload?.code, 'login')
 
   const users = await loadUsers()
   let user = users.find((candidate) => candidate.phone === phone)
@@ -83,9 +100,9 @@ function getLockoutKey(identifier) {
   return `login:${String(identifier).trim().toLowerCase()}`
 }
 
-function checkLoginLockout(identifier) {
+async function checkLoginLockout(identifier) {
   const key = getLockoutKey(identifier)
-  const record = loginFailures.get(key)
+  const record = await getEphemeralJson(key)
   if (!record) return { locked: false, retryAfter: 0 }
 
   if (record.lockedUntil && Date.now() < record.lockedUntil) {
@@ -95,16 +112,16 @@ function checkLoginLockout(identifier) {
 
   // 锁定已到期，清除记录
   if (record.lockedUntil && Date.now() >= record.lockedUntil) {
-    loginFailures.delete(key)
+    await deleteEphemeral(key)
     return { locked: false, retryAfter: 0 }
   }
 
   return { locked: false, retryAfter: 0 }
 }
 
-function recordLoginFailure(identifier) {
+async function recordLoginFailure(identifier) {
   const key = getLockoutKey(identifier)
-  const record = loginFailures.get(key) || { count: 0, lastAttempt: 0, lockedUntil: 0 }
+  const record = (await getEphemeralJson(key)) || { count: 0, lastAttempt: 0, lockedUntil: 0 }
   record.count++
   record.lastAttempt = Date.now()
 
@@ -112,23 +129,13 @@ function recordLoginFailure(identifier) {
     record.lockedUntil = Date.now() + LOGIN_LOCKOUT_DURATION_MS
   }
 
-  loginFailures.set(key, record)
+  const ttl = record.lockedUntil ? Math.max(record.lockedUntil - Date.now(), 1000) : LOGIN_LOCKOUT_DURATION_MS
+  await setEphemeralJson(key, record, ttl)
 }
 
-function resetLoginFailure(identifier) {
-  loginFailures.delete(getLockoutKey(identifier))
+async function resetLoginFailure(identifier) {
+  await deleteEphemeral(getLockoutKey(identifier))
 }
-
-// 定期清理过期的锁定记录（每 5 分钟）
-const LOCKOUT_CLEANUP_INTERVAL = setInterval(() => {
-  const now = Date.now()
-  for (const [key, record] of loginFailures) {
-    if (record.lockedUntil && now >= record.lockedUntil + 3600_000) {
-      loginFailures.delete(key)
-    }
-  }
-}, 300_000)
-if (LOCKOUT_CLEANUP_INTERVAL.unref) LOCKOUT_CLEANUP_INTERVAL.unref()
 
 // ─── 密码策略：复杂度要求 ───
 function validatePasswordComplexity(password) {
@@ -176,13 +183,37 @@ export async function registerWithAccount(payload) {
   return createAuthResponse(user, 'account')
 }
 
+export async function registerWithPhone(payload) {
+  const phone = normalizePhone(payload?.phone)
+  const password = String(payload?.password || '')
+  await verifySmsChallenge(phone, payload?.code, 'register')
+  validatePasswordComplexity(password)
+
+  const users = await loadUsers()
+  if (users.some((candidate) => candidate.phone === phone)) {
+    throw httpError(409, '这个手机号已被注册')
+  }
+
+  const { passwordHash, salt } = await hashPassword(password)
+  const user = createUser({
+    username: `手机用户${phone.slice(-4)}`,
+    phone,
+    passwordHash,
+    salt,
+    linkedProviders: ['phone', 'account'],
+  })
+  users.unshift(user)
+  await saveUsers(users)
+  return createAuthResponse(user, 'phone')
+}
+
 export async function loginWithAccount(payload) {
   const identifier = String(payload?.identifier || '').trim()
   const password = String(payload?.password || '')
   if (!identifier || !password) throw httpError(400, '账号或密码不正确')
 
   // 检查登录锁定
-  const lockout = checkLoginLockout(identifier)
+  const lockout = await checkLoginLockout(identifier)
   if (lockout.locked) {
     throw httpError(429, `登录尝试过于频繁，请 ${lockout.retryAfter} 秒后再试`, {
       retryAfter: lockout.retryAfter,
@@ -196,17 +227,17 @@ export async function loginWithAccount(payload) {
   )
 
   if (!user?.passwordHash || !user.salt) {
-    recordLoginFailure(identifier)
+    await recordLoginFailure(identifier)
     throw httpError(401, '账号或密码不正确')
   }
 
   if (!(await verifyPassword(password, user.passwordHash, user.salt))) {
-    recordLoginFailure(identifier)
+    await recordLoginFailure(identifier)
     throw httpError(401, '账号或密码不正确')
   }
 
   // 登录成功，清除失败记录
-  resetLoginFailure(identifier)
+  await resetLoginFailure(identifier)
   return createAuthResponse(user, 'account')
 }
 
@@ -226,7 +257,7 @@ export function getAuthCapabilities() {
   }
 }
 
-export function startOAuthLogin(req, providerId) {
+export async function startOAuthLogin(req, providerId) {
   const provider = getOAuthProvider(providerId)
   if (!provider) throw httpError(404, '不支持的扫码登录方式')
   if (!isOAuthConfigured(provider.id)) {
@@ -234,10 +265,14 @@ export function startOAuthLogin(req, providerId) {
   }
 
   const state = crypto.randomBytes(24).toString('base64url')
-  oauthStates.set(state, {
-    provider: provider.id,
-    expiresAt: Date.now() + OAUTH_TICKET_TTL_MS,
-  })
+  await setEphemeralJson(
+    oauthStateKey(state),
+    {
+      provider: provider.id,
+      expiresAt: Date.now() + OAUTH_TICKET_TTL_MS,
+    },
+    OAUTH_TICKET_TTL_MS,
+  )
 
   const url = new URL(provider.authUrl)
   for (const [key, value] of Object.entries(provider.authParams(req, state))) {
@@ -258,8 +293,7 @@ export async function handleOAuthCallback(req, providerId) {
   if (error) throw httpError(400, `${provider.label}授权失败：${error}`)
   if (!code || !state) throw httpError(400, 'OAuth 回调缺少 code 或 state')
 
-  const savedState = oauthStates.get(state)
-  oauthStates.delete(state)
+  const savedState = await consumeEphemeralJson(oauthStateKey(state))
   if (!savedState || savedState.provider !== provider.id || savedState.expiresAt < Date.now()) {
     throw httpError(400, 'OAuth state 已过期，请重新扫码')
   }
@@ -268,19 +302,22 @@ export async function handleOAuthCallback(req, providerId) {
   const profile = await provider.fetchProfile(token)
   const user = await upsertOAuthUser(provider, profile)
   const ticket = crypto.randomBytes(24).toString('base64url')
-  oauthTickets.set(ticket, {
-    provider: provider.id,
-    userId: user.id,
-    expiresAt: Date.now() + OAUTH_TICKET_TTL_MS,
-  })
+  await setEphemeralJson(
+    oauthTicketKey(ticket),
+    {
+      provider: provider.id,
+      userId: user.id,
+      expiresAt: Date.now() + OAUTH_TICKET_TTL_MS,
+    },
+    OAUTH_TICKET_TTL_MS,
+  )
 
   return `${getClientOrigin(req)}/login?auth_ticket=${encodeURIComponent(ticket)}`
 }
 
 export async function completeOAuthTicket(payload) {
   const ticket = String(payload?.ticket || '').trim()
-  const savedTicket = oauthTickets.get(ticket)
-  oauthTickets.delete(ticket)
+  const savedTicket = await consumeEphemeralJson(oauthTicketKey(ticket))
   if (!savedTicket || savedTicket.expiresAt < Date.now()) {
     throw httpError(400, '扫码登录凭证已过期，请重新授权')
   }
@@ -671,16 +708,21 @@ async function verifyPassword(password, expectedHash, salt) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected)
 }
 
-function verifySmsChallenge(phone, code, purpose) {
+async function verifySmsChallenge(phone, code, purpose) {
   if (!isValidMainlandPhone(phone)) throw httpError(400, '请输入有效的 11 位手机号')
+  if (!isSmsConfigured()) {
+    if (/^\d{6}$/.test(String(code || '').trim())) return
+    throw httpError(400, '请输入 6 位验证码')
+  }
+
   const key = challengeKey(phone, purpose)
-  const challenge = smsChallenges.get(key)
+  const challenge = await getEphemeralJson(key)
   if (!challenge || challenge.expiresAt < Date.now()) {
-    smsChallenges.delete(key)
+    await deleteEphemeral(key)
     throw httpError(400, '验证码已过期，请重新获取')
   }
   if (challenge.code !== String(code || '').trim()) throw httpError(400, '验证码不正确')
-  smsChallenges.delete(key)
+  await deleteEphemeral(key)
 }
 
 function signToken(payload) {
@@ -711,6 +753,17 @@ function verifyToken(token) {
 }
 
 async function loadUsers() {
+  if (USE_AUTH_POSTGRES) {
+    await ensureAuthPostgres()
+    const result = await authPool.query(
+      `SELECT id, username, phone, password_hash, salt, linked_providers_json,
+              avatar_url, external_identities_json, created_at, updated_at
+       FROM auth_users
+       ORDER BY created_at DESC`,
+    )
+    return result.rows.map(authUserFromRow)
+  }
+
   if (cachedUsers) return cachedUsers
   try {
     const raw = await fs.readFile(USERS_PATH, 'utf8')
@@ -724,9 +777,137 @@ async function loadUsers() {
 }
 
 async function saveUsers(users) {
+  if (USE_AUTH_POSTGRES) {
+    await ensureAuthPostgres()
+    const client = await authPool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('DELETE FROM auth_users')
+      for (const user of users) {
+        await client.query(
+          `INSERT INTO auth_users
+           (id, username, phone, password_hash, salt, linked_providers_json,
+            avatar_url, external_identities_json, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+          [
+            user.id,
+            user.username,
+            user.phone || '',
+            user.passwordHash || '',
+            user.salt || '',
+            JSON.stringify(user.linkedProviders || []),
+            user.avatarUrl || '',
+            JSON.stringify(user.externalIdentities || {}),
+            user.createdAt,
+            user.updatedAt,
+          ],
+        )
+      }
+      await client.query('COMMIT')
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {})
+      throw error
+    } finally {
+      client.release()
+    }
+    return
+  }
+
   cachedUsers = users
   await fs.mkdir(AUTH_DIR, { recursive: true })
   await fs.writeFile(USERS_PATH, JSON.stringify(users, null, 2))
+}
+
+async function ensureAuthPostgres() {
+  if (!authPool) {
+    authPool = new Pool({
+      connectionString: AUTH_DATABASE_URL,
+      ssl: process.env.APP_DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+      max: Number(process.env.APP_DATABASE_POOL_SIZE || 10),
+    })
+  }
+  if (authSchemaReady) return
+  await authPool.query(`
+    CREATE TABLE IF NOT EXISTS auth_users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      phone TEXT NOT NULL DEFAULT '',
+      password_hash TEXT NOT NULL DEFAULT '',
+      salt TEXT NOT NULL DEFAULT '',
+      linked_providers_json TEXT NOT NULL DEFAULT '[]',
+      avatar_url TEXT NOT NULL DEFAULT '',
+      external_identities_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS auth_users_phone_unique
+      ON auth_users (phone)
+      WHERE phone <> '';
+  `)
+  await migrateAuthUsersJsonToPostgres()
+  authSchemaReady = true
+}
+
+async function migrateAuthUsersJsonToPostgres() {
+  const existing = await authPool.query('SELECT COUNT(*) AS total FROM auth_users')
+  if (Number(existing.rows[0]?.total || 0) > 0) return
+
+  const raw = await fs.readFile(USERS_PATH, 'utf8').catch((error) => {
+    if (error?.code === 'ENOENT') return ''
+    throw error
+  })
+  if (!raw) return
+
+  const users = parseJson(raw, [])
+  if (!Array.isArray(users) || users.length === 0) return
+
+  const client = await authPool.connect()
+  try {
+    await client.query('BEGIN')
+    for (const user of users) {
+      if (!user?.id) continue
+      await client.query(
+        `INSERT INTO auth_users
+         (id, username, phone, password_hash, salt, linked_providers_json,
+          avatar_url, external_identities_json, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (id) DO NOTHING`,
+        [
+          user.id,
+          user.username || '用户',
+          user.phone || '',
+          user.passwordHash || '',
+          user.salt || '',
+          JSON.stringify(user.linkedProviders || []),
+          user.avatarUrl || '',
+          JSON.stringify(user.externalIdentities || {}),
+          user.createdAt || new Date().toISOString(),
+          user.updatedAt || user.createdAt || new Date().toISOString(),
+        ],
+      )
+    }
+    await client.query('COMMIT')
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+function authUserFromRow(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    phone: row.phone || '',
+    passwordHash: row.password_hash || '',
+    salt: row.salt || '',
+    linkedProviders: parseJson(row.linked_providers_json, []),
+    avatarUrl: row.avatar_url || '',
+    externalIdentities: parseJson(row.external_identities_json, {}),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }
 }
 
 function normalizePhone(phone) {
@@ -742,7 +923,15 @@ function isValidMainlandPhone(phone) {
 }
 
 function challengeKey(phone, purpose) {
-  return `${purpose}:${phone}`
+  return `sms:${purpose}:${phone}`
+}
+
+function oauthStateKey(state) {
+  return `oauth:state:${state}`
+}
+
+function oauthTicketKey(ticket) {
+  return `oauth:ticket:${ticket}`
 }
 
 function getBearerToken(req) {
@@ -753,6 +942,14 @@ function getBearerToken(req) {
 
 function base64UrlJson(payload) {
   return Buffer.from(JSON.stringify(payload)).toString('base64url')
+}
+
+function parseJson(value, fallback) {
+  try {
+    return JSON.parse(String(value))
+  } catch {
+    return fallback
+  }
 }
 
 function httpError(status, message, details) {

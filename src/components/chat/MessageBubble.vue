@@ -97,11 +97,10 @@ function canPreviewAttachment(file: ChatAttachment) {
 
 <template>
   <article class="message-row" :class="message.role">
-    <!-- Avatar -->
-    <div class="avatar">{{ message.role === 'user' ? t('message.you') : 'T1' }}</div>
+    <div class="avatar">{{ message.role === 'user' ? t('message.you') : '专' }}</div>
 
     <div class="message-bubble" :class="{ 'is-inline-editing': isEditing }">
-      <!-- 元信息条：仅 AI 消息且非编辑态显示 -->
+      <!-- 元信息条：仅助手消息且非编辑态显示 -->
       <div v-if="message.role === 'assistant' && !isEditing && hasMeta" class="message-meta-bar">
         <div class="meta-left">
           <span v-if="meta?.agentName" class="meta-badge meta-agent">
@@ -214,7 +213,7 @@ function canPreviewAttachment(file: ChatAttachment) {
           <span class="thinking-dot"></span>
         </p>
 
-        <!-- AI 消息操作栏 -->
+        <!-- 助手消息操作栏 -->
         <div v-if="message.role === 'assistant' && hasRenderableContent" class="message-actions">
           <span class="message-timestamp" :title="message.createdAt">{{ messageTimestamp }}</span>
           <div class="message-action-buttons">
@@ -273,15 +272,15 @@ function canPreviewAttachment(file: ChatAttachment) {
   flex-wrap: wrap;
   margin: -6px -6px 10px;
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(23, 32, 26, 0.06);
+  border-bottom: 1px solid rgba(59, 47, 41, 0.06);
   border-radius: 10px 10px 0 0;
-  background: rgba(248, 251, 247, 0.6);
+  background: rgba(255, 250, 243, 0.6);
 }
 
 .message-meta-bar.user-meta {
   justify-content: flex-end;
-  background: rgba(23, 32, 26, 0.02);
-  border-bottom-color: rgba(23, 32, 26, 0.04);
+  background: rgba(59, 47, 41, 0.02);
+  border-bottom-color: rgba(59, 47, 41, 0.04);
 }
 
 .meta-left,
@@ -309,18 +308,18 @@ function canPreviewAttachment(file: ChatAttachment) {
 }
 
 .meta-agent {
-  color: #2d5848;
-  background: rgba(52, 96, 78, 0.12);
+  color: #a9582f;
+  background: rgba(217, 130, 75, 0.12);
 }
 
 .meta-template {
-  color: #5a5f32;
-  background: rgba(79, 93, 58, 0.12);
+  color: #8a6b38;
+  background: rgba(217, 130, 75, 0.12);
 }
 
 .meta-workflow {
-  color: #2f5a4c;
-  background: rgba(47, 90, 76, 0.12);
+  color: #a9582f;
+  background: rgba(169, 88, 47, 0.12);
 }
 
 .meta-inference {
@@ -329,8 +328,8 @@ function canPreviewAttachment(file: ChatAttachment) {
 }
 
 .meta-model {
-  color: #66706a;
-  background: rgba(23, 32, 26, 0.06);
+  color: #8b6950;
+  background: rgba(59, 47, 41, 0.06);
 }
 
 /* ========================================================
@@ -348,7 +347,7 @@ function canPreviewAttachment(file: ChatAttachment) {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: rgba(61, 111, 91, 0.7);
+  background: rgba(217, 130, 75, 0.78);
   animation: thinkingPulse 1.28s infinite ease-in-out both;
 }
 
@@ -404,44 +403,44 @@ function canPreviewAttachment(file: ChatAttachment) {
 :deep(.inline-edit-input .el-textarea__inner) {
   min-height: 128px;
   border-radius: 14px;
-  border-color: rgba(52, 96, 78, 0.18);
-  background: linear-gradient(180deg, rgba(251, 253, 250, 0.98), rgba(242, 246, 243, 0.96));
+  border-color: rgba(217, 130, 75, 0.18);
+  background: linear-gradient(180deg, rgba(255, 252, 247, 0.98), rgba(255, 240, 220, 0.96));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
-  color: #17201a;
+  color: #3b2f29;
   transition:
     border-color 0.22s ease,
     box-shadow 0.22s ease;
 }
 
 :deep(.inline-edit-input .el-textarea__inner:focus) {
-  border-color: rgba(52, 96, 78, 0.4);
+  border-color: rgba(217, 130, 75, 0.4);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 0 0 4px rgba(52, 96, 78, 0.08);
+    0 0 0 4px rgba(217, 130, 75, 0.08);
 }
 
 .inline-cancel-btn {
   --el-button-bg-color: rgba(255, 255, 255, 0.9);
-  --el-button-border-color: rgba(52, 96, 78, 0.2);
-  --el-button-hover-bg-color: #eef4ef;
-  --el-button-hover-border-color: #34604e;
-  --el-button-active-bg-color: #dcebe2;
-  --el-button-active-border-color: #2d5848;
-  --el-button-text-color: #34604e;
-  --el-button-hover-text-color: #2d5848;
+  --el-button-border-color: rgba(217, 130, 75, 0.2);
+  --el-button-hover-bg-color: #fff0dc;
+  --el-button-hover-border-color: #d9824b;
+  --el-button-active-bg-color: #ffead0;
+  --el-button-active-border-color: #a9582f;
+  --el-button-text-color: #d9824b;
+  --el-button-hover-text-color: #a9582f;
 }
 
 .inline-send-btn {
-  --el-button-bg-color: #34604e;
-  --el-button-border-color: #34604e;
-  --el-button-hover-bg-color: #3d6f5b;
-  --el-button-hover-border-color: #3d6f5b;
-  --el-button-active-bg-color: #2d5848;
-  --el-button-active-border-color: #2d5848;
-  --el-button-disabled-bg-color: #d9e8df;
-  --el-button-disabled-border-color: #d9e8df;
-  --el-button-disabled-text-color: #7a9788;
-  --el-button-text-color: #f8fbf7;
-  --el-button-hover-text-color: #f8fbf7;
+  --el-button-bg-color: #d9824b;
+  --el-button-border-color: #d9824b;
+  --el-button-hover-bg-color: #c96f3a;
+  --el-button-hover-border-color: #c96f3a;
+  --el-button-active-bg-color: #a9582f;
+  --el-button-active-border-color: #a9582f;
+  --el-button-disabled-bg-color: #f2d8ba;
+  --el-button-disabled-border-color: #f2d8ba;
+  --el-button-disabled-text-color: #b48767;
+  --el-button-text-color: #fffaf3;
+  --el-button-hover-text-color: #fffaf3;
 }
 </style>

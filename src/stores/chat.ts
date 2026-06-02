@@ -35,9 +35,11 @@ import {
   normalizeTags,
   parseAutoSessionTagsResponse,
 } from '../lib/sessionManagement'
+import { createId } from '../lib/uuid'
 
 type Role = 'user' | 'assistant'
 export type ProviderId =
+  | 'pet_expert'
   | 'openai'
   | 'gemini'
   | 'xai'
@@ -306,6 +308,24 @@ const STORAGE_KEYS = {
   enablePlanning: 'twentys1x:enable-planning',
 }
 
+const USER_SCOPED_STORAGE_KEYS = new Set<string>([
+  STORAGE_KEYS.sessions,
+  STORAGE_KEYS.activeSession,
+  STORAGE_KEYS.promptTemplates,
+  STORAGE_KEYS.customAgents,
+  STORAGE_KEYS.activeAgent,
+  STORAGE_KEYS.activeNormalAgent,
+  STORAGE_KEYS.activeProjectAgent,
+  STORAGE_KEYS.promptWorkflows,
+  STORAGE_KEYS.pets,
+  STORAGE_KEYS.healthLogs,
+  STORAGE_KEYS.careReminders,
+  STORAGE_KEYS.carePlans,
+  STORAGE_KEYS.activePet,
+  STORAGE_KEYS.productStateVersion,
+  STORAGE_KEYS.activeProject,
+])
+
 const MAX_MESSAGE_CHARS = 12000
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 const MAX_ATTACHMENT_TEXT_CHARS = 20000
@@ -372,127 +392,135 @@ const ALLOWED_ATTACHMENT_EXTENSIONS = new Set([
 
 export const AI_PROVIDERS: AiProvider[] = [
   {
+    id: 'pet_expert',
+    name: '宠物专家引擎',
+    keyLabel: '宠物专家引擎',
+    keyPlaceholder: '由高级设置中的底层模型配置驱动',
+    needsApiKey: false,
+    models: [{ label: '默认专家引擎', value: '默认专家引擎', hint: '推荐' }],
+  },
+  {
     id: 'openai',
-    name: 'ChatGPT / OpenAI',
-    keyLabel: 'OpenAI API Key',
+    name: '开放人工智能',
+    keyLabel: '开放人工智能密钥',
     keyPlaceholder: 'sk-...',
     needsApiKey: true,
     models: [
-      { label: 'GPT-5.2', value: 'gpt-5.2' },
-      { label: 'GPT-5.1', value: 'gpt-5.1' },
-      { label: 'GPT-4.1', value: 'gpt-4.1' },
-      { label: 'GPT-4.1 mini', value: 'gpt-4.1-mini' },
-      { label: 'GPT-4o', value: 'gpt-4o' },
+      { label: '通用模型 5.2', value: 'gpt-5.2' },
+      { label: '通用模型 5.1', value: 'gpt-5.1' },
+      { label: '通用模型 4.1', value: 'gpt-4.1' },
+      { label: '通用模型 4.1 轻量版', value: 'gpt-4.1-mini' },
+      { label: '通用多模态模型', value: 'gpt-4o' },
     ],
   },
   {
     id: 'gemini',
-    name: 'Gemini',
-    keyLabel: 'Gemini API Key',
+    name: '谷歌模型',
+    keyLabel: '谷歌模型密钥',
     keyPlaceholder: 'AIza...',
     needsApiKey: true,
     models: [
-      { label: 'Gemini 2.5 Pro', value: 'gemini-2.5-pro' },
-      { label: 'Gemini 2.5 Flash', value: 'gemini-2.5-flash' },
-      { label: 'Gemini 2.0 Flash', value: 'gemini-2.0-flash' },
+      { label: '谷歌 2.5 专业版', value: 'gemini-2.5-pro' },
+      { label: '谷歌 2.5 快速版', value: 'gemini-2.5-flash' },
+      { label: '谷歌 2.0 快速版', value: 'gemini-2.0-flash' },
     ],
   },
   {
     id: 'xai',
-    name: 'Grok / xAI',
-    keyLabel: 'xAI API Key',
+    name: '前沿模型',
+    keyLabel: '前沿模型密钥',
     keyPlaceholder: 'xai-...',
     needsApiKey: true,
     models: [
-      { label: 'Grok 4', value: 'grok-4' },
-      { label: 'Grok 3', value: 'grok-3' },
-      { label: 'Grok 3 mini', value: 'grok-3-mini' },
+      { label: '前沿模型 4', value: 'grok-4' },
+      { label: '前沿模型 3', value: 'grok-3' },
+      { label: '前沿模型 3 轻量版', value: 'grok-3-mini' },
     ],
   },
   {
     id: 'anthropic',
-    name: 'Claude / Anthropic',
-    keyLabel: 'Anthropic API Key',
+    name: '安索模型',
+    keyLabel: '安索模型密钥',
     keyPlaceholder: 'sk-ant-...',
     needsApiKey: true,
     models: [
-      { label: 'Claude Opus 4.6', value: 'claude-opus-4-6' },
-      { label: 'Claude Sonnet 4.6', value: 'claude-sonnet-4-6' },
-      { label: 'Claude Haiku 4.5', value: 'claude-haiku-4-5' },
-      { label: 'Claude Sonnet 4.5', value: 'claude-sonnet-4-5' },
+      { label: '安索旗舰 4.6', value: 'claude-opus-4-6' },
+      { label: '安索均衡 4.6', value: 'claude-sonnet-4-6' },
+      { label: '安索轻量 4.5', value: 'claude-haiku-4-5' },
+      { label: '安索均衡 4.5', value: 'claude-sonnet-4-5' },
     ],
   },
   {
     id: 'deepseek',
-    name: 'DeepSeek',
-    keyLabel: 'DeepSeek API Key',
+    name: '深度求索',
+    keyLabel: '深度求索密钥',
     keyPlaceholder: 'sk-...',
     needsApiKey: true,
     models: [
-      { label: 'DeepSeek Chat', value: 'deepseek-chat' },
-      { label: 'DeepSeek Reasoner', value: 'deepseek-reasoner' },
+      { label: '深度求索对话模型', value: 'deepseek-chat' },
+      { label: '深度求索推理模型', value: 'deepseek-reasoner' },
     ],
   },
   {
     id: 'doubao',
     name: '豆包 / 火山方舟',
-    keyLabel: 'ARK API Key',
+    keyLabel: '火山方舟密钥',
     keyPlaceholder: '填入火山方舟 API Key',
     needsApiKey: true,
     models: [
-      { label: 'Doubao 1.5 Pro', value: 'doubao-1-5-pro-32k-250115', hint: '也可填火山方舟 Endpoint ID' },
-      { label: 'Doubao 1.5 Lite', value: 'doubao-1-5-lite-32k-250115', hint: '也可填火山方舟 Endpoint ID' },
+      { label: '豆包 1.5 专业版', value: 'doubao-1-5-pro-32k-250115', hint: '也可填火山方舟接入点' },
+      { label: '豆包 1.5 轻量版', value: 'doubao-1-5-lite-32k-250115', hint: '也可填火山方舟接入点' },
     ],
   },
   {
     id: 'kimi',
-    name: 'Kimi / Moonshot',
-    keyLabel: 'Kimi API Key',
+    name: '月之暗面',
+    keyLabel: '月之暗面密钥',
     keyPlaceholder: 'sk-...',
     needsApiKey: true,
     models: [
-      { label: 'Kimi K2.6', value: 'kimi-k2.6' },
-      { label: 'Kimi K2.5', value: 'kimi-k2.5' },
-      { label: 'Moonshot v1 128K', value: 'moonshot-v1-128k' },
+      { label: '月之暗面 2.6', value: 'kimi-k2.6' },
+      { label: '月之暗面 2.5', value: 'kimi-k2.5' },
+      { label: '月之暗面长上下文', value: 'moonshot-v1-128k' },
     ],
   },
   {
     id: 'qwen',
     name: '千问 / 通义千问',
-    keyLabel: 'DashScope API Key',
+    keyLabel: '百炼密钥',
     keyPlaceholder: 'sk-...',
     needsApiKey: true,
     models: [
-      { label: 'Qwen3 Max', value: 'qwen3-max' },
-      { label: 'Qwen3.6 Plus', value: 'qwen3.6-plus' },
-      { label: 'Qwen3.5 Flash', value: 'qwen3.5-flash' },
-      { label: 'Qwen Max', value: 'qwen-max' },
-      { label: 'Qwen Plus', value: 'qwen-plus' },
-      { label: 'Qwen Turbo', value: 'qwen-turbo' },
+      { label: '通义千问 3 旗舰版', value: 'qwen3-max' },
+      { label: '通义千问 3.6 增强版', value: 'qwen3.6-plus' },
+      { label: '通义千问 3.5 快速版', value: 'qwen3.5-flash' },
+      { label: '通义千问旗舰版', value: 'qwen-max' },
+      { label: '通义千问增强版', value: 'qwen-plus' },
+      { label: '通义千问极速版', value: 'qwen-turbo' },
     ],
   },
   {
     id: 'ollama',
-    name: 'Ollama 本地',
-    keyLabel: 'Ollama API Key',
-    keyPlaceholder: '本地 Ollama 通常无需填写',
+    name: '本地模型',
+    keyLabel: '本地模型密钥',
+    keyPlaceholder: '本地模型通常无需填写',
     needsApiKey: false,
     models: [
-      { label: 'Llama 3.1', value: 'llama3.1' },
-      { label: 'Qwen2.5', value: 'qwen2.5' },
-      { label: 'DeepSeek R1', value: 'deepseek-r1' },
+      { label: '本地羊驼 3.1', value: 'llama3.1' },
+      { label: '本地通义千问 2.5', value: 'qwen2.5' },
+      { label: '本地深度求索推理', value: 'deepseek-r1' },
     ],
   },
 ]
 
-const DEFAULT_PROVIDER: ProviderId = 'kimi'
-const DEFAULT_MODEL = 'kimi-k2.6'
+const DEFAULT_PROVIDER: ProviderId = 'pet_expert'
+const DEFAULT_MODEL = '默认专家引擎'
 const DEFAULT_PROJECT_AGENT_ID = 'agent-pet-vet-visit'
 const DEFAULT_INFERENCE_MODE: InferenceMode = 'cloud'
 const DEFAULT_LOCAL_MODEL = 'qwen2.5'
-const PRODUCT_STATE_VERSION = 'pet-ai-manager-fresh-start-2026-05-29'
+const PRODUCT_STATE_VERSION = 'pet-ai-manager-today-companion-2026-06-01'
 const PET_MEDICAL_DISCLAIMER =
-  '安全提示：宠物 AI 管家不能替代兽医诊断。若出现持续呕吐/腹泻、呼吸困难、抽搐、明显疼痛、精神沉郁、拒食超过 24 小时、疑似中毒、外伤出血或幼龄/高龄宠物急性异常，请尽快联系执业兽医或急诊医院。'
+  '安全提示：宠物智能管家不能替代兽医诊断。若出现持续呕吐/腹泻、呼吸困难、抽搐、明显疼痛、精神沉郁、拒食超过 24 小时、疑似中毒、外伤出血或幼龄/高龄宠物急性异常，请尽快联系执业兽医或急诊医院。'
 
 function getProvider(id: ProviderId) {
   return (
@@ -516,7 +544,7 @@ function normalizeInferenceMode(value: string | null): InferenceMode {
 function createSession(): ChatSession {
   const now = new Date().toISOString()
   return {
-    id: crypto.randomUUID(),
+    id: createId(),
     title: '新的宠物咨询',
     tags: [],
     createdAt: now,
@@ -636,161 +664,55 @@ function loadPromptWorkflows(): PromptWorkflow[] {
   )
 }
 
-function createSeedPets(): PetProfile[] {
+function createStarterPets(): PetProfile[] {
   const now = new Date().toISOString()
+  const templates: Array<Pick<PetProfile, 'name' | 'species' | 'breed' | 'gender' | 'ageLabel'>> = [
+    { name: '糯米', species: 'cat', breed: '猫咪', gender: 'unknown', ageLabel: '年龄待补充' },
+    { name: '团团', species: 'dog', breed: '狗狗', gender: 'unknown', ageLabel: '年龄待补充' },
+    { name: '可乐', species: 'dog', breed: '混血犬', gender: 'unknown', ageLabel: '年龄待补充' },
+    { name: '豆包', species: 'cat', breed: '田园猫', gender: 'unknown', ageLabel: '年龄待补充' },
+    { name: '桃子', species: 'cat', breed: '猫咪', gender: 'unknown', ageLabel: '年龄待补充' },
+  ]
+  const template = templates[Math.floor(Math.random() * templates.length)]
   return [
     {
-      id: 'pet-seed-cat-mochi',
-      name: '糯米',
-      species: 'cat',
-      breed: '英短',
-      gender: 'female',
-      birthday: '2022-04-18',
-      ageLabel: '4 岁左右',
-      weightKg: 4.2,
-      sterilizationStatus: 'sterilized',
-      allergies: '暂无已知过敏',
-      medicalHistory: '偶发吐毛球，肠胃偏敏感。',
-      vaccinationStatus: '核心疫苗已完成，建议每年复核抗体或补强。',
-      dewormingStatus: '上次体内外驱虫：2026-05-10。',
-      foodPreferences: '偏好鸡肉冻干和低敏湿粮，不喜欢鱼味太重的罐头。',
+      id: createId(),
+      name: template.name,
+      species: template.species,
+      breed: template.breed,
+      gender: template.gender,
+      birthday: '',
+      ageLabel: template.ageLabel,
+      weightKg: null,
+      sterilizationStatus: 'unknown',
+      allergies: '',
+      medicalHistory: '',
+      vaccinationStatus: '',
+      dewormingStatus: '',
+      foodPreferences: '',
       avatarUrl: '',
       createdAt: now,
       updatedAt: now,
-    },
-    {
-      id: 'pet-seed-dog-lucky',
-      name: 'Lucky',
-      species: 'dog',
-      breed: '柯基',
-      gender: 'male',
-      birthday: '2021-09-02',
-      ageLabel: '4 岁半',
-      weightKg: 11.8,
-      sterilizationStatus: 'sterilized',
-      allergies: '疑似对牛肉零食敏感。',
-      medicalHistory: '需要控制体重，注意腰椎与关节压力。',
-      vaccinationStatus: '年度疫苗待预约。',
-      dewormingStatus: '建议月底安排一次体外驱虫。',
-      foodPreferences: '偏好鸭肉粮，训练奖励适合低脂小颗粒。',
-      avatarUrl: '',
-      createdAt: now,
-      updatedAt: now,
-    },
-  ]
-}
-
-function createSeedHealthLogs(): HealthLog[] {
-  const now = new Date()
-  const iso = (daysAgo: number) => new Date(now.getTime() - daysAgo * 24 * 60 * 60 * 1000).toISOString()
-  return [
-    {
-      id: 'log-seed-cat-1',
-      petId: 'pet-seed-cat-mochi',
-      loggedAt: iso(0),
-      appetite: '正常',
-      waterIntake: '略少',
-      poop: '成形',
-      vomiting: '无',
-      energyLevel: 4,
-      mood: '放松',
-      weightKg: 4.2,
-      symptoms: '',
-      medication: '',
-      abnormalBehavior: '',
-      notes: '今天玩逗猫棒 15 分钟。',
-      createdAt: iso(0),
-    },
-    {
-      id: 'log-seed-cat-2',
-      petId: 'pet-seed-cat-mochi',
-      loggedAt: iso(2),
-      appetite: '正常',
-      waterIntake: '正常',
-      poop: '偏软',
-      vomiting: '吐毛球一次',
-      energyLevel: 4,
-      mood: '黏人',
-      weightKg: 4.2,
-      symptoms: '吐毛球',
-      medication: '',
-      abnormalBehavior: '',
-      notes: '观察 24 小时，如频繁呕吐需就医。',
-      createdAt: iso(2),
-    },
-    {
-      id: 'log-seed-dog-1',
-      petId: 'pet-seed-dog-lucky',
-      loggedAt: iso(1),
-      appetite: '偏好零食',
-      waterIntake: '正常',
-      poop: '成形',
-      vomiting: '无',
-      energyLevel: 5,
-      mood: '兴奋',
-      weightKg: 11.8,
-      symptoms: '',
-      medication: '',
-      abnormalBehavior: '散步时拉拽明显',
-      notes: '晚间散步 35 分钟。',
-      createdAt: iso(1),
-    },
-  ]
-}
-
-function createSeedReminders(): CareReminder[] {
-  const now = new Date()
-  const iso = (daysAhead: number, hour = 9) => {
-    const due = new Date(now)
-    due.setDate(due.getDate() + daysAhead)
-    due.setHours(hour, 0, 0, 0)
-    return due.toISOString()
-  }
-  const createdAt = now.toISOString()
-  return [
-    {
-      id: 'reminder-seed-cat-water',
-      petId: 'pet-seed-cat-mochi',
-      type: 'water',
-      title: '检查糯米饮水量',
-      dueAt: iso(0, 20),
-      repeat: '每日',
-      status: 'pending',
-      notes: '肠胃敏感猫建议观察饮水与尿量。',
-      createdAt,
-      updatedAt: createdAt,
-    },
-    {
-      id: 'reminder-seed-dog-vaccine',
-      petId: 'pet-seed-dog-lucky',
-      type: 'vaccination',
-      title: '预约 Lucky 年度疫苗',
-      dueAt: iso(7, 10),
-      repeat: '每年',
-      status: 'pending',
-      notes: '带上疫苗本，顺便询问体重控制。',
-      createdAt,
-      updatedAt: createdAt,
     },
   ]
 }
 
 function loadPets(): PetProfile[] {
-  if (!hasFreshProductState()) return createSeedPets()
+  if (!hasFreshProductState()) return createStarterPets()
   const stored = loadJsonArray<PetProfile>(STORAGE_KEYS.pets).map(normalizePet)
-  return stored.length ? stored : createSeedPets()
+  return stored.length ? stored : createStarterPets()
 }
 
 function loadHealthLogs(): HealthLog[] {
-  if (!hasFreshProductState()) return createSeedHealthLogs()
+  if (!hasFreshProductState()) return []
   const stored = loadJsonArray<HealthLog>(STORAGE_KEYS.healthLogs).map(normalizeHealthLog)
-  return stored.length ? stored : createSeedHealthLogs()
+  return stored
 }
 
 function loadCareReminders(): CareReminder[] {
-  if (!hasFreshProductState()) return createSeedReminders()
+  if (!hasFreshProductState()) return []
   const stored = loadJsonArray<CareReminder>(STORAGE_KEYS.careReminders).map(normalizeReminder)
-  return stored.length ? stored : createSeedReminders()
+  return stored
 }
 
 function loadCarePlans(): CarePlan[] {
@@ -805,7 +727,7 @@ function hasFreshProductState() {
 function normalizePet(value: Partial<PetProfile>): PetProfile {
   const now = new Date().toISOString()
   return {
-    id: String(value.id || crypto.randomUUID()),
+    id: String(value.id || createId()),
     name: String(value.name || '未命名宠物').slice(0, 40),
     species: value.species === 'dog' || value.species === 'other' ? value.species : 'cat',
     breed: String(value.breed || ''),
@@ -831,7 +753,7 @@ function normalizePet(value: Partial<PetProfile>): PetProfile {
 function normalizeHealthLog(value: Partial<HealthLog>): HealthLog {
   const now = new Date().toISOString()
   return {
-    id: String(value.id || crypto.randomUUID()),
+    id: String(value.id || createId()),
     petId: String(value.petId || ''),
     loggedAt: String(value.loggedAt || now),
     appetite: String(value.appetite || ''),
@@ -862,7 +784,7 @@ function normalizeReminder(value: Partial<CareReminder>): CareReminder {
     'other',
   ]
   return {
-    id: String(value.id || crypto.randomUUID()),
+    id: String(value.id || createId()),
     petId: String(value.petId || ''),
     type: validTypes.includes(value.type as ReminderType) ? (value.type as ReminderType) : 'other',
     title: String(value.title || '新的照护提醒'),
@@ -878,7 +800,7 @@ function normalizeReminder(value: Partial<CareReminder>): CareReminder {
 function normalizeCarePlan(value: Partial<CarePlan>): CarePlan {
   const now = new Date().toISOString()
   return {
-    id: String(value.id || crypto.randomUUID()),
+    id: String(value.id || createId()),
     petId: String(value.petId || ''),
     title: String(value.title || '护理计划'),
     summary: String(value.summary || ''),
@@ -918,10 +840,6 @@ function mergePromptAssets<T extends { id: string; isBuiltin?: boolean }>(builti
   ]
 }
 
-function persist(key: string, value: string) {
-  void setStoredString(key, value)
-}
-
 function isAuthTokenAvailable() {
   return Boolean(localStorage.getItem('twentys1x:auth-token'))
 }
@@ -940,31 +858,6 @@ function loadJsonRecord(key: string): Record<string, string> {
 
 async function hydrateJsonRecord(key: string, fallback: Record<string, string>) {
   return getStoredJson<Record<string, string>>(key, fallback)
-}
-
-async function hydrateSessions(fallback: ChatSession[]) {
-  const stored = await getStoredJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null)
-  return Array.isArray(stored) && stored.length ? stored.map(normalizeSession) : fallback
-}
-
-async function hydratePets(fallback: PetProfile[]) {
-  const stored = await getStoredJson<PetProfile[] | null>(STORAGE_KEYS.pets, null)
-  return Array.isArray(stored) && stored.length ? stored.map(normalizePet) : fallback
-}
-
-async function hydrateHealthLogs(fallback: HealthLog[]) {
-  const stored = await getStoredJson<HealthLog[] | null>(STORAGE_KEYS.healthLogs, null)
-  return Array.isArray(stored) && stored.length ? stored.map(normalizeHealthLog) : fallback
-}
-
-async function hydrateCareReminders(fallback: CareReminder[]) {
-  const stored = await getStoredJson<CareReminder[] | null>(STORAGE_KEYS.careReminders, null)
-  return Array.isArray(stored) && stored.length ? stored.map(normalizeReminder) : fallback
-}
-
-async function hydrateCarePlans(fallback: CarePlan[]) {
-  const stored = await getStoredJson<CarePlan[] | null>(STORAGE_KEYS.carePlans, null)
-  return Array.isArray(stored) ? stored.map(normalizeCarePlan) : fallback
 }
 
 function readAsDataUrl(file: File) {
@@ -1169,6 +1062,7 @@ export const useChatStore = defineStore('chat', () => {
   const hasHydratedClientState = ref(false)
   const hasHydratedServerState = ref(false)
   const isApplyingServerState = ref(false)
+  const activeStateUserId = ref('')
   let serverPersistTimer: number | null = null
   const legacyKimiKey = localStorage.getItem(STORAGE_KEYS.apiKey) || ''
   const providerApiKeys = ref<Record<string, string>>({
@@ -1266,9 +1160,13 @@ export const useChatStore = defineStore('chat', () => {
     return Array.from(merged.values())
   })
   const apiKey = computed(() => providerApiKeys.value[selectedProviderId.value] || '')
-  const model = computed(
-    () => providerModels.value[selectedProviderId.value] || getDefaultModel(selectedProviderId.value),
-  )
+  const model = computed(() => {
+    const storedModel = providerModels.value[selectedProviderId.value]
+    if (selectedProviderId.value === 'pet_expert' && (!storedModel || storedModel === 'pet-expert-default')) {
+      return getDefaultModel('pet_expert')
+    }
+    return storedModel || getDefaultModel(selectedProviderId.value)
+  })
   const effectiveLocalModel = computed(() => localModel.value.trim() || DEFAULT_LOCAL_MODEL)
   const isLocalInferenceReady = computed(() => Boolean(effectiveLocalModel.value.trim()))
   const isCloudProviderReady = computed(
@@ -1343,7 +1241,7 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function saveSessions() {
-    void setStoredJson(STORAGE_KEYS.sessions, sessions.value)
+    void setStateJson(STORAGE_KEYS.sessions, sessions.value)
     scheduleServerStatePersist()
   }
 
@@ -1352,25 +1250,25 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function savePromptTemplates() {
-    void setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+    void setStateJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
     scheduleServerStatePersist()
   }
 
   function saveCustomAgents() {
-    void setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
+    void setStateJson(STORAGE_KEYS.customAgents, customAgents.value)
     scheduleServerStatePersist()
   }
 
   function savePromptWorkflows() {
-    void setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+    void setStateJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
     scheduleServerStatePersist()
   }
 
   function savePetState() {
-    void setStoredJson(STORAGE_KEYS.pets, pets.value)
-    void setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
-    void setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
-    void setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
+    void setStateJson(STORAGE_KEYS.pets, pets.value)
+    void setStateJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+    void setStateJson(STORAGE_KEYS.careReminders, careReminders.value)
+    void setStateJson(STORAGE_KEYS.carePlans, carePlans.value)
     persist(STORAGE_KEYS.activePet, activePetId.value)
     persist(STORAGE_KEYS.productStateVersion, PRODUCT_STATE_VERSION)
     scheduleServerStatePersist()
@@ -1426,6 +1324,27 @@ export const useChatStore = defineStore('chat', () => {
     } catch {
       // 后端临时不可用时仍保留浏览器本地副本，下次 hydrate 会再尝试迁移。
     }
+  }
+
+  function stateKey(key: string) {
+    if (!activeStateUserId.value || !USER_SCOPED_STORAGE_KEYS.has(key)) return key
+    return `${key}:user:${activeStateUserId.value}`
+  }
+
+  function persist(key: string, value: string) {
+    void setStoredString(stateKey(key), value)
+  }
+
+  function getStateString(key: string) {
+    return getStoredString(stateKey(key))
+  }
+
+  function getStateJson<T>(key: string, fallback: T) {
+    return getStoredJson<T>(stateKey(key), fallback)
+  }
+
+  function setStateJson<T>(key: string, value: T) {
+    return setStoredJson(stateKey(key), value)
   }
 
   function setApiKey(value: string) {
@@ -1492,10 +1411,10 @@ export const useChatStore = defineStore('chat', () => {
     promptTemplates.value = BUILTIN_PROMPT_TEMPLATES
     customAgents.value = BUILTIN_AGENTS
     promptWorkflows.value = BUILTIN_WORKFLOWS
-    pets.value = createSeedPets()
+    pets.value = createStarterPets()
     activePetId.value = pets.value[0]?.id || ''
-    healthLogs.value = createSeedHealthLogs()
-    careReminders.value = createSeedReminders()
+    healthLogs.value = []
+    careReminders.value = []
     carePlans.value = []
     activeNormalAgentId.value = DEFAULT_AGENT_ID
     activeProjectAgentId.value = DEFAULT_PROJECT_AGENT_ID
@@ -1515,7 +1434,7 @@ export const useChatStore = defineStore('chat', () => {
     const normalized = normalizePet({
       ...existing,
       ...profile,
-      id: existing?.id || profile.id || crypto.randomUUID(),
+      id: existing?.id || profile.id || createId(),
       createdAt: existing?.createdAt || profile.createdAt || now,
       updatedAt: now,
     })
@@ -1543,7 +1462,7 @@ export const useChatStore = defineStore('chat', () => {
     if (!petId) return null
     const normalized = normalizeHealthLog({
       ...log,
-      id: log.id || crypto.randomUUID(),
+      id: log.id || createId(),
       petId,
       loggedAt: log.loggedAt || new Date().toISOString(),
       createdAt: log.createdAt || new Date().toISOString(),
@@ -1564,7 +1483,7 @@ export const useChatStore = defineStore('chat', () => {
     const normalized = normalizeReminder({
       ...existing,
       ...reminder,
-      id: existing?.id || reminder.id || crypto.randomUUID(),
+      id: existing?.id || reminder.id || createId(),
       petId: reminder.petId || existing?.petId || activePetId.value,
       createdAt: existing?.createdAt || reminder.createdAt || now,
       updatedAt: now,
@@ -1594,7 +1513,7 @@ export const useChatStore = defineStore('chat', () => {
       .join(' ')
       .includes('敏感')
     const plan = normalizeCarePlan({
-      id: crypto.randomUUID(),
+      id: createId(),
       petId: pet.id,
       title: `${pet.name} 的喂养与照护计划`,
       summary: `${pet.name} 是${pet.breed || speciesLabel}，当前${weightText}。计划基于档案、过敏史、近期日志生成，适合作为日常照护参考。`,
@@ -1640,9 +1559,18 @@ export const useChatStore = defineStore('chat', () => {
     return plan
   }
 
-  async function hydrateClientState() {
-    if (hasHydratedClientState.value) return
+  async function hydrateClientState(userId = '') {
+    const nextUserId = String(userId || '').trim()
+    if (hasHydratedClientState.value && activeStateUserId.value === nextUserId) return
+    if (serverPersistTimer) {
+      window.clearTimeout(serverPersistTimer)
+      serverPersistTimer = null
+    }
+    activeStateUserId.value = nextUserId
     hasHydratedClientState.value = true
+    hasHydratedServerState.value = false
+    isApplyingServerState.value = false
+    resetToFreshPetProjectState()
 
     const [
       storedApiKeys,
@@ -1673,21 +1601,21 @@ export const useChatStore = defineStore('chat', () => {
       getStoredString(STORAGE_KEYS.inferenceMode),
       getStoredString(STORAGE_KEYS.localModel),
       getStoredString(STORAGE_KEYS.hybridFallback),
-      hydrateSessions(sessions.value),
-      getStoredString(STORAGE_KEYS.activeSession),
-      getStoredString(STORAGE_KEYS.activeProject),
-      getStoredJson<PromptTemplate[]>(STORAGE_KEYS.promptTemplates, promptTemplates.value),
-      getStoredJson<CustomAgent[]>(STORAGE_KEYS.customAgents, customAgents.value),
-      getStoredString(STORAGE_KEYS.activeAgent),
-      getStoredString(STORAGE_KEYS.activeNormalAgent),
-      getStoredString(STORAGE_KEYS.activeProjectAgent),
-      getStoredJson<PromptWorkflow[]>(STORAGE_KEYS.promptWorkflows, promptWorkflows.value),
-      hydratePets(pets.value),
-      getStoredString(STORAGE_KEYS.activePet),
-      hydrateHealthLogs(healthLogs.value),
-      hydrateCareReminders(careReminders.value),
-      hydrateCarePlans(carePlans.value),
-      getStoredString(STORAGE_KEYS.productStateVersion),
+      getStateJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null),
+      getStateString(STORAGE_KEYS.activeSession),
+      getStateString(STORAGE_KEYS.activeProject),
+      getStateJson<PromptTemplate[]>(STORAGE_KEYS.promptTemplates, promptTemplates.value),
+      getStateJson<CustomAgent[]>(STORAGE_KEYS.customAgents, customAgents.value),
+      getStateString(STORAGE_KEYS.activeAgent),
+      getStateString(STORAGE_KEYS.activeNormalAgent),
+      getStateString(STORAGE_KEYS.activeProjectAgent),
+      getStateJson<PromptWorkflow[]>(STORAGE_KEYS.promptWorkflows, promptWorkflows.value),
+      getStateJson<PetProfile[] | null>(STORAGE_KEYS.pets, null),
+      getStateString(STORAGE_KEYS.activePet),
+      getStateJson<HealthLog[] | null>(STORAGE_KEYS.healthLogs, null),
+      getStateJson<CareReminder[] | null>(STORAGE_KEYS.careReminders, null),
+      getStateJson<CarePlan[] | null>(STORAGE_KEYS.carePlans, null),
+      getStateString(STORAGE_KEYS.productStateVersion),
     ])
 
     const isFreshProductState = storedProductStateVersion === PRODUCT_STATE_VERSION
@@ -1706,7 +1634,10 @@ export const useChatStore = defineStore('chat', () => {
     if (!isFreshProductState) {
       resetToFreshPetProjectState()
     } else {
-      sessions.value = storedSessions
+      sessions.value =
+        Array.isArray(storedSessions) && storedSessions.length
+          ? storedSessions.map(normalizeSession)
+          : [createSession()]
       promptTemplates.value = mergePromptAssets(BUILTIN_PROMPT_TEMPLATES, storedPromptTemplates).map((item) =>
         normalizePromptTemplate(
           item,
@@ -1725,10 +1656,13 @@ export const useChatStore = defineStore('chat', () => {
           BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
         ),
       )
-      pets.value = storedPets.length ? storedPets : createSeedPets()
-      healthLogs.value = storedHealthLogs
-      careReminders.value = storedCareReminders
-      carePlans.value = storedCarePlans
+      pets.value =
+        Array.isArray(storedPets) && storedPets.length ? storedPets.map(normalizePet) : createStarterPets()
+      healthLogs.value = Array.isArray(storedHealthLogs) ? storedHealthLogs.map(normalizeHealthLog) : []
+      careReminders.value = Array.isArray(storedCareReminders)
+        ? storedCareReminders.map(normalizeReminder)
+        : []
+      carePlans.value = Array.isArray(storedCarePlans) ? storedCarePlans.map(normalizeCarePlan) : []
     }
     activeSessionId.value =
       isFreshProductState &&
@@ -1784,8 +1718,14 @@ export const useChatStore = defineStore('chat', () => {
 
       isApplyingServerState.value = true
       if (data?.empty) {
+        resetToFreshPetProjectState()
         hasHydratedServerState.value = true
         isApplyingServerState.value = false
+        saveSessions()
+        savePromptTemplates()
+        saveCustomAgents()
+        savePromptWorkflows()
+        savePetState()
         await persistServerState()
         return
       }
@@ -1795,14 +1735,14 @@ export const useChatStore = defineStore('chat', () => {
         resetToFreshPetProjectState()
         projects.value = []
         activeProjectId.value = ''
-        await setStoredJson(STORAGE_KEYS.sessions, sessions.value)
-        await setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
-        await setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
-        await setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
-        await setStoredJson(STORAGE_KEYS.pets, pets.value)
-        await setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
-        await setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
-        await setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
+        await setStateJson(STORAGE_KEYS.sessions, sessions.value)
+        await setStateJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+        await setStateJson(STORAGE_KEYS.customAgents, customAgents.value)
+        await setStateJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+        await setStateJson(STORAGE_KEYS.pets, pets.value)
+        await setStateJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+        await setStateJson(STORAGE_KEYS.careReminders, careReminders.value)
+        await setStateJson(STORAGE_KEYS.carePlans, carePlans.value)
         persist(STORAGE_KEYS.activeSession, activeSessionId.value)
         persist(STORAGE_KEYS.activeProject, activeProjectId.value)
         persist(STORAGE_KEYS.activePet, activePetId.value)
@@ -1847,7 +1787,8 @@ export const useChatStore = defineStore('chat', () => {
           BUILTIN_WORKFLOWS.find((workflow) => workflow.id === item.id),
         ),
       )
-      pets.value = Array.isArray(data.pets) && data.pets.length ? data.pets.map(normalizePet) : pets.value
+      pets.value =
+        Array.isArray(data.pets) && data.pets.length ? data.pets.map(normalizePet) : createStarterPets()
       healthLogs.value = Array.isArray(data.healthLogs)
         ? data.healthLogs.map(normalizeHealthLog)
         : healthLogs.value
@@ -1896,14 +1837,14 @@ export const useChatStore = defineStore('chat', () => {
         projects.value = data.projects
       }
 
-      await setStoredJson(STORAGE_KEYS.sessions, sessions.value)
-      await setStoredJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
-      await setStoredJson(STORAGE_KEYS.customAgents, customAgents.value)
-      await setStoredJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
-      await setStoredJson(STORAGE_KEYS.pets, pets.value)
-      await setStoredJson(STORAGE_KEYS.healthLogs, healthLogs.value)
-      await setStoredJson(STORAGE_KEYS.careReminders, careReminders.value)
-      await setStoredJson(STORAGE_KEYS.carePlans, carePlans.value)
+      await setStateJson(STORAGE_KEYS.sessions, sessions.value)
+      await setStateJson(STORAGE_KEYS.promptTemplates, promptTemplates.value)
+      await setStateJson(STORAGE_KEYS.customAgents, customAgents.value)
+      await setStateJson(STORAGE_KEYS.promptWorkflows, promptWorkflows.value)
+      await setStateJson(STORAGE_KEYS.pets, pets.value)
+      await setStateJson(STORAGE_KEYS.healthLogs, healthLogs.value)
+      await setStateJson(STORAGE_KEYS.careReminders, careReminders.value)
+      await setStateJson(STORAGE_KEYS.carePlans, carePlans.value)
       await setStoredJson(STORAGE_KEYS.models, providerModels.value)
       persist(STORAGE_KEYS.provider, selectedProviderId.value)
       persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
@@ -1968,7 +1909,7 @@ export const useChatStore = defineStore('chat', () => {
     if (result.errors.length && !importedSessions.length) return result
     // 为所有导入的会话生成新 ID 以避免冲突
     for (const session of importedSessions) {
-      session.id = crypto.randomUUID()
+      session.id = createId()
     }
     sessions.value.unshift(...importedSessions)
     saveSessions()
@@ -2172,7 +2113,7 @@ export const useChatStore = defineStore('chat', () => {
               })
             : ''
         prepared.push({
-          id: crypto.randomUUID(),
+          id: createId(),
           name: file.name,
           type: file.type || (kind === 'document' ? 'application/pdf' : 'application/octet-stream'),
           size: file.size,
@@ -2186,7 +2127,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const text = await readAsText(file)
       prepared.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         name: file.name,
         type: file.type || 'text/plain',
         size: file.size,
@@ -2246,7 +2187,7 @@ export const useChatStore = defineStore('chat', () => {
 
     return [
       basePrompt?.trim() || '',
-      '你是“宠物 AI 管家”的宠物家庭管理助手，服务猫狗主人和多宠家庭。',
+      '你是“宠物智能管家”的宠物家庭管理助手，服务猫狗主人和多宠家庭。',
       '你的回答必须围绕当前宠物档案、近期健康日志、提醒和用户上传文件来组织。',
       '当关键档案缺失时，先提出必要的澄清问题；当信息足够时，输出结构化内容，如护理计划、就医清单、危险信号、产品对比表、提醒建议。',
       '禁止把建议表述成确诊或处方。可以解释常见可能性、观察要点和就医准备，但必须提醒严重症状及时找执业兽医。',
@@ -2292,7 +2233,7 @@ export const useChatStore = defineStore('chat', () => {
         })
       : buildUserContent(cleanText, files, { includePreviewSummary: true })
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'user',
       content: displayContent,
       attachments: files.map(({ id, name, kind, size, type, hash, dataUrl, text }) => ({
@@ -2308,7 +2249,7 @@ export const useChatStore = defineStore('chat', () => {
       createdAt: new Date().toISOString(),
     }
     const assistantMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'assistant',
       content: '',
       createdAt: new Date().toISOString(),
@@ -2407,10 +2348,10 @@ export const useChatStore = defineStore('chat', () => {
     const apiPayloadContent = buildUserContent(cleanText, files, { includePreviewSummary: true })
 
     const now = new Date().toISOString()
-    const planId = crypto.randomUUID()
+    const planId = createId()
 
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'user',
       content: displayContent,
       attachments: files.map(({ id, name, kind, size, type, hash, dataUrl, text }) => ({
@@ -2427,7 +2368,7 @@ export const useChatStore = defineStore('chat', () => {
     }
 
     const assistantMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'assistant',
       content: '',
       createdAt: now,
@@ -2722,6 +2663,21 @@ export const useChatStore = defineStore('chat', () => {
         temperature: options.runtime?.temperature,
         systemPrompt: buildPetSystemPrompt(options.runtime?.systemPrompt),
         apiKey: apiKey.value.trim() || undefined,
+        petExpertApiKeys: {
+          kimi: providerApiKeys.value.kimi,
+          openai: providerApiKeys.value.openai,
+          deepseek: providerApiKeys.value.deepseek,
+          qwen: providerApiKeys.value.qwen,
+          ollama: providerApiKeys.value.ollama,
+        },
+        petContext: {
+          activePetId: activePet.value?.id || activePetId.value,
+          pets: pets.value,
+          healthLogs: healthLogs.value,
+          careReminders: careReminders.value,
+          carePlans: carePlans.value,
+          uploadedFiles: messages.flatMap((message) => message.attachments || []),
+        },
         projectId: useWorkspaceContext ? activeProjectId.value || undefined : undefined,
         useWorkspaceContext,
         stream: true,
@@ -2879,7 +2835,7 @@ export const useChatStore = defineStore('chat', () => {
     errorMessage.value = ''
 
     session.messages.push({
-      id: crypto.randomUUID(),
+      id: createId(),
       role: 'user',
       content: `运行工作流「${workflow.name}」\n\n${cleanInput}`,
       createdAt: now,
@@ -2901,7 +2857,7 @@ export const useChatStore = defineStore('chat', () => {
         })
         const agent = customAgents.value.find((item) => item.id === step.agentId) || activeAgent.value
         const assistantMessage: ChatMessage = {
-          id: crypto.randomUUID(),
+          id: createId(),
           role: 'assistant',
           content: `### ${index + 1}. ${step.title}\n\n执行中...`,
           createdAt: new Date().toISOString(),
@@ -2924,7 +2880,7 @@ export const useChatStore = defineStore('chat', () => {
           const result = await callChatBackend(
             [
               {
-                id: crypto.randomUUID(),
+                id: createId(),
                 role: 'user',
                 content: prompt,
                 createdAt: new Date().toISOString(),
@@ -2957,7 +2913,7 @@ export const useChatStore = defineStore('chat', () => {
       return true
     } catch (error) {
       session.messages.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         role: 'assistant',
         content: translate('errors.workflowFailedFull'),
         createdAt: new Date().toISOString(),
@@ -2993,7 +2949,7 @@ export const useChatStore = defineStore('chat', () => {
         const result = await callChatBackend(
           [
             {
-              id: crypto.randomUUID(),
+              id: createId(),
               role: 'user',
               content: prompt,
               createdAt: new Date().toISOString(),
@@ -3073,7 +3029,7 @@ export const useChatStore = defineStore('chat', () => {
         const result = await callChatBackend(
           [
             {
-              id: crypto.randomUUID(),
+              id: createId(),
               role: 'user',
               content: memoryPrompt,
               createdAt: new Date().toISOString(),
@@ -3133,7 +3089,7 @@ export const useChatStore = defineStore('chat', () => {
         const result = await callChatBackend(
           [
             {
-              id: crypto.randomUUID(),
+              id: createId(),
               role: 'user',
               content: summaryPrompt,
               createdAt: new Date().toISOString(),
@@ -3371,7 +3327,7 @@ export const useChatStore = defineStore('chat', () => {
 
       const session = activeSession.value
       session.messages.push({
-        id: crypto.randomUUID(),
+        id: createId(),
         role: 'assistant',
         content: data.analysis || translate('errors.noValidAnalysis'),
         createdAt: new Date().toISOString(),

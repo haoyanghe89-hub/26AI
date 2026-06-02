@@ -1,41 +1,31 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  ChatDotRound,
-  Check,
-  Key,
-  Lock,
-  Message,
-  Phone,
-  Promotion,
-  User,
-  Warning,
-} from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
-import ElButton from 'element-plus/es/components/button/index.mjs'
-import ElIcon from 'element-plus/es/components/icon/index.mjs'
-import ElInput from 'element-plus/es/components/input/index.mjs'
-import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
-import { localeOptions, setLocale, type AppLocale } from '../i18n'
+import LoginWelcome from '../components/auth/LoginWelcome.vue'
+import PasswordLogin, {
+  type PasswordLoginForm,
+  type PasswordPanelMode,
+} from '../components/auth/PasswordLogin.vue'
+import RegisterPhone, { type RegisterPhoneForm } from '../components/auth/RegisterPhone.vue'
+import VideoBackground from '../components/auth/VideoBackground.vue'
 import { useAuthStore, type AuthProvider } from '../stores/auth'
 
-type LoginMode = 'qr' | 'phone' | 'account'
-type AccountMode = 'login' | 'register'
-type QrProvider = Extract<AuthProvider, 'wechat' | 'qq'>
+type AuthScreen = 'welcome' | 'register' | 'password'
+type SmsPurpose = 'login' | 'register'
+type FieldErrors<T extends string> = Partial<Record<T | 'form', string>>
 
 const router = useRouter()
 const auth = useAuthStore()
-const { t, locale } = useI18n()
-
-const loginMode = ref<LoginMode>('account')
-const accountMode = ref<AccountMode>('login')
-const qrProvider = ref<QrProvider>('wechat')
+const currentScreen = ref<AuthScreen>('welcome')
+const passwordInitialMode = ref<PasswordPanelMode>('password')
 const isSubmitting = ref(false)
 const isSendingCode = ref(false)
-const cursorX = ref(50)
-const cursorY = ref(50)
+const registerCountdown = ref(0)
+const smsCountdown = ref(0)
+const forgotCountdown = ref(0)
+const timers = new Set<number>()
+
 const fallbackCapabilities = {
   accountPassword: true,
   phoneSms: false,
@@ -44,77 +34,133 @@ const fallbackCapabilities = {
     qq: false,
   },
 }
-const matrixRows = [
-  '0X93A7R8F9YZEQ4T1LMNODE7K2S91AXIS_TOKEN_ORBIT',
-  'KIMI_LOCAL_AGENT_AUTH_VECTOR_21F9E7C4A0D3B6',
-  'TWENTYS1X SECURE SESSION PBKDF2 HMAC BEARER',
-  'XIAOMI MIMO ORBIT INSPIRED FIELD 1000000000',
-  'AUTH GATEWAY REAL ONLY NO MOCK LOGIN PATH',
-  'POST /API/AUTH LOGIN REGISTER SMS OAUTH READY',
-]
 
-const phoneForm = ref({
+const registerForm = ref<RegisterPhoneForm>({
   phone: '',
   code: '',
-})
-const accountForm = ref({
-  identifier: '',
-  username: '',
   password: '',
+  confirmPassword: '',
+  acceptedTerms: false,
 })
 
+const passwordForm = ref<PasswordLoginForm>({
+  identifier: '',
+  password: '',
+  phone: '',
+  code: '',
+  forgotPhone: '',
+  forgotCode: '',
+})
+
+const registerErrors = ref<FieldErrors<keyof RegisterPhoneForm & string>>({})
+const passwordErrors = ref<FieldErrors<keyof PasswordLoginForm & string>>({})
 const safeCapabilities = computed(() => auth.capabilities || fallbackCapabilities)
-const loginModeOptions = computed<Array<{ id: LoginMode; label: string; unavailable?: boolean }>>(() => [
-  { id: 'account', label: t('auth.accountPassword') },
-  { id: 'phone', label: t('auth.phoneSms'), unavailable: !safeCapabilities.value.phoneSms },
-  { id: 'qr', label: t('auth.qrLogin'), unavailable: !hasEnabledQrProvider.value },
-])
+const isDetailScreen = computed(() => currentScreen.value !== 'welcome')
 
-const qrProviderOptions = computed<Array<{ id: QrProvider; label: string }>>(() => [
-  { id: 'wechat', label: t('auth.wechat') },
-  { id: 'qq', label: t('auth.qq') },
-])
+async function submitWechatLogin() {
+  await startOAuthLogin('wechat')
+}
 
-const qrProviderLabel = computed(() => (qrProvider.value === 'wechat' ? t('auth.wechat') : t('auth.qq')))
-const accountSubmitLabel = computed(() =>
-  accountMode.value === 'login' ? t('auth.login') : t('auth.registerAndLogin'),
-)
-const hasEnabledQrProvider = computed(() => Object.values(safeCapabilities.value.oauth).some(Boolean))
-const activeQrProviderEnabled = computed(() => Boolean(safeCapabilities.value.oauth[qrProvider.value]))
+async function submitQqLogin() {
+  await startOAuthLogin('qq')
+}
 
-async function sendPhoneCode() {
+async function startOAuthLogin(provider: Extract<AuthProvider, 'wechat' | 'qq'>) {
+  if (!safeCapabilities.value.oauth[provider]) {
+    showToast(`${provider === 'wechat' ? '微信' : 'QQ'} 登录暂未开通，请先使用账号密码登录。`, 'warning')
+    return
+  }
   await withFeedback(async () => {
-    await auth.requestSmsCode(phoneForm.value.phone, 'login')
-    ElMessage.success(t('auth.codeSent'))
+    await auth.loginWithQr(provider)
+  })
+}
+
+function openPasswordPanel(mode: PasswordPanelMode = 'password') {
+  passwordInitialMode.value = mode
+  currentScreen.value = 'password'
+}
+
+async function sendRegisterCode() {
+  registerErrors.value = {}
+  const phone = normalizePhone(registerForm.value.phone)
+  if (!isValidPhone(phone)) {
+    registerErrors.value.phone = '请输入有效的 11 位手机号'
+    return
+  }
+  registerForm.value.phone = phone
+  await sendCode(phone, 'register', registerCountdown)
+}
+
+async function sendSmsLoginCode() {
+  passwordErrors.value = {}
+  const phone = normalizePhone(passwordForm.value.phone)
+  if (!isValidPhone(phone)) {
+    passwordErrors.value.phone = '请输入有效的 11 位手机号'
+    return
+  }
+  passwordForm.value.phone = phone
+  await sendCode(phone, 'login', smsCountdown)
+}
+
+async function sendForgotCode() {
+  passwordErrors.value = {}
+  const phone = normalizePhone(passwordForm.value.forgotPhone)
+  if (!isValidPhone(phone)) {
+    passwordErrors.value.forgotPhone = '请输入有效的 11 位手机号'
+    return
+  }
+  passwordForm.value.forgotPhone = phone
+  await sendCode(
+    phone,
+    'login',
+    forgotCountdown,
+    '验证码已发送。当前版本已完成找回密码验证入口，重置密码接口接入后可继续设置新密码。',
+  )
+}
+
+async function sendCode(
+  phone: string,
+  purpose: SmsPurpose,
+  countdown: typeof registerCountdown,
+  successText = '验证码已发送',
+) {
+  await withFeedback(async () => {
+    await auth.requestSmsCode(phone, purpose)
+    startCountdown(countdown)
+    showToast(successText)
   }, true)
 }
 
-async function submitPhoneLogin() {
+async function submitRegister() {
+  registerErrors.value = validateRegisterForm()
+  if (Object.keys(registerErrors.value).length) return
+
   await withFeedback(async () => {
-    await auth.loginWithPhone(phoneForm.value.phone, phoneForm.value.code)
+    const form = registerForm.value
+    await auth.registerWithPhone(normalizePhone(form.phone), form.code, form.password)
     await router.replace('/')
   })
 }
 
-async function submitAccount() {
+async function submitPasswordLogin() {
+  passwordErrors.value = validatePasswordLoginForm()
+  if (Object.keys(passwordErrors.value).length) return
+
   await withFeedback(async () => {
-    if (accountMode.value === 'login') {
-      await auth.loginWithAccount(accountForm.value.identifier, accountForm.value.password)
-    } else {
-      await auth.registerWithAccount(accountForm.value.username, accountForm.value.password)
-    }
+    await auth.loginWithAccount(passwordForm.value.identifier.trim(), passwordForm.value.password)
     await router.replace('/')
   })
 }
 
-async function confirmQrLogin() {
-  await withFeedback(async () => {
-    await auth.loginWithQr(qrProvider.value)
-  })
-}
+async function submitSmsLogin() {
+  passwordErrors.value = validateSmsLoginForm()
+  if (Object.keys(passwordErrors.value).length) return
 
-function selectLoginMode(option: { id: LoginMode }) {
-  loginMode.value = option.id
+  await withFeedback(async () => {
+    const form = passwordForm.value
+    await auth.loginWithPhone(normalizePhone(form.phone), form.code)
+    await router.replace('/')
+  })
 }
 
 async function withFeedback(action: () => Promise<void>, sendingCode = false) {
@@ -123,20 +169,86 @@ async function withFeedback(action: () => Promise<void>, sendingCode = false) {
     else isSubmitting.value = true
     await action()
   } catch (error) {
-    ElMessage.error(error instanceof Error ? error.message : t('auth.operationFailed'))
+    showToast(error instanceof Error ? error.message : '操作失败，请稍后再试', 'error')
   } finally {
     isSendingCode.value = false
     isSubmitting.value = false
   }
 }
 
-function updateCursor(event: MouseEvent) {
-  cursorX.value = event.clientX
-  cursorY.value = event.clientY
+function validateRegisterForm() {
+  const errors: FieldErrors<keyof RegisterPhoneForm & string> = {}
+  const form = registerForm.value
+  const phone = normalizePhone(form.phone)
+
+  if (!isValidPhone(phone)) errors.phone = '请输入有效的 11 位手机号'
+  if (!/^\d{6}$/.test(form.code.trim())) errors.code = '请输入 6 位验证码'
+  if (!isStrongEnoughPassword(form.password)) {
+    errors.password = '密码至少 10 位，并包含大小写字母、数字、符号中的 3 类'
+  }
+  if (form.confirmPassword !== form.password) errors.confirmPassword = '两次输入的密码不一致'
+  if (!form.acceptedTerms) errors.form = '请先阅读并同意用户协议与隐私政策'
+
+  return errors
 }
 
-function handleLocaleChange(value: string) {
-  setLocale(value as AppLocale)
+function validatePasswordLoginForm() {
+  const errors: FieldErrors<keyof PasswordLoginForm & string> = {}
+  const form = passwordForm.value
+
+  if (!form.identifier.trim()) errors.identifier = '请输入手机号或账号'
+  if (!form.password) errors.password = '请输入密码'
+
+  return errors
+}
+
+function validateSmsLoginForm() {
+  const errors: FieldErrors<keyof PasswordLoginForm & string> = {}
+  const form = passwordForm.value
+
+  if (!isValidPhone(normalizePhone(form.phone))) errors.phone = '请输入有效的 11 位手机号'
+  if (!/^\d{6}$/.test(form.code.trim())) errors.code = '请输入 6 位验证码'
+
+  return errors
+}
+
+function startCountdown(target: typeof registerCountdown) {
+  target.value = 60
+  const timer = window.setInterval(() => {
+    target.value -= 1
+    if (target.value <= 0) {
+      window.clearInterval(timer)
+      timers.delete(timer)
+    }
+  }, 1000)
+  timers.add(timer)
+}
+
+function showToast(message: string, type: 'success' | 'warning' | 'error' = 'success') {
+  ElMessage({
+    message,
+    type,
+    plain: true,
+    customClass: 'auth-toast',
+  })
+}
+
+function normalizePhone(phone: string) {
+  return phone.replace(/\D/g, '')
+}
+
+function isValidPhone(phone: string) {
+  return /^1[3-9]\d{9}$/.test(phone)
+}
+
+function isStrongEnoughPassword(password: string) {
+  const categories = [
+    /[A-Z]/.test(password),
+    /[a-z]/.test(password),
+    /[0-9]/.test(password),
+    /[!@#$%^&*()_+\-=\]{};':"\\|,.<>/?`~]/.test(password),
+  ]
+  return password.length >= 10 && categories.filter(Boolean).length >= 3
 }
 
 onMounted(async () => {
@@ -148,226 +260,67 @@ onMounted(async () => {
     await router.replace('/')
   })
 })
+
+onBeforeUnmount(() => {
+  for (const timer of timers) window.clearInterval(timer)
+  timers.clear()
+})
 </script>
 
 <template>
-  <main
-    id="main-content"
-    class="login-shell"
-    :style="{ '--cursor-x': `${cursorX}px`, '--cursor-y': `${cursorY}px` }"
-    @mousemove="updateCursor"
-  >
-    <div class="login-cursor-glow" aria-hidden="true"></div>
-    <div class="login-bg-code" aria-hidden="true">
-      <span v-for="row in 28" :key="row">
-        {{ matrixRows[row % matrixRows.length] }} {{ matrixRows[(row + 2) % matrixRows.length] }}
-      </span>
-    </div>
+  <main id="main-content" class="auth-shell" :class="{ 'auth-shell--detail': isDetailScreen }">
+    <VideoBackground :quiet="isDetailScreen" />
 
-    <div class="login-brand">
-      <div class="logo-mark">PM</div>
-      <div>
-        <strong>宠物 AI 管家</strong>
-        <span>{{ t('auth.authenticating') }}</span>
-      </div>
-    </div>
-
-    <div class="login-top-actions" :aria-label="t('auth.status')">
-      <span>{{ t('auth.localAccount') }}</span>
-      <span>{{ safeCapabilities.phoneSms ? t('auth.smsReady') : t('auth.smsPending') }}</span>
-      <el-select
-        class="locale-select"
-        :model-value="locale"
-        size="small"
-        :aria-label="t('common.language')"
-        @change="handleLocaleChange"
-      >
-        <el-option v-for="item in localeOptions" :key="item.value" :label="item.label" :value="item.value" />
-      </el-select>
-    </div>
-
-    <section class="login-center" :aria-label="t('auth.loginTwentys1x')">
-      <div class="login-copy">
-        <p>Pet AI Manager</p>
-        <!-- <h1>Secure Local Orbit</h1> -->
-        <strong>{{ t('auth.welcome') }}</strong>
-        <span>{{ t('auth.intro') }}</span>
-        <div class="login-copy-badges">
-          <span>{{ t('auth.localAccount') }}</span>
-          <span>{{ safeCapabilities.phoneSms ? t('auth.smsReady') : t('auth.smsPending') }}</span>
-          <span>{{ hasEnabledQrProvider ? t('auth.qrLogin') : t('auth.accountPassword') }}</span>
-        </div>
-      </div>
-
-      <section class="login-panel" :aria-label="t('auth.form')">
-        <div class="login-mode-tabs" role="tablist" :aria-label="t('auth.chooseLoginMode')">
-          <button
-            v-for="option in loginModeOptions"
-            :key="option.id"
-            type="button"
-            :class="{ active: loginMode === option.id, unavailable: option.unavailable }"
-            @click="selectLoginMode(option)"
-          >
-            {{ option.label }}
-          </button>
-        </div>
-
-        <div v-if="loginMode === 'qr'" class="login-qr-pane">
-          <div class="qr-provider-tabs" :aria-label="t('auth.selectQrProvider')">
-            <button
-              v-for="provider in qrProviderOptions"
-              :key="provider.id"
-              type="button"
-              :disabled="!safeCapabilities.oauth[provider.id]"
-              :class="{ active: qrProvider === provider.id }"
-              @click="qrProvider = provider.id"
-            >
-              {{ provider.label }}
-            </button>
-          </div>
-
-          <div class="auth-status-card" :class="{ enabled: activeQrProviderEnabled }">
-            <div class="auth-status-mark">
-              <el-icon>
-                <ChatDotRound v-if="activeQrProviderEnabled" />
-                <Warning v-else />
-              </el-icon>
-            </div>
-            <div>
-              <strong>{{
-                activeQrProviderEnabled
-                  ? t('auth.qrReady', { provider: qrProviderLabel })
-                  : t('auth.qrUnavailable', { provider: qrProviderLabel })
-              }}</strong>
-              <span>
-                {{
-                  activeQrProviderEnabled
-                    ? t('auth.qrReadyDesc', { provider: qrProviderLabel })
-                    : t('auth.qrUnavailableDesc')
-                }}
-              </span>
-            </div>
-          </div>
-
-          <el-button
-            type="primary"
-            size="large"
-            :disabled="!activeQrProviderEnabled"
+    <Transition name="auth-fade" mode="out-in">
+      <LoginWelcome
+        v-if="currentScreen === 'welcome'"
+        key="welcome"
+        v-model="passwordForm"
+        :wechat-enabled="safeCapabilities.oauth.wechat"
+        :qq-enabled="safeCapabilities.oauth.qq"
+        :errors="passwordErrors"
+        :loading="isSubmitting"
+        @wechat="submitWechatLogin"
+        @qq="submitQqLogin"
+        @login="submitPasswordLogin"
+        @forgot="openPasswordPanel('forgot')"
+        @phone-code="openPasswordPanel('sms')"
+        @register="currentScreen = 'register'"
+      />
+      <div v-else key="detail" class="auth-detail-wrap">
+        <Transition name="auth-slide" mode="out-in">
+          <RegisterPhone
+            v-if="currentScreen === 'register'"
+            key="register"
+            v-model="registerForm"
+            :errors="registerErrors"
             :loading="isSubmitting"
-            @click="confirmQrLogin"
-          >
-            <el-icon><Check /></el-icon>
-            {{ t('auth.goAuthorize', { provider: qrProviderLabel }) }}
-          </el-button>
-          <p class="login-note">
-            {{
-              activeQrProviderEnabled
-                ? t('auth.qrReadyNote', { provider: qrProviderLabel })
-                : t('auth.qrUnavailableNote', { provider: qrProviderLabel })
-            }}
-          </p>
-        </div>
-
-        <div v-else-if="loginMode === 'phone'" class="login-form">
-          <label>
-            <span>{{ t('auth.phone') }}</span>
-            <el-input
-              v-model="phoneForm.phone"
-              :prefix-icon="Phone"
-              maxlength="11"
-              :placeholder="t('auth.phonePlaceholder')"
-            />
-          </label>
-          <p v-if="!safeCapabilities.phoneSms" class="login-note">
-            {{ t('auth.smsUnavailable') }}
-          </p>
-          <label>
-            <span>{{ t('auth.code') }}</span>
-            <div class="code-row">
-              <el-input
-                v-model="phoneForm.code"
-                :prefix-icon="Message"
-                maxlength="6"
-                :placeholder="t('auth.codePlaceholder')"
-              />
-              <el-button
-                plain
-                :disabled="!safeCapabilities.phoneSms"
-                :loading="isSendingCode"
-                @click="sendPhoneCode"
-              >
-                {{ t('auth.getCode') }}
-              </el-button>
-            </div>
-          </label>
-          <el-button type="primary" size="large" :loading="isSubmitting" @click="submitPhoneLogin">
-            <el-icon><Promotion /></el-icon>
-            {{ t('auth.login') }}
-          </el-button>
-        </div>
-
-        <div v-else class="login-form">
-          <div class="account-switch" :aria-label="t('auth.accountSwitch')">
-            <button type="button" :class="{ active: accountMode === 'login' }" @click="accountMode = 'login'">
-              {{ t('auth.login') }}
-            </button>
-            <button
-              type="button"
-              :class="{ active: accountMode === 'register' }"
-              @click="accountMode = 'register'"
-            >
-              {{ t('auth.register') }}
-            </button>
-          </div>
-
-          <template v-if="accountMode === 'login'">
-            <label>
-              <span>{{ t('auth.accountOrPhone') }}</span>
-              <el-input
-                v-model="accountForm.identifier"
-                :prefix-icon="User"
-                :placeholder="t('auth.accountOrPhonePlaceholder')"
-              />
-            </label>
-            <label>
-              <span>{{ t('auth.password') }}</span>
-              <el-input
-                v-model="accountForm.password"
-                :prefix-icon="Lock"
-                show-password
-                type="password"
-                :placeholder="t('auth.passwordPlaceholder')"
-              />
-            </label>
-          </template>
-
-          <template v-else>
-            <label>
-              <span>{{ t('auth.account') }}</span>
-              <el-input
-                v-model="accountForm.username"
-                :prefix-icon="User"
-                :placeholder="t('auth.accountPlaceholder')"
-              />
-            </label>
-            <label>
-              <span>{{ t('auth.password') }}</span>
-              <el-input
-                v-model="accountForm.password"
-                :prefix-icon="Key"
-                show-password
-                type="password"
-                :placeholder="t('auth.passwordRegisterPlaceholder')"
-              />
-            </label>
-          </template>
-
-          <el-button type="primary" size="large" :loading="isSubmitting" @click="submitAccount">
-            <el-icon><Promotion /></el-icon>
-            {{ accountSubmitLabel }}
-          </el-button>
-        </div>
-      </section>
-    </section>
+            :sending-code="isSendingCode"
+            :countdown="registerCountdown"
+            @back="currentScreen = 'welcome'"
+            @send-code="sendRegisterCode"
+            @submit="submitRegister"
+            @password-login="currentScreen = 'password'"
+          />
+          <PasswordLogin
+            v-else
+            key="password"
+            v-model="passwordForm"
+            :errors="passwordErrors"
+            :loading="isSubmitting"
+            :sending-code="isSendingCode"
+            :countdown="smsCountdown"
+            :forgot-countdown="forgotCountdown"
+            :initial-mode="passwordInitialMode"
+            @back="currentScreen = 'welcome'"
+            @login-password="submitPasswordLogin"
+            @login-sms="submitSmsLogin"
+            @send-sms-code="sendSmsLoginCode"
+            @send-forgot-code="sendForgotCode"
+            @register="currentScreen = 'register'"
+          />
+        </Transition>
+      </div>
+    </Transition>
   </main>
 </template>

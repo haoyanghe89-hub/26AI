@@ -40,7 +40,7 @@ export const complianceDocuments: Record<
         },
         {
           title: '免责声明',
-          body: ['AI 输出可能不准确，重要决策、生产发布和合规判断需人工复核。'],
+          body: ['智能输出可能不准确，重要决策、生产发布和合规判断需人工复核。'],
         },
       ],
     },

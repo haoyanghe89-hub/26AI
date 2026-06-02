@@ -76,7 +76,7 @@ describe('promptEngineering', () => {
 
   it('ships built-in prompt assets for templates, agents, and workflows', () => {
     expect(BUILTIN_PROMPT_TEMPLATES.map((item) => item.name)).toContain('生成喂养计划')
-    expect(BUILTIN_AGENTS.map((item) => item.name)).toContain('宠物 AI 管家')
+    expect(BUILTIN_AGENTS.map((item) => item.name)).toContain('宠物智能管家')
     expect(BUILTIN_WORKFLOWS[0].steps.length).toBeGreaterThan(1)
   })
 

@@ -53,17 +53,21 @@ docker compose up --build -d
 
 ## Data Storage
 
-The app uses the existing local-first persistence approach:
+The app now targets a production-ready storage split while keeping SQLite available for local development:
 
-| Data                            | Location                            | Format                 |
-| ------------------------------- | ----------------------------------- | ---------------------- |
-| Chat sessions & messages        | `data/app.sqlite`                   | SQLite                 |
-| Pet profiles                    | `data/app.sqlite`                   | SQLite collection rows |
-| Health logs                     | `data/app.sqlite`                   | SQLite collection rows |
-| Care reminders                  | `data/app.sqlite`                   | SQLite collection rows |
-| Care plans                      | `data/app.sqlite`                   | SQLite collection rows |
-| User settings & provider config | `data/app.sqlite` + browser storage | JSON/SQLite            |
-| Imported files/projects         | `data/projects/`                    | JSON chunks and files  |
+| Data                             | Location                          | Format                |
+| -------------------------------- | --------------------------------- | --------------------- |
+| Chat sessions & messages         | PostgreSQL via `APP_DATABASE_URL` | Relational tables     |
+| Pet profiles                     | PostgreSQL via `APP_DATABASE_URL` | User-scoped rows      |
+| Health logs                      | PostgreSQL via `APP_DATABASE_URL` | User-scoped rows      |
+| Care reminders                   | PostgreSQL via `APP_DATABASE_URL` | User-scoped rows      |
+| Care plans                       | PostgreSQL via `APP_DATABASE_URL` | User-scoped rows      |
+| Short-lived auth/rate-limit data | Redis via `REDIS_URL`             | TTL keys              |
+| Uploaded images/files            | S3-compatible object storage      | Bucket objects        |
+| User settings & provider config  | PostgreSQL + browser storage      | JSON/rows             |
+| Imported files/projects          | `data/projects/`                  | JSON chunks and files |
+
+Local development can leave `APP_DATABASE_URL` empty to use `data/app.sqlite`. Docker Compose starts PostgreSQL, Redis, and MinIO by default.
 
 ## Medical Safety
 

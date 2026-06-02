@@ -16,14 +16,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
+APP_DATABASE_URL="${APP_DATABASE_URL:-${DATABASE_URL:-}}"
 ROLLBACK_DIR="$PROJECT_DIR/data_restore_rollback_$(date +%Y%m%d_%H%M%S)"
 
 RED='\033[0;31m'
-GREEN='\033[0;32m'
+ACCENT='\033[0;33m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+log_info()  { echo -e "${ACCENT}[INFO]${NC}  $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
@@ -33,9 +34,11 @@ usage() {
   echo "支持的备份格式:"
   echo "  .tar.gz  - 完整数据目录备份"
   echo "  .db      - 仅 SQLite 数据库备份"
+  echo "  .dump    - 仅 PostgreSQL 数据库备份"
   echo ""
   echo "环境变量:"
   echo "  DATA_DIR  数据目录路径（默认: ./data）"
+  echo "  APP_DATABASE_URL / DATABASE_URL  PostgreSQL 恢复目标"
   echo ""
   echo "示例:"
   echo "  $0 backups/daily/twentys1x-backup-20260513_120000-daily.tar.gz"
@@ -142,6 +145,21 @@ restore_sqlite() {
 }
 
 # ─── 7. 回滚提示 ───
+restore_postgres() {
+  if [[ ! "$APP_DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
+    log_error "恢复 PostgreSQL 备份需要设置 APP_DATABASE_URL 或 DATABASE_URL"
+    exit 1
+  fi
+  if ! command -v pg_restore &>/dev/null; then
+    log_error "pg_restore 不可用，无法恢复 PostgreSQL 备份"
+    exit 1
+  fi
+  log_info "恢复 PostgreSQL 数据库备份: $BACKUP_FILE"
+  pg_restore "$BACKUP_FILE" --dbname="$APP_DATABASE_URL" --clean --if-exists
+  log_info "PostgreSQL 数据库恢复完成"
+}
+
+# ─── 8. 回滚提示 ───
 rollback_hint() {
   echo ""
   log_warn "如需要回滚到恢复前的状态:"
@@ -178,9 +196,12 @@ main() {
     *.db|*.sqlite|*.sqlite3)
       restore_sqlite
       ;;
+    *.dump)
+      restore_postgres
+      ;;
     *)
       log_error "不支持的备份格式: $BACKUP_FILE"
-      log_info "支持的格式: .tar.gz, .db, .sqlite, .sqlite3"
+      log_info "支持的格式: .tar.gz, .db, .sqlite, .sqlite3, .dump"
       exit 1
       ;;
   esac

@@ -17,16 +17,17 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DATA_DIR="${DATA_DIR:-$PROJECT_DIR/data}"
 BACKUP_DIR="${BACKUP_DIR:-$PROJECT_DIR/backups}"
 DB_PATH="${DB_PATH:-$DATA_DIR/app.sqlite}"
+APP_DATABASE_URL="${APP_DATABASE_URL:-${DATABASE_URL:-}}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 DATE_LABEL="$(date +%Y-%m-%d)"
 
 # 颜色输出
 RED='\033[0;31m'
-GREEN='\033[0;32m'
+ACCENT='\033[0;33m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-log_info()  { echo -e "${GREEN}[INFO]${NC}  $*"; }
+log_info()  { echo -e "${ACCENT}[INFO]${NC}  $*"; }
 log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $*"; }
 
@@ -53,6 +54,21 @@ backup_sqlite() {
 }
 
 # ─── 2. 完整数据目录打包 ───
+backup_postgres() {
+  local backup_file="$1"
+  if [[ ! "$APP_DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
+    return
+  fi
+  if ! command -v pg_dump &>/dev/null; then
+    log_warn "检测到 PostgreSQL 连接，但 pg_dump 不可用，跳过 PostgreSQL 备份"
+    return
+  fi
+  log_info "备份 PostgreSQL 数据库 → $backup_file"
+  pg_dump "$APP_DATABASE_URL" --format=custom --file="$backup_file"
+  log_info "PostgreSQL 备份完成 ($(du -h "$backup_file" | cut -f1))"
+}
+
+# ─── 3. 完整数据目录打包 ───
 backup_full() {
   local archive="$1"
 
@@ -81,7 +97,7 @@ backup_full() {
   fi
 }
 
-# ─── 3. 备份轮转 ───
+# ─── 4. 备份轮转 ───
 rotate_backups() {
   local dir="$1"
   local keep="$2"
@@ -103,7 +119,7 @@ rotate_backups() {
   fi
 }
 
-# ─── 4. 主流程 ───
+# ─── 5. 主流程 ───
 main() {
   log_info "======== Twentys1x 数据备份开始 ========"
   log_info "数据目录: $DATA_DIR"
@@ -144,6 +160,18 @@ main() {
     backup_sqlite "$sqlite_backup"
     # SQLite 备份保留最近 14 个
     find "$BACKUP_DIR" -maxdepth 1 -name "twentys1x-backup-*-sqlite.db" -type f \
+      | sort \
+      | head -n -14 \
+      | while read -r old_db; do
+          rm -f "$old_db"
+        done
+  fi
+
+  # 额外：单独的 PostgreSQL 备份（生产主库）
+  if [[ "$APP_DATABASE_URL" =~ ^postgres(ql)?:// ]]; then
+    local postgres_backup="$BACKUP_DIR/${base_name}-postgres.dump"
+    backup_postgres "$postgres_backup"
+    find "$BACKUP_DIR" -maxdepth 1 -name "twentys1x-backup-*-postgres.dump" -type f \
       | sort \
       | head -n -14 \
       | while read -r old_db; do

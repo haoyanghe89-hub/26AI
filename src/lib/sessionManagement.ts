@@ -1,4 +1,5 @@
 import type { ChatSession, MessageContent } from '../stores/chat'
+import { createId } from './uuid'
 
 const SUMMARY_TRANSCRIPT_MAX_CHARS = 18000
 const TAGS_TRANSCRIPT_MAX_CHARS = 12000
@@ -89,7 +90,7 @@ export function importSessionsJson(jsonString: string): {
     }
     if (typeof (session as ChatSession).id !== 'string' || !(session as ChatSession).id) {
       // 没有 id 则生成一个
-      ;(session as ChatSession).id = crypto.randomUUID()
+      ;(session as ChatSession).id = createId()
     }
     if (!Array.isArray((session as ChatSession).messages)) {
       ;(session as ChatSession).messages = []

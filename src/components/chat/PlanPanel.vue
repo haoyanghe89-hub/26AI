@@ -19,9 +19,9 @@ const statusIcon = (status: PlanTask['status']) => {
 }
 
 const statusColor = (status: PlanTask['status']) => {
-  if (status === 'success') return '#67c23a'
+  if (status === 'success') return '#d9824b'
   if (status === 'error') return '#f56c6c'
-  if (status === 'running') return '#409eff'
+  if (status === 'running') return '#d9824b'
   return '#909399'
 }
 
@@ -83,9 +83,9 @@ const isErrorResult = (result: unknown) => {
 
 const overallStatus = computed(() => {
   const p = props.plan
-  if (p.status === 'completed') return { label: t('plan.completed'), color: '#67c23a' }
+  if (p.status === 'completed') return { label: t('plan.completed'), color: '#d9824b' }
   if (p.status === 'failed') return { label: t('plan.failed'), color: '#f56c6c' }
-  if (p.status === 'executing') return { label: t('plan.executing'), color: '#409eff' }
+  if (p.status === 'executing') return { label: t('plan.executing'), color: '#d9824b' }
   return { label: t('plan.planning'), color: '#e6a23c' }
 })
 </script>
@@ -184,19 +184,19 @@ const overallStatus = computed(() => {
 <style scoped>
 .plan-panel {
   margin: 12px 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(248, 251, 247, 0.76));
-  border: 1px solid rgba(23, 32, 26, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(255, 250, 243, 0.76));
+  border: 1px solid rgba(59, 47, 41, 0.08);
   border-radius: 18px;
   overflow: hidden;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.7) inset,
-    0 14px 34px rgba(23, 32, 26, 0.06);
+    0 14px 34px rgba(59, 47, 41, 0.06);
 }
 
 .plan-header {
   padding: 12px 14px;
   background: rgba(255, 255, 255, 0.58);
-  border-bottom: 1px solid rgba(23, 32, 26, 0.06);
+  border-bottom: 1px solid rgba(59, 47, 41, 0.06);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -231,7 +231,7 @@ const overallStatus = computed(() => {
 
 .plan-progress {
   font-size: 12px;
-  color: #66706a;
+  color: #8b6950;
   white-space: nowrap;
   flex-shrink: 0;
 }
@@ -244,7 +244,7 @@ const overallStatus = computed(() => {
 }
 
 .task-item {
-  border: 1px solid rgba(23, 32, 26, 0.05);
+  border: 1px solid rgba(59, 47, 41, 0.05);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.52);
   transition:
@@ -254,9 +254,9 @@ const overallStatus = computed(() => {
 }
 
 .task-item.is-active {
-  border-color: rgba(52, 96, 78, 0.16);
+  border-color: rgba(217, 130, 75, 0.16);
   background: rgba(236, 245, 239, 0.92);
-  box-shadow: 0 12px 24px rgba(23, 32, 26, 0.05);
+  box-shadow: 0 12px 24px rgba(59, 47, 41, 0.05);
 }
 
 .task-main {
@@ -296,7 +296,7 @@ const overallStatus = computed(() => {
 
 .task-desc {
   font-size: 12px;
-  color: #66706a;
+  color: #8b6950;
   margin-top: 3px;
   line-height: 1.4;
 }
@@ -306,7 +306,7 @@ const overallStatus = computed(() => {
   color: #55635b;
   margin-top: 6px;
   padding: 6px 10px;
-  background: #f0f9eb;
+  background: #fff0dc;
   border-radius: 10px;
   line-height: 1.5;
   word-break: break-all;
@@ -326,7 +326,7 @@ const overallStatus = computed(() => {
 
 .task-tool-log {
   background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(23, 32, 26, 0.08);
+  border: 1px solid rgba(59, 47, 41, 0.08);
   border-radius: 10px;
   padding: 7px 9px;
   font-size: 11px;
@@ -345,7 +345,7 @@ const overallStatus = computed(() => {
 
 .tool-icon {
   font-size: 12px;
-  color: #7c8780;
+  color: #8b6950;
   flex-shrink: 0;
 }
 
@@ -357,7 +357,7 @@ const overallStatus = computed(() => {
 }
 
 .tool-args {
-  color: #7c8780;
+  color: #8b6950;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,7 +372,7 @@ const overallStatus = computed(() => {
 }
 
 .status-icon.success {
-  color: #67c23a;
+  color: #d9824b;
 }
 
 .status-icon.error {
@@ -383,14 +383,14 @@ const overallStatus = computed(() => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #409eff;
+  background: #d9824b;
   animation: pulse 1.2s infinite ease-in-out;
 }
 
 .tool-log-result {
   margin-top: 6px;
   padding-top: 6px;
-  border-top: 1px dashed rgba(23, 32, 26, 0.08);
+  border-top: 1px dashed rgba(59, 47, 41, 0.08);
   color: #55635b;
   line-height: 1.4;
   word-break: break-all;
@@ -403,7 +403,7 @@ const overallStatus = computed(() => {
   justify-content: center;
   gap: 8px;
   font-size: 13px;
-  color: #66706a;
+  color: #8b6950;
 }
 
 .is-spinning {

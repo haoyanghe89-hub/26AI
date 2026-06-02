@@ -31,6 +31,10 @@ import {
 } from './error-monitoring.mjs'
 import { executeTool, TOOL_DEFINITIONS } from './tools.mjs'
 import { initPersistence, loadUserState, saveUserState } from './persistence.mjs'
+import { incrementEphemeralCounter } from './ephemeral-store.mjs'
+import { initRedis } from './redis.mjs'
+import { getObjectStorageConfig } from './object-storage.mjs'
+import { createPetExpertGateway, getPetExpertConfig } from '../src/ai/petExpert/gateway.mjs'
 import {
   authenticateRequest,
   completeOAuthTicket,
@@ -40,6 +44,7 @@ import {
   loginWithDevQr,
   loginWithPhone,
   registerWithAccount,
+  registerWithPhone,
   requestSmsCode,
   startOAuthLogin,
 } from './auth.mjs'
@@ -53,7 +58,6 @@ const PUBLIC_DIR = path.resolve(__dirname, '../dist')
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000) // 默认 60 秒窗口
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 30) // 每窗口最多 30 次
 const RATE_LIMIT_CHAT_MAX = Number(process.env.RATE_LIMIT_CHAT_MAX || 10) // /api/chat 每窗口最多 10 次
-const rateLimitBuckets = new Map() // key → { tokens, lastRefill }
 
 function getRateLimitKey(req) {
   // 优先按用户 ID 限流，否则按 IP
@@ -62,35 +66,15 @@ function getRateLimitKey(req) {
   return `ip:${ip}`
 }
 
-function checkRateLimit(req, maxRequests = RATE_LIMIT_MAX_REQUESTS, windowMs = RATE_LIMIT_WINDOW_MS) {
+async function checkRateLimit(req, maxRequests = RATE_LIMIT_MAX_REQUESTS, windowMs = RATE_LIMIT_WINDOW_MS) {
   const key = getRateLimitKey(req)
-  const now = Date.now()
-  let bucket = rateLimitBuckets.get(key)
-
-  if (!bucket || now - bucket.lastRefill >= windowMs) {
-    // 新窗口：重置令牌
-    bucket = { tokens: maxRequests, lastRefill: now }
-    rateLimitBuckets.set(key, bucket)
-  }
-
-  if (bucket.tokens <= 0) {
-    const retryAfter = Math.ceil((bucket.lastRefill + windowMs - now) / 1000)
+  const { count, ttlMs } = await incrementEphemeralCounter(`rate:${key}`, windowMs)
+  if (count > maxRequests) {
+    const retryAfter = Math.max(1, Math.ceil(ttlMs / 1000))
     return { allowed: false, retryAfter }
   }
-
-  bucket.tokens--
   return { allowed: true }
 }
-
-// 定期清理过期桶（每 5 分钟）
-const RATE_LIMIT_CLEANUP_INTERVAL = setInterval(() => {
-  const now = Date.now()
-  const maxAge = Math.max(RATE_LIMIT_WINDOW_MS, 60_000) * 2
-  for (const [key, bucket] of rateLimitBuckets) {
-    if (now - bucket.lastRefill > maxAge) rateLimitBuckets.delete(key)
-  }
-}, 300_000)
-if (RATE_LIMIT_CLEANUP_INTERVAL.unref) RATE_LIMIT_CLEANUP_INTERVAL.unref()
 
 // ─── 请求体大小限制 ───
 const MAX_BODY_SIZE = Number(process.env.MAX_BODY_SIZE || 10 * 1024 * 1024) // 默认 10MB
@@ -150,12 +134,19 @@ function sanitizeUserMessages(messages) {
 
 initServerErrorMonitoring()
 await initPersistence()
+await initRedis()
 
 const SYSTEM_PROMPT =
   process.env.SYSTEM_PROMPT ||
-  '你是宠物 AI 管家的 AI 助手。请围绕宠物档案、健康日志、照护提醒、就医准备和产品决策回答，默认使用中文。不要做医学确诊或处方，严重症状必须建议联系执业兽医。'
+  '你是宠物智能管家的智能助手。请围绕宠物档案、健康日志、照护提醒、就医准备和产品决策回答，默认使用中文。不要做医学确诊或处方，严重症状必须建议联系执业兽医。'
 
 const PROVIDERS = {
+  pet_expert: {
+    kind: 'pet-expert',
+    endpoint: '',
+    envKey: '',
+    needsApiKey: false,
+  },
   openai: {
     kind: 'openai-compatible',
     endpoint: 'https://api.openai.com/v1/chat/completions',
@@ -251,7 +242,7 @@ const server = http.createServer(async (req, res) => {
     // 速率限制检查（仅对 API 路由）
     if (routePath.startsWith('/api/') && !routePath.startsWith('/api/auth/')) {
       const maxRequests = routePath === '/api/chat' ? RATE_LIMIT_CHAT_MAX : RATE_LIMIT_MAX_REQUESTS
-      const limitResult = checkRateLimit(req, maxRequests)
+      const limitResult = await checkRateLimit(req, maxRequests)
       if (!limitResult.allowed) {
         res.setHeader('Retry-After', String(limitResult.retryAfter))
         sendJson(res, 429, {
@@ -279,11 +270,16 @@ const server = http.createServer(async (req, res) => {
             id,
             {
               needsApiKey: provider.needsApiKey,
-              serverConfigured: !provider.needsApiKey || Boolean(process.env[provider.envKey]),
+              serverConfigured: isProviderServerConfigured(id, provider),
             },
           ]),
         ),
       })
+      return
+    }
+
+    if (req.method === 'GET' && routePath === '/api/storage/capabilities') {
+      sendJson(res, 200, getObjectStorageConfig())
       return
     }
 
@@ -500,7 +496,7 @@ const server = http.createServer(async (req, res) => {
       if (body?.stream) {
         await handleStreamChat(req, res, body)
       } else {
-        const result = await handleChat(body)
+        const result = await handleChat(req, body)
         sendJson(res, 200, result)
       }
       return
@@ -527,7 +523,11 @@ server.listen(PORT, HOST, () => {
   console.log(`Agent backend listening on http://${HOST}:${PORT}`)
 })
 
-async function handleChat(body) {
+async function handleChat(req, body) {
+  if (body?.providerId === 'pet_expert') {
+    return handlePetExpertChat(req, body)
+  }
+
   const ctx = await buildChatRequest(body)
   let effectiveTarget = ctx.target
 
@@ -599,10 +599,54 @@ async function handleChat(body) {
   }
 }
 
+async function handlePetExpertChat(req, body) {
+  validateChatBody(body)
+  sanitizeUserMessages(body?.messages)
+  const gateway = createPetExpertGateway({
+    providers: PROVIDERS,
+    callProvider,
+    readProviderResponse,
+    extractProviderText,
+    extractProviderErrorMessage,
+    getApiKey,
+    httpError,
+  })
+  const state = req.user?.id ? await loadUserState(req.user.id).catch(() => ({})) : {}
+  return gateway.complete({ body, userId: req.user?.id || '', state })
+}
+
+async function handlePetExpertStreamChat(req, res, body) {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  })
+
+  try {
+    const result = await handlePetExpertChat(req, body)
+    res.write(
+      `event: start\ndata: ${JSON.stringify({
+        inference: result.inference,
+        workspaceHits: [],
+        petExpert: result.petExpert,
+      })}\n\n`,
+    )
+
+    for (const chunk of simulateStreaming(result.content)) {
+      res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk })}\n\n`)
+    }
+    res.write(`event: done\ndata: ${JSON.stringify({ petExpert: result.petExpert })}\n\n`)
+    res.end()
+  } catch (error) {
+    sendStreamError(res, error instanceof Error ? error.message : '宠物专家引擎请求失败')
+  }
+}
+
 async function handleAuthRoute(req, res, routePath) {
   const oauthStartMatch = routePath.match(/^\/api\/auth\/oauth\/([^/]+)\/start$/)
   if (req.method === 'GET' && oauthStartMatch) {
-    redirect(res, startOAuthLogin(req, oauthStartMatch[1]))
+    redirect(res, await startOAuthLogin(req, oauthStartMatch[1]))
     return
   }
 
@@ -634,6 +678,11 @@ async function handleAuthRoute(req, res, routePath) {
 
   if (req.method === 'POST' && routePath === '/api/auth/register') {
     sendJson(res, 200, await registerWithAccount(await readJson(req, 16 * 1024)))
+    return
+  }
+
+  if (req.method === 'POST' && routePath === '/api/auth/register-phone') {
+    sendJson(res, 200, await registerWithPhone(await readJson(req, 16 * 1024)))
     return
   }
 
@@ -815,6 +864,16 @@ function getApiKey(provider, requestApiKey) {
   const envKey = provider.envKey ? process.env[provider.envKey] : ''
   // 优先使用前端本次请求携带的 key，便于用户在界面内及时切换/修复失效凭证
   return normalizeApiKey(requestApiKey || envKey || '')
+}
+
+function isProviderServerConfigured(providerId, provider) {
+  if (providerId !== 'pet_expert') return !provider.needsApiKey || Boolean(process.env[provider.envKey])
+  const config = getPetExpertConfig()
+  return [config.primaryModel, config.fallbackModel].some((target) => {
+    const baseProvider = PROVIDERS[target.providerId]
+    if (!baseProvider) return false
+    return !baseProvider.needsApiKey || Boolean(process.env[baseProvider.envKey])
+  })
 }
 
 function normalizeApiKey(value) {
@@ -1371,6 +1430,11 @@ async function buildChatRequest(body) {
 }
 
 async function handleStreamChat(req, res, body) {
+  if (body?.providerId === 'pet_expert') {
+    await handlePetExpertStreamChat(req, res, body)
+    return
+  }
+
   const ctx = await buildChatRequest(body)
   let effectiveTarget = ctx.target
 

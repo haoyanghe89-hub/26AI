@@ -99,6 +99,16 @@ export const useAuthStore = defineStore('auth', () => {
     )
   }
 
+  async function registerWithPhone(phone: string, code: string, password: string) {
+    await applyAuthResponse(
+      await publicAuthRequest<AuthResponse>('/api/auth/register-phone', {
+        phone,
+        code,
+        password,
+      }),
+    )
+  }
+
   async function loginWithAccount(identifier: string, password: string) {
     await applyAuthResponse(
       await publicAuthRequest<AuthResponse>('/api/auth/login', {
@@ -156,6 +166,7 @@ export const useAuthStore = defineStore('auth', () => {
     requestSmsCode,
     loginWithPhone,
     registerWithAccount,
+    registerWithPhone,
     loginWithAccount,
     loginWithQr,
     completeOAuthLogin,

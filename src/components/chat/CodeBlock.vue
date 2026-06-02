@@ -126,12 +126,12 @@ function escapeHtml(code: string) {
   max-width: 100%;
   min-width: 0;
   margin: 14px 0;
-  border: 1px solid rgba(23, 32, 26, 0.14);
+  border: 1px solid rgba(59, 47, 41, 0.14);
   border-radius: 16px;
   overflow: hidden;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 14%),
-    linear-gradient(180deg, #222b24 0%, #171d19 100%);
+    linear-gradient(180deg, #2b211c 0%, #1d1714 100%);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.04) inset,
     0 18px 40px rgba(0, 0, 0, 0.18);
@@ -154,7 +154,7 @@ function escapeHtml(code: string) {
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08);
   font-size: 12px;
   font-weight: 700;
-  color: #a3b5a8;
+  color: #d8c2a8;
 }
 
 .code-header-main {
@@ -182,7 +182,7 @@ function escapeHtml(code: string) {
 }
 
 .code-meta {
-  color: rgba(163, 181, 168, 0.78);
+  color: rgba(181, 128, 91, 0.78);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -198,7 +198,7 @@ function escapeHtml(code: string) {
   overflow-x: auto;
   overflow-y: auto;
   background: transparent;
-  color: #edf4ef;
+  color: #fff7ed;
   font-size: 13px;
   line-height: 1.65;
   tab-size: 2;
@@ -219,7 +219,7 @@ function escapeHtml(code: string) {
 }
 
 .code-block-wrapper pre::-webkit-scrollbar-thumb {
-  background: rgba(163, 181, 168, 0.34);
+  background: rgba(181, 128, 91, 0.34);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: padding-box;
@@ -236,12 +236,12 @@ function escapeHtml(code: string) {
   --el-button-hover-border-color: transparent;
   --el-button-active-bg-color: rgba(255, 255, 255, 0.2);
   --el-button-active-border-color: transparent;
-  --el-button-text-color: #a3b5a8;
+  --el-button-text-color: #d8c2a8;
   --el-button-hover-text-color: #ffffff;
 }
 
 :deep(code[class*='language-']) {
-  color: #edf4ef;
+  color: #fff7ed;
   background: transparent;
   text-shadow: none;
 }
@@ -250,11 +250,11 @@ function escapeHtml(code: string) {
 :deep(.token.prolog),
 :deep(.token.doctype),
 :deep(.token.cdata) {
-  color: #7c9382;
+  color: #b7a28c;
 }
 
 :deep(.token.punctuation) {
-  color: #dce7de;
+  color: #ead8c6;
 }
 
 :deep(.token.property),
@@ -276,7 +276,7 @@ function escapeHtml(code: string) {
 :deep(.token.char),
 :deep(.token.builtin),
 :deep(.token.inserted) {
-  color: #9fd0ae;
+  color: #f2bd5c;
 }
 
 :deep(.token.operator),
@@ -284,18 +284,18 @@ function escapeHtml(code: string) {
 :deep(.token.url),
 :deep(.language-css .token.string),
 :deep(.style .token.string) {
-  color: #dbe8dd;
+  color: #ead8c6;
 }
 
 :deep(.token.atrule),
 :deep(.token.attr-value),
 :deep(.token.keyword) {
-  color: #b4c987;
+  color: #e8a262;
 }
 
 :deep(.token.function),
 :deep(.token.class-name) {
-  color: #8fcac8;
+  color: #f3c990;
 }
 
 :deep(.token.regex),

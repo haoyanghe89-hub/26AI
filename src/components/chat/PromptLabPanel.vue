@@ -28,6 +28,7 @@ import {
   type PromptWorkflow,
   type PromptWorkflowStep,
 } from '../../lib/promptEngineering'
+import { createId } from '../../lib/uuid'
 
 const props = defineProps<{
   templates: PromptTemplate[]
@@ -189,7 +190,7 @@ function agentKnowledgeItems(): AgentKnowledge[] {
 }
 
 function createKnowledgeItem(): AgentKnowledge {
-  return { id: crypto.randomUUID(), title: '', content: '' }
+  return { id: createId(), title: '', content: '' }
 }
 
 function addKnowledgeItem() {
@@ -207,7 +208,7 @@ function saveAgentDraft() {
 
 function createWorkflowStep(): PromptWorkflowStep {
   return {
-    id: crypto.randomUUID(),
+    id: createId(),
     title: t('promptLab.newStepTitle'),
     prompt: t('promptLab.newStepPrompt'),
     agentId: props.activeAgentId || DEFAULT_AGENT_ID,
@@ -302,11 +303,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 
           <div v-if="mode === 'templates'" class="prompt-lab-section">
             <div class="prompt-lab-toolbar">
-              <el-select
-                v-model="selectedTemplateId"
-                size="small"
-                popper-class="military-green-select-dropdown"
-              >
+              <el-select v-model="selectedTemplateId" size="small" popper-class="warm-orange-select-dropdown">
                 <el-option
                   v-for="template in templates"
                   :key="template.id"
@@ -359,7 +356,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
               <el-select
                 :model-value="activeAgentId"
                 size="small"
-                popper-class="military-green-select-dropdown"
+                popper-class="warm-orange-select-dropdown"
                 @update:model-value="(value: string) => emit('select-agent', value)"
               >
                 <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
@@ -420,11 +417,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 
           <div v-else class="prompt-lab-section">
             <div class="prompt-lab-toolbar">
-              <el-select
-                v-model="selectedWorkflowId"
-                size="small"
-                popper-class="military-green-select-dropdown"
-              >
+              <el-select v-model="selectedWorkflowId" size="small" popper-class="warm-orange-select-dropdown">
                 <el-option
                   v-for="workflow in workflows"
                   :key="workflow.id"
@@ -637,7 +630,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
         <el-input v-model="step.title" :placeholder="t('promptLab.stepTitle')" />
         <el-select
           v-model="step.agentId"
-          popper-class="military-green-select-dropdown"
+          popper-class="warm-orange-select-dropdown"
           :placeholder="t('promptLab.selectAgent')"
         >
           <el-option v-for="agent in agents" :key="agent.id" :label="agent.name" :value="agent.id" />
@@ -645,7 +638,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
         <el-select
           v-model="step.templateId"
           clearable
-          popper-class="military-green-select-dropdown"
+          popper-class="warm-orange-select-dropdown"
           :placeholder="t('promptLab.selectTemplate')"
           @change="() => applyWorkflowTemplate(step)"
         >
@@ -715,14 +708,14 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   flex-shrink: 0;
   gap: 0;
   padding: 8px 10px;
-  border: 1px solid rgba(23, 32, 26, 0.09);
+  border: 1px solid rgba(59, 47, 41, 0.09);
   border-radius: 12px;
   background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.76) 0%, rgba(245, 249, 245, 0.5) 100%),
-    radial-gradient(ellipse at 12% 0%, rgba(52, 96, 78, 0.1), transparent 42%);
+    linear-gradient(145deg, rgba(255, 255, 255, 0.76) 0%, rgba(255, 250, 243, 0.5) 100%),
+    radial-gradient(ellipse at 12% 0%, rgba(217, 130, 75, 0.1), transparent 42%);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.78) inset,
-    0 14px 34px rgba(23, 32, 26, 0.06);
+    0 14px 34px rgba(59, 47, 41, 0.06);
 }
 
 .prompt-lab:not(.is-collapsed) .t1-collapse-wrap {
@@ -742,7 +735,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   min-height: 28px;
   border: 0;
   padding: 0;
-  color: #5b675f;
+  color: #6f5c4a;
   background: transparent;
   text-align: left;
 }
@@ -753,7 +746,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   align-items: center;
   gap: 8px;
   overflow: hidden;
-  color: #2f3a33;
+  color: #3b2f29;
   font-size: 13px;
   font-weight: 850;
   letter-spacing: 0.02em;
@@ -762,7 +755,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .prompt-lab-title .el-icon {
-  color: #34604e;
+  color: #d9824b;
   font-size: 15px;
 }
 
@@ -792,10 +785,10 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   grid-template-columns: repeat(3, 1fr);
   gap: 5px;
   padding: 5px;
-  border: 1px solid rgba(23, 32, 26, 0.05);
+  border: 1px solid rgba(59, 47, 41, 0.05);
   border-radius: 12px;
   background:
-    linear-gradient(180deg, rgba(23, 32, 26, 0.05), rgba(23, 32, 26, 0.035)), rgba(255, 255, 255, 0.42);
+    linear-gradient(180deg, rgba(59, 47, 41, 0.05), rgba(59, 47, 41, 0.035)), rgba(255, 255, 255, 0.42);
 }
 
 .prompt-lab-tabs button {
@@ -803,7 +796,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   min-height: 36px;
   border: 0;
   border-radius: 8px;
-  color: #66706a;
+  color: #8b6950;
   background: transparent;
   font-size: 13px;
   font-weight: 850;
@@ -814,11 +807,11 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .prompt-lab-tabs button.active {
-  color: #17201a;
-  background: #f8fbf7;
+  color: #3b2f29;
+  background: #fffaf3;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 8px 18px rgba(23, 32, 26, 0.07);
+    0 8px 18px rgba(59, 47, 41, 0.07);
 }
 
 .prompt-lab-toolbar {
@@ -831,7 +824,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   display: grid;
   gap: 10px;
   padding: 12px;
-  border: 1px solid rgba(52, 96, 78, 0.13);
+  border: 1px solid rgba(217, 130, 75, 0.13);
   border-radius: 12px;
   background:
     linear-gradient(165deg, rgba(255, 255, 255, 0.78) 0%, rgba(249, 251, 248, 0.58) 100%),
@@ -851,14 +844,14 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   min-width: 0;
   align-items: center;
   gap: 6px;
-  color: #17201a;
+  color: #3b2f29;
   font-size: 14px;
   font-weight: 850;
 }
 
 .prompt-card-head small,
 .prompt-card p {
-  color: #66706a;
+  color: #8b6950;
   font-size: 13px;
 }
 
@@ -871,8 +864,8 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   width: fit-content;
   border-radius: 999px;
   padding: 5px 10px;
-  color: #2d5848;
-  background: rgba(52, 96, 78, 0.1);
+  color: #a9582f;
+  background: rgba(217, 130, 75, 0.1);
   font-size: 12px;
   font-weight: 780;
 }
@@ -891,8 +884,8 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 .prompt-chip-row span {
   border-radius: 999px;
   padding: 4px 9px;
-  color: #34604e;
-  background: rgba(52, 96, 78, 0.11);
+  color: #d9824b;
+  background: rgba(217, 130, 75, 0.11);
   font-size: 12px;
   font-weight: 750;
 }
@@ -915,13 +908,13 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 .prompt-lab-actions :deep(.el-button--primary:first-child) {
   grid-column: 1 / -1;
   min-height: 38px;
-  box-shadow: 0 10px 22px rgba(79, 93, 58, 0.2);
+  box-shadow: 0 10px 22px rgba(169, 88, 47, 0.2);
 }
 
 .workflow-step-list {
   margin: 0;
   padding-left: 18px;
-  color: #4b554f;
+  color: #6f5c4a;
   font-size: 12px;
 }
 
@@ -929,9 +922,9 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(23, 32, 26, 0.1);
+  border: 1px solid rgba(59, 47, 41, 0.1);
   border-radius: 10px;
-  background: rgba(248, 251, 247, 0.78);
+  background: rgba(255, 250, 243, 0.78);
 }
 
 .workflow-step-editor-head {
@@ -944,20 +937,20 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 .workflow-run-summary {
   display: grid;
   gap: 5px;
-  border: 1px solid rgba(52, 96, 78, 0.14);
+  border: 1px solid rgba(217, 130, 75, 0.14);
   border-radius: 12px;
   padding: 12px;
-  background: rgba(52, 96, 78, 0.07);
+  background: rgba(217, 130, 75, 0.07);
 }
 
 .workflow-run-summary strong {
-  color: #17201a;
+  color: #3b2f29;
   font-size: 14px;
   font-weight: 850;
 }
 
 .workflow-run-summary span {
-  color: #66706a;
+  color: #8b6950;
   font-size: 13px;
   line-height: 1.45;
 }
@@ -968,7 +961,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .prompt-form label > span {
-  color: #66706a;
+  color: #8b6950;
   font-size: 12px;
   font-weight: 750;
 }
@@ -980,11 +973,11 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   gap: 10px !important;
   width: fit-content;
   min-height: 36px;
-  border: 1px solid rgba(52, 96, 78, 0.16);
+  border: 1px solid rgba(217, 130, 75, 0.16);
   border-radius: 999px;
   padding: 6px 12px;
-  color: #2d5848;
-  background: rgba(52, 96, 78, 0.07);
+  color: #a9582f;
+  background: rgba(217, 130, 75, 0.07);
   font-size: 13px;
   font-weight: 800;
 }
@@ -993,27 +986,27 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   width: 16px;
   height: 16px;
   margin: 0;
-  accent-color: #4f5d3a;
+  accent-color: #b66b3d;
 }
 
 :global(.personalization-dialog.el-dialog) {
-  border: 1px solid rgba(23, 32, 26, 0.1);
+  border: 1px solid rgba(59, 47, 41, 0.1);
   border-radius: 16px;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96) 0%, rgba(247, 250, 246, 0.94) 100%), #f8fbf7;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 250, 243, 0.94) 100%), #fffaf3;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.84) inset,
-    0 32px 88px rgba(23, 32, 26, 0.22);
+    0 32px 88px rgba(59, 47, 41, 0.22);
   overflow: hidden;
 }
 
 :global(.personalization-dialog .el-dialog__header) {
   margin: 0;
   padding: 20px 22px 12px;
-  border-bottom: 1px solid rgba(23, 32, 26, 0.07);
+  border-bottom: 1px solid rgba(59, 47, 41, 0.07);
 }
 
 :global(.personalization-dialog .el-dialog__title) {
-  color: #17201a;
+  color: #3b2f29;
   font-size: 18px;
   font-weight: 850;
   letter-spacing: 0;
@@ -1025,8 +1018,8 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 
 :global(.personalization-dialog .el-dialog__footer) {
   padding: 14px 22px 20px;
-  border-top: 1px solid rgba(23, 32, 26, 0.07);
-  background: rgba(248, 251, 247, 0.72);
+  border-top: 1px solid rgba(59, 47, 41, 0.07);
+  background: rgba(255, 250, 243, 0.72);
 }
 
 :global(.personalization-dialog .el-input__wrapper),
@@ -1053,8 +1046,8 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   gap: 5px;
   border-radius: 999px;
   padding: 4px 10px;
-  color: #34604e;
-  background: rgba(52, 96, 78, 0.1);
+  color: #d9824b;
+  background: rgba(217, 130, 75, 0.1);
   font-size: 11px;
   font-weight: 780;
 }
@@ -1083,9 +1076,9 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(52, 96, 78, 0.12);
+  border: 1px solid rgba(217, 130, 75, 0.12);
   border-radius: 10px;
-  background: rgba(52, 96, 78, 0.05);
+  background: rgba(217, 130, 75, 0.05);
 }
 
 .memory-section-head {
@@ -1095,7 +1088,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .memory-section-head strong {
-  color: #17201a;
+  color: #3b2f29;
   font-size: 13px;
   font-weight: 850;
 }
@@ -1110,9 +1103,9 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   display: grid;
   gap: 8px;
   padding: 10px;
-  border: 1px solid rgba(23, 32, 26, 0.08);
+  border: 1px solid rgba(59, 47, 41, 0.08);
   border-radius: 10px;
-  background: rgba(248, 251, 247, 0.72);
+  background: rgba(255, 250, 243, 0.72);
 }
 
 .kb-section-head {
@@ -1122,7 +1115,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
 }
 
 .kb-section-head strong {
-  color: #17201a;
+  color: #3b2f29;
   font-size: 13px;
   font-weight: 850;
 }
@@ -1137,7 +1130,7 @@ async function copyAsset(asset: PromptTemplate | CustomAgent | PromptWorkflow | 
   display: grid;
   gap: 6px;
   padding: 8px;
-  border: 1px solid rgba(23, 32, 26, 0.06);
+  border: 1px solid rgba(59, 47, 41, 0.06);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.6);
 }

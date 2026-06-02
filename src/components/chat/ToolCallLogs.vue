@@ -159,7 +159,7 @@ const argsSummary = (log: ToolLog) => {
 }
 
 .status-icon.success {
-  color: #67c23a;
+  color: #d9824b;
 }
 
 .status-icon.error {
@@ -170,7 +170,7 @@ const argsSummary = (log: ToolLog) => {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #409eff;
+  background: #d9824b;
   animation: pulse 1.2s infinite ease-in-out;
 }
 

@@ -92,12 +92,15 @@ function handleLocalModelChange(value: string) {
     <div class="t1-collapse-wrap" :class="{ 'is-open': !isCollapsed }">
       <div class="t1-collapse-inner">
         <div class="settings-body">
+          <p class="settings-note">
+            普通用户默认使用宠物专家引擎；以下供应商与模型仅作为高级/管理员底层配置。
+          </p>
           <label>
             <span>{{ t('settings.inferenceStrategy') }}</span>
             <el-select
               :model-value="inferenceMode"
               :reserve-keyword="false"
-              popper-class="military-green-select-dropdown"
+              popper-class="warm-orange-select-dropdown"
               @change="(value) => emit('select-inference-mode', value as InferenceMode)"
             >
               <el-option :label="t('settings.cloudModel')" value="cloud" />
@@ -106,12 +109,12 @@ function handleLocalModelChange(value: string) {
             </el-select>
           </label>
           <label>
-            <span>{{ t('settings.provider') }}</span>
+            <span>高级底层供应商</span>
             <el-select
               ref="providerSelectRef"
               :model-value="selectedProviderId"
               :reserve-keyword="false"
-              popper-class="military-green-select-dropdown"
+              popper-class="warm-orange-select-dropdown"
               @change="(value) => handleProviderChange(String(value))"
             >
               <el-option
@@ -122,7 +125,7 @@ function handleLocalModelChange(value: string) {
               />
             </el-select>
           </label>
-          <label v-if="inferenceMode !== 'local'">
+          <label v-if="inferenceMode !== 'local' && selectedProvider.needsApiKey">
             <span>{{ selectedProvider.keyLabel }}</span>
             <el-input
               :key="selectedProviderId"
@@ -144,7 +147,7 @@ function handleLocalModelChange(value: string) {
               default-first-option
               :reserve-keyword="false"
               :placeholder="t('settings.chooseOrInputModel')"
-              popper-class="military-green-select-dropdown"
+              popper-class="warm-orange-select-dropdown"
               @update:model-value="handleModelChange"
             >
               <el-option
@@ -175,7 +178,7 @@ function handleLocalModelChange(value: string) {
               default-first-option
               :reserve-keyword="false"
               :placeholder="t('settings.chooseOrInputOllama')"
-              popper-class="military-green-select-dropdown"
+              popper-class="warm-orange-select-dropdown"
               @update:model-value="handleLocalModelChange"
             >
               <el-option

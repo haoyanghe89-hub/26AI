@@ -1,4 +1,5 @@
 import type { ProviderId } from '../stores/chat'
+import { createId } from './uuid'
 
 export interface PromptTemplate {
   id: string
@@ -123,10 +124,10 @@ export const BUILTIN_PROMPT_TEMPLATES: PromptTemplate[] = [
 export const BUILTIN_AGENTS: CustomAgent[] = [
   createBuiltinAgent({
     id: DEFAULT_AGENT_ID,
-    name: '宠物 AI 管家',
+    name: '宠物智能管家',
     description: '围绕宠物档案、健康日志、提醒和照护计划提供结构化建议。',
     systemPrompt:
-      '你是“宠物 AI 管家”的核心助手。你帮助猫狗主人管理宠物档案、喂养、健康日志、提醒、就医准备和产品决策。默认中文回复。不要做医学确诊，不要给处方；遇到持续呕吐腹泻、呼吸困难、抽搐、拒食、疑似中毒、外伤出血、精神沉郁等情况，建议尽快联系执业兽医。',
+      '你是“宠物智能管家”的核心助手。你帮助猫狗主人管理宠物档案、喂养、健康日志、提醒、就医准备和产品决策。默认中文回复。不要做医学确诊，不要给处方；遇到持续呕吐腹泻、呼吸困难、抽搐、拒食、疑似中毒、外伤出血、精神沉郁等情况，建议尽快联系执业兽医。',
     model: '',
     temperature: 0.55,
     useProjectContext: true,
@@ -271,7 +272,7 @@ export function normalizePromptTemplate(
   const now = new Date().toISOString()
   const content = String(value.content ?? fallback?.content ?? '').trim()
   return {
-    id: String(value.id || fallback?.id || crypto.randomUUID()),
+    id: String(value.id || fallback?.id || createId()),
     name: String(value.name || fallback?.name || '未命名模板')
       .trim()
       .slice(0, 40),
@@ -298,7 +299,7 @@ export function normalizeAgent(value: Partial<CustomAgent>, fallback?: CustomAge
       ? fallback.knowledgeBase
       : []
   return {
-    id: String(value.id || fallback?.id || crypto.randomUUID()),
+    id: String(value.id || fallback?.id || createId()),
     name: String(value.name || fallback?.name || '未命名 Agent')
       .trim()
       .slice(0, 40),
@@ -312,7 +313,7 @@ export function normalizeAgent(value: Partial<CustomAgent>, fallback?: CustomAge
     knowledgeBase: rawKb
       .filter((k) => k && typeof k === 'object')
       .map((k) => ({
-        id: String(k.id || crypto.randomUUID()),
+        id: String(k.id || createId()),
         title: String(k.title || '未命名知识')
           .trim()
           .slice(0, 60),
@@ -333,7 +334,7 @@ export function normalizeWorkflow(value: Partial<PromptWorkflow>, fallback?: Pro
   const now = new Date().toISOString()
   const steps = Array.isArray(value.steps) ? value.steps : fallback?.steps || []
   return {
-    id: String(value.id || fallback?.id || crypto.randomUUID()),
+    id: String(value.id || fallback?.id || createId()),
     name: String(value.name || fallback?.name || '未命名工作流')
       .trim()
       .slice(0, 40),
@@ -341,7 +342,7 @@ export function normalizeWorkflow(value: Partial<PromptWorkflow>, fallback?: Pro
       .trim()
       .slice(0, 120),
     steps: steps.map((step) => ({
-      id: String(step.id || crypto.randomUUID()),
+      id: String(step.id || createId()),
       title: String(step.title || '步骤')
         .trim()
         .slice(0, 32),
