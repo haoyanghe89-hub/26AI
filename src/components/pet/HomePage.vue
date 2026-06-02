@@ -285,6 +285,11 @@ function openQuickRecord(type: QuickRecordType) {
   quickRecordOpen.value = true
 }
 
+function selectQuickRecordOption(option: { value: string; note: string }) {
+  quickRecordValue.value = option.value
+  quickRecordNote.value = option.note
+}
+
 function saveQuickRecord() {
   const payload: Partial<HealthLog> = {
     appetite: props.latestLog?.appetite || '正常',
@@ -554,10 +559,7 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
             :key="option.value"
             type="button"
             :class="{ active: option.value === quickRecordValue }"
-            @click="
-              quickRecordValue = option.value
-              quickRecordNote = option.note
-            "
+            @click="selectQuickRecordOption(option)"
           >
             <strong>{{ option.label }}</strong>
             <span>{{ option.note }}</span>
