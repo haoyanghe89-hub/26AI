@@ -31,6 +31,8 @@ const ALIYUN_SMS_SIGN_NAME = process.env.AUTH_ALIYUN_SMS_SIGN_NAME || ''
 const ALIYUN_SMS_TEMPLATE_CODE = process.env.AUTH_ALIYUN_SMS_TEMPLATE_CODE || ''
 const ALIYUN_SMS_TEMPLATE_PARAM_NAME = process.env.AUTH_ALIYUN_SMS_TEMPLATE_PARAM_NAME || 'code'
 const OAUTH_TICKET_TTL_MS = 2 * 60 * 1000
+const CARE_EXPERIENCE_LEVELS = new Set(['beginner', 'intermediate', 'advanced'])
+const GUIDANCE_PREFERENCES = new Set(['more_guidance', 'balanced', 'minimal'])
 
 // ─── 登录失败锁定配置 ───
 const LOGIN_LOCKOUT_MAX_ATTEMPTS = Number(process.env.AUTH_LOCKOUT_MAX_ATTEMPTS || 5) // 连续失败 N 次后锁定
@@ -340,6 +342,21 @@ export async function authenticateRequest(req) {
   return toAuthUser(user, payload.provider || 'account')
 }
 
+export async function updateUserPreferences(req, payload) {
+  const authUser = await authenticateRequest(req)
+  const users = await loadUsers()
+  const user = users.find((candidate) => candidate.id === authUser.id)
+  if (!user) throw httpError(401, '登录状态已失效')
+
+  user.careExperienceLevel = normalizeCareExperienceLevel(payload?.careExperienceLevel)
+  user.guidancePreference = normalizeGuidancePreference(payload?.guidancePreference)
+  user.onboardingCompleted = payload?.onboardingCompleted !== false
+  user.updatedAt = new Date().toISOString()
+
+  await saveUsers(users)
+  return { user: toAuthUser(user, authUser.provider || 'account') }
+}
+
 function createAuthResponse(user, provider) {
   const safeUser = toAuthUser(user, provider)
   return {
@@ -362,6 +379,9 @@ function createUser({ username, phone, passwordHash = '', salt = '', linkedProvi
     passwordHash,
     salt,
     linkedProviders,
+    careExperienceLevel: 'beginner',
+    guidancePreference: 'balanced',
+    onboardingCompleted: false,
     createdAt: now,
     updatedAt: now,
   }
@@ -514,6 +534,9 @@ function toAuthUser(user, provider) {
     avatarText: user.username.slice(0, 1).toUpperCase(),
     linkedProviders: Array.from(new Set([...(user.linkedProviders || []), provider])),
     createdAt: user.createdAt,
+    careExperienceLevel: normalizeCareExperienceLevel(user.careExperienceLevel),
+    guidancePreference: normalizeGuidancePreference(user.guidancePreference),
+    onboardingCompleted: user.onboardingCompleted === true,
   }
 }
 
@@ -757,7 +780,8 @@ async function loadUsers() {
     await ensureAuthPostgres()
     const result = await authPool.query(
       `SELECT id, username, phone, password_hash, salt, linked_providers_json,
-              avatar_url, external_identities_json, created_at, updated_at
+              avatar_url, external_identities_json, care_experience_level,
+              guidance_preference, onboarding_completed, created_at, updated_at
        FROM auth_users
        ORDER BY created_at DESC`,
     )
@@ -787,8 +811,9 @@ async function saveUsers(users) {
         await client.query(
           `INSERT INTO auth_users
            (id, username, phone, password_hash, salt, linked_providers_json,
-            avatar_url, external_identities_json, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            avatar_url, external_identities_json, care_experience_level,
+            guidance_preference, onboarding_completed, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
           [
             user.id,
             user.username,
@@ -798,6 +823,9 @@ async function saveUsers(users) {
             JSON.stringify(user.linkedProviders || []),
             user.avatarUrl || '',
             JSON.stringify(user.externalIdentities || {}),
+            normalizeCareExperienceLevel(user.careExperienceLevel),
+            normalizeGuidancePreference(user.guidancePreference),
+            user.onboardingCompleted === true,
             user.createdAt,
             user.updatedAt,
           ],
@@ -837,12 +865,20 @@ async function ensureAuthPostgres() {
       linked_providers_json TEXT NOT NULL DEFAULT '[]',
       avatar_url TEXT NOT NULL DEFAULT '',
       external_identities_json TEXT NOT NULL DEFAULT '{}',
+      care_experience_level TEXT NOT NULL DEFAULT 'beginner',
+      guidance_preference TEXT NOT NULL DEFAULT 'balanced',
+      onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
     CREATE UNIQUE INDEX IF NOT EXISTS auth_users_phone_unique
       ON auth_users (phone)
       WHERE phone <> '';
+  `)
+  await authPool.query(`
+    ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS care_experience_level TEXT NOT NULL DEFAULT 'beginner';
+    ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS guidance_preference TEXT NOT NULL DEFAULT 'balanced';
+    ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN NOT NULL DEFAULT FALSE;
   `)
   await migrateAuthUsersJsonToPostgres()
   authSchemaReady = true
@@ -869,8 +905,9 @@ async function migrateAuthUsersJsonToPostgres() {
       await client.query(
         `INSERT INTO auth_users
          (id, username, phone, password_hash, salt, linked_providers_json,
-          avatar_url, external_identities_json, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+          avatar_url, external_identities_json, care_experience_level,
+          guidance_preference, onboarding_completed, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
          ON CONFLICT (id) DO NOTHING`,
         [
           user.id,
@@ -881,6 +918,9 @@ async function migrateAuthUsersJsonToPostgres() {
           JSON.stringify(user.linkedProviders || []),
           user.avatarUrl || '',
           JSON.stringify(user.externalIdentities || {}),
+          normalizeCareExperienceLevel(user.careExperienceLevel),
+          normalizeGuidancePreference(user.guidancePreference),
+          user.onboardingCompleted === true,
           user.createdAt || new Date().toISOString(),
           user.updatedAt || user.createdAt || new Date().toISOString(),
         ],
@@ -905,9 +945,20 @@ function authUserFromRow(row) {
     linkedProviders: parseJson(row.linked_providers_json, []),
     avatarUrl: row.avatar_url || '',
     externalIdentities: parseJson(row.external_identities_json, {}),
+    careExperienceLevel: normalizeCareExperienceLevel(row.care_experience_level),
+    guidancePreference: normalizeGuidancePreference(row.guidance_preference),
+    onboardingCompleted: row.onboarding_completed === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+function normalizeCareExperienceLevel(value) {
+  return CARE_EXPERIENCE_LEVELS.has(value) ? value : 'beginner'
+}
+
+function normalizeGuidancePreference(value) {
+  return GUIDANCE_PREFERENCES.has(value) ? value : 'balanced'
 }
 
 function normalizePhone(phone) {

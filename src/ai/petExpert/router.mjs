@@ -46,6 +46,12 @@ export function classifyPetExpertIntent(text = '') {
 }
 
 export function promptKeyForIntent(intent) {
+  if (intent === 'health') return 'symptomTriagePrompt'
+  if (intent === 'nutrition') return 'feedingPlanPrompt'
+  if (intent === 'meal_plan') return 'feedingPlanPrompt'
+  if (intent === 'food_compare') return 'productComparisonPrompt'
+  if (intent === 'training') return 'petCareGeneralPrompt'
+  if (intent === 'care') return 'reminderPlanPrompt'
   if (intent === PET_EXPERT_INTENTS.symptomHealthConcern) return 'symptomTriagePrompt'
   if (intent === PET_EXPERT_INTENTS.feedingNutrition) return 'feedingPlanPrompt'
   if (intent === PET_EXPERT_INTENTS.vetVisitPreparation) return 'vetChecklistPrompt'

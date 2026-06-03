@@ -533,14 +533,6 @@ function getDefaultModel(providerId: ProviderId) {
   return getProvider(providerId).models[0]?.value || DEFAULT_MODEL
 }
 
-function normalizeProviderId(value: string | null): ProviderId {
-  return AI_PROVIDERS.some((provider) => provider.id === value) ? (value as ProviderId) : DEFAULT_PROVIDER
-}
-
-function normalizeInferenceMode(value: string | null): InferenceMode {
-  return value === 'local' || value === 'auto' || value === 'cloud' ? value : DEFAULT_INFERENCE_MODE
-}
-
 function createSession(): ChatSession {
   const now = new Date().toISOString()
   return {
@@ -1073,10 +1065,8 @@ export const useChatStore = defineStore('chat', () => {
     ...loadJsonRecord(STORAGE_KEYS.models),
     kimi: localStorage.getItem(STORAGE_KEYS.model) || DEFAULT_MODEL,
   })
-  const selectedProviderId = ref<ProviderId>(normalizeProviderId(localStorage.getItem(STORAGE_KEYS.provider)))
-  const inferenceMode = ref<InferenceMode>(
-    normalizeInferenceMode(localStorage.getItem(STORAGE_KEYS.inferenceMode)),
-  )
+  const selectedProviderId = ref<ProviderId>(DEFAULT_PROVIDER)
+  const inferenceMode = ref<InferenceMode>(DEFAULT_INFERENCE_MODE)
   const localModel = ref(localStorage.getItem(STORAGE_KEYS.localModel) || DEFAULT_LOCAL_MODEL)
   const hybridFallbackToCloud = ref(localStorage.getItem(STORAGE_KEYS.hybridFallback) !== 'false')
   const enableTools = ref(localStorage.getItem(STORAGE_KEYS.enableTools) === 'true')
@@ -1365,16 +1355,18 @@ export const useChatStore = defineStore('chat', () => {
     scheduleServerStatePersist()
   }
 
-  function setProvider(providerId: ProviderId) {
-    selectedProviderId.value = providerId
-    if (!providerModels.value[providerId]) setModel(getDefaultModel(providerId))
+  function setProvider(providerId?: ProviderId) {
+    void providerId
+    selectedProviderId.value = DEFAULT_PROVIDER
+    if (!providerModels.value[DEFAULT_PROVIDER]) setModel(getDefaultModel(DEFAULT_PROVIDER))
     errorMessage.value = ''
-    persist(STORAGE_KEYS.provider, providerId)
+    persist(STORAGE_KEYS.provider, DEFAULT_PROVIDER)
     scheduleServerStatePersist()
   }
 
-  function setInferenceMode(value: InferenceMode) {
-    inferenceMode.value = normalizeInferenceMode(value)
+  function setInferenceMode(value?: InferenceMode) {
+    void value
+    inferenceMode.value = DEFAULT_INFERENCE_MODE
     errorMessage.value = ''
     persist(STORAGE_KEYS.inferenceMode, inferenceMode.value)
     scheduleServerStatePersist()
@@ -1575,8 +1567,6 @@ export const useChatStore = defineStore('chat', () => {
     const [
       storedApiKeys,
       storedModels,
-      storedProvider,
-      storedInferenceMode,
       storedLocalModel,
       storedHybridFallback,
       storedSessions,
@@ -1597,8 +1587,6 @@ export const useChatStore = defineStore('chat', () => {
     ] = await Promise.all([
       getSecureJson<Record<string, string>>(STORAGE_KEYS.apiKeys, providerApiKeys.value),
       hydrateJsonRecord(STORAGE_KEYS.models, providerModels.value),
-      getStoredString(STORAGE_KEYS.provider),
-      getStoredString(STORAGE_KEYS.inferenceMode),
       getStoredString(STORAGE_KEYS.localModel),
       getStoredString(STORAGE_KEYS.hybridFallback),
       getStateJson<ChatSession[] | null>(STORAGE_KEYS.sessions, null),
@@ -1621,8 +1609,8 @@ export const useChatStore = defineStore('chat', () => {
     const isFreshProductState = storedProductStateVersion === PRODUCT_STATE_VERSION
     providerApiKeys.value = { ...providerApiKeys.value, ...storedApiKeys }
     providerModels.value = { ...providerModels.value, ...storedModels }
-    selectedProviderId.value = normalizeProviderId(storedProvider || selectedProviderId.value)
-    inferenceMode.value = normalizeInferenceMode(storedInferenceMode || inferenceMode.value)
+    selectedProviderId.value = DEFAULT_PROVIDER
+    inferenceMode.value = DEFAULT_INFERENCE_MODE
     localModel.value = storedLocalModel || localModel.value
     hybridFallbackToCloud.value =
       storedHybridFallback === null ? hybridFallbackToCloud.value : storedHybridFallback !== 'false'
@@ -1805,8 +1793,8 @@ export const useChatStore = defineStore('chat', () => {
           ? settings.providerModels
           : {}),
       }
-      selectedProviderId.value = normalizeProviderId(String(settings.provider || selectedProviderId.value))
-      inferenceMode.value = normalizeInferenceMode(String(settings.inferenceMode || inferenceMode.value))
+      selectedProviderId.value = DEFAULT_PROVIDER
+      inferenceMode.value = DEFAULT_INFERENCE_MODE
       localModel.value = String(settings.localModel || localModel.value)
       hybridFallbackToCloud.value =
         typeof settings.hybridFallbackToCloud === 'boolean'
@@ -2653,23 +2641,14 @@ export const useChatStore = defineStore('chat', () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        providerId: selectedProviderId.value,
-        model:
-          options.runtime?.model?.trim() || model.value.trim() || getDefaultModel(selectedProviderId.value),
-        inferenceMode: inferenceMode.value,
+        providerId: DEFAULT_PROVIDER,
+        model: getDefaultModel(DEFAULT_PROVIDER),
+        inferenceMode: DEFAULT_INFERENCE_MODE,
         localProviderId: 'ollama',
         localModel: effectiveLocalModel.value,
         hybridFallbackToCloud: hybridFallbackToCloud.value,
         temperature: options.runtime?.temperature,
         systemPrompt: buildPetSystemPrompt(options.runtime?.systemPrompt),
-        apiKey: apiKey.value.trim() || undefined,
-        petExpertApiKeys: {
-          kimi: providerApiKeys.value.kimi,
-          openai: providerApiKeys.value.openai,
-          deepseek: providerApiKeys.value.deepseek,
-          qwen: providerApiKeys.value.qwen,
-          ollama: providerApiKeys.value.ollama,
-        },
         petContext: {
           activePetId: activePet.value?.id || activePetId.value,
           pets: pets.value,

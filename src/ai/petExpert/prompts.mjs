@@ -2,8 +2,11 @@ import { PET_EXPERT_RESPONSE_SCHEMA } from './outputSchemas.mjs'
 
 const BASE_RULES = `你是宠物专家引擎，是宠物智能管家的领域智能引擎。
 你服务猫狗等家庭宠物主人，必须优先使用选中宠物档案、近期健康日志、护理计划、提醒、上传资料和检索知识。
+你不是普通 chat completion。回答必须结合 Pet AI Orchestrator 提供的 PetProfile、最近 7 天 PetDailyLog、PetKnowledge RAG 命中、FoodProduct 结构化口粮库和 Tool Calling 结果。
+如果工具结果与常识性猜测冲突，优先说明工具结果的适用条件与不确定性，不要编造未提供的化验、诊断或口粮数据。
 你可以做护理建议、观察清单、就医准备、报告通俗解释和产品比较，但不能做确诊、不能替代兽医、不能建议处方药名称/剂量/疗程。
 遇到严重症状、持续异常、幼龄/高龄或风险不确定时，建议联系执业兽医。
+饮食建议必须说明适用条件；对不确定信息必须说明需要继续观察或咨询兽医。
 输出必须是合法 JSON，不要包含 Markdown 代码块。JSON 字段必须符合这个结构：
 ${JSON.stringify(PET_EXPERT_RESPONSE_SCHEMA, null, 2)}`
 
@@ -48,7 +51,12 @@ export function buildPetExpertMessages({
 }) {
   const systemPrompt = PROMPTS_BY_KEY[promptKey] || petCareGeneralPrompt
   const knowledgeText = retrievedKnowledge.length
-    ? retrievedKnowledge.map((item) => `【${item.title}】\n来源：${item.path}\n${item.content}`).join('\n\n')
+    ? retrievedKnowledge
+        .map(
+          (item) =>
+            `【${item.title}】\n来源：${item.path}\ncategory：${item.category || 'unknown'}；risk_level：${item.risk_level || 'none'}；tags：${(item.tags || []).join('、') || '无'}\n${item.content}`,
+        )
+        .join('\n\n')
     : '未检索到本地知识库片段。'
   const safetyText = safetyResult?.hasRedFlags ? `\n\n【强制安全规则】\n${safetyResult.instruction}` : ''
   const contextPrompt = [

@@ -18,6 +18,24 @@ npm install
 npm run dev
 ```
 
+## Android App
+
+Capacitor wraps the Vue app as a native Android project in `android/`.
+
+```bash
+npm run android:sync
+npm run android:open
+```
+
+For real-phone live debugging, keep `npm run dev` running on your computer, set `CAPACITOR_SERVER_URL` to your computer LAN Vite address, then run Android from Android Studio:
+
+```bash
+CAPACITOR_SERVER_URL=http://YOUR_LAN_IP:5173 npm run android:sync
+npm run android:open
+```
+
+If you build a packaged APK that should call a remote or LAN backend, set `VITE_API_BASE_URL`, for example `VITE_API_BASE_URL=http://YOUR_LAN_IP:8787`.
+
 The Vite frontend and Node backend are served by the development setup. Configure provider API keys as server environment variables when possible:
 
 - `OPENAI_API_KEY`

@@ -53,7 +53,7 @@ const props = withDefaults(
 .mascot-stage {
   position: relative;
   display: grid;
-  width: min(72vw, 330px);
+  width: min(62vw, 260px);
   aspect-ratio: 1;
   place-items: center;
   margin: 0 auto;
@@ -100,7 +100,7 @@ const props = withDefaults(
   height: 100%;
   object-fit: cover;
   border-radius: 50%;
-  box-shadow: 0 16px 32px rgba(142, 86, 43, 0.18);
+  box-shadow: 0 12px 26px rgba(142, 86, 43, 0.16);
 }
 
 .name-tag {

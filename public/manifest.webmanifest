@@ -1,0 +1,45 @@
+{
+  "name": "宠物 AI 管家",
+  "short_name": "宠物管家",
+  "description": "专为猫狗主人设计的 AI 宠物家庭管理工作区。",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait",
+  "theme_color": "#fff0dc",
+  "background_color": "#fff7ed",
+  "categories": ["lifestyle", "health", "productivity"],
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "问 PetExpert",
+      "short_name": "AI 咨询",
+      "description": "打开宠物护理 AI 咨询",
+      "url": "/?tab=ai",
+      "icons": [{ "src": "/assets/images/app-logo.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "记录今天",
+      "short_name": "记录",
+      "description": "快速记录宠物今天的状态",
+      "url": "/?tab=log",
+      "icons": [{ "src": "/assets/images/app-logo.png", "sizes": "192x192", "type": "image/png" }]
+    }
+  ],
+  "icons": [
+    {
+      "src": "/assets/images/app-logo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/images/app-logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

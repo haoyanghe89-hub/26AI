@@ -4,6 +4,7 @@ export interface RetryOptions {
 }
 
 const AUTH_TOKEN_STORAGE_KEY = 'twentys1x:auth-token'
+const API_BASE_URL = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
 
 export async function requestWithRetry<T>(fn: () => Promise<T>, options: RetryOptions = {}): Promise<T> {
   const retries = options.retries ?? 2
@@ -23,10 +24,22 @@ export function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
   const headers = new Headers(init.headers)
   if (token && !headers.has('Authorization')) headers.set('Authorization', `Bearer ${token}`)
 
-  return fetch(input, {
+  return fetch(apiUrl(input), {
     ...init,
     headers,
   })
+}
+
+export function apiUrl(input: RequestInfo | URL): RequestInfo | URL {
+  if (!API_BASE_URL) return input
+  if (typeof input !== 'string') return input
+  if (!input.startsWith('/api/')) return input
+  return `${API_BASE_URL}${input}`
+}
+
+function normalizeApiBaseUrl(value: unknown) {
+  if (typeof value !== 'string') return ''
+  return value.trim().replace(/\/$/, '')
 }
 
 function delay(ms: number) {

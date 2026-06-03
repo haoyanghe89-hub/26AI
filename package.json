@@ -15,6 +15,10 @@
     "lint-staged": "lint-staged",
     "prepare": "husky",
     "build": "vue-tsc --noEmit && vite build",
+    "android:add": "cap add android",
+    "android:sync": "npm run build && cap sync android",
+    "android:open": "cap open android",
+    "android:run": "cap run android",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
@@ -24,6 +28,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",
     "@aws-sdk/s3-request-presigner": "^3.1057.0",
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
     "@element-plus/icons-vue": "^2.3.2",
     "@sentry/node": "^10.50.0",
     "@sentry/vue": "^10.50.0",
@@ -50,6 +56,7 @@
     "vue-virtual-scroller": "^3.0.1"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.59.1",
     "@types/marked": "^5.0.2",

@@ -99,7 +99,7 @@ function modeMessage(mode: DailyCheckInMode) {
     relaxed: '轻松陪伴也很珍贵',
     care: '今天认真照顾它的小日常',
     training: '用几分钟练出一点默契',
-    memory: '把可爱瞬间留下来',
+    memory: '把今天的小瞬间留下来',
   }
   return map[mode]
 }

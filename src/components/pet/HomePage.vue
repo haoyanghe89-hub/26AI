@@ -1,34 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
-import type { DailyCheckInMode, DailyCheckInSummary } from '../../composables/useDailyCheckIn'
+import type { DailyCheckInSummary } from '../../composables/useDailyCheckIn'
 import type { HealthLog, PetProfile } from '../../stores/chat'
+import {
+  careExperienceHomeContent,
+  normalizeCareExperienceLevel,
+  type CareExperienceLevel,
+} from '../../config/careExperienceContent'
 
 type HomeMode = 'mobile' | 'desktop'
-type QuickRecordType = 'appetite' | 'water' | 'stool' | 'energy'
-type PipelineStatus = 'done' | 'current' | 'pending'
-type ActivityStatus = 'pending' | 'started' | 'done'
-
-interface PipelineStep {
-  id: string
-  type: 'checkin' | 'meal' | 'record' | 'activity' | 'training' | 'care'
-  title: string
-  description: string
-  time: string
-  icon: string
-  status: PipelineStatus
-}
-
-interface ActivityRecommendation {
-  id: string
-  type: 'play' | 'training' | 'knowledge'
-  title: string
-  description: string
-  steps: string[]
-  estimatedMinutes: number
-  difficulty: string
-  reason: string
-}
+type QuickRecordType = 'appetite' | 'water' | 'stool' | 'walk' | 'mood'
+type DetailSheetType = 'meal' | 'insight' | null
 
 const props = withDefaults(
   defineProps<{
@@ -43,9 +26,11 @@ const props = withDefaults(
     hasTodayLog: boolean
     aiInsight: string
     checkInSummary: DailyCheckInSummary
+    careExperienceLevel?: CareExperienceLevel
   }>(),
   {
     mode: 'mobile',
+    careExperienceLevel: 'beginner',
   },
 )
 
@@ -58,188 +43,154 @@ const emit = defineEmits<{
   (event: 'openRecords'): void
 }>()
 
-const completedStepIds = ref<Set<string>>(new Set())
-const activityIndexByPet = reactive<Record<string, number>>({})
-const activityStatusByPet = reactive<Record<string, ActivityStatus>>({})
 const quickRecordOpen = ref(false)
 const quickRecordType = ref<QuickRecordType>('appetite')
 const quickRecordValue = ref('')
 const quickRecordNote = ref('')
 const toastMessage = ref('')
 const mealRefreshing = ref(false)
+const detailSheet = ref<DetailSheetType>(null)
+const selectedDiscovery = ref<HomeDiscovery | null>(null)
 
 const petName = computed(() => props.activePet?.name || '毛孩子')
-const petOptions = computed(() => props.pets.slice(0, 4))
-const checkInModeLabel = computed(() =>
-  props.checkInSummary.selectedMode ? modeLabel(props.checkInSummary.selectedMode) : '今日节奏待选择',
+const petInitial = computed(() => petName.value.slice(0, 1) || '宠')
+const experienceContent = computed(
+  () => careExperienceHomeContent[normalizeCareExperienceLevel(props.careExperienceLevel)],
 )
+const experienceCards = computed(() => experienceContent.value.cards.slice(0, 3))
+
+const todayStatus = computed(() => {
+  if (props.latestLog) {
+    if (props.latestLog.appetite.includes('少') || props.latestLog.waterIntake.includes('少'))
+      return '轻微留意'
+    if (props.latestLog.poop.includes('稀') || props.latestLog.vomiting !== '无') return '需要留意'
+    return '状态平稳'
+  }
+  return props.hasTodayLog ? '已记录' : '待记录'
+})
+
+const todayReminder = computed(() => {
+  if (props.latestLog?.waterIntake.includes('少')) return '今天留意饮水'
+  if (props.latestLog?.appetite.includes('少')) return '晚点看食欲'
+  if (props.activePet?.species === 'cat') return '晚点看尿团'
+  if (!props.latestLog) return '记一条小状态'
+  return '外出后补水'
+})
+
+const aiDetailLine = computed(() => {
+  if (props.aiInsight) return softenHomeCopy(props.aiInsight)
+  if (props.latestLog?.waterIntake.includes('少')) return '今天饮水看起来少了一点，可以顺手换一碗新鲜水。'
+  if (props.activePet?.species === 'cat') return '晚一点可以留意尿团和精神，记录多一点，我会更懂它。'
+  return '最近两天散步记录少了一点，如果天气合适，可以带它走走，顺便观察精神状态。'
+})
 
 const mealPlan = computed(() => {
-  const pet = props.activePet
-  if (pet?.species === 'cat') {
+  if (props.activePet?.species === 'cat') {
     return {
-      title: '今日配餐',
-      breakfast: '早餐：主粮 35g',
-      dinner: '晚餐：湿粮 1/2 罐 + 主粮 20g',
-      snackLimit: '零食：冻干不超过 3 小块',
-      waterTip: '饮水：换一碗新鲜水，观察尿团',
-      nutritionTip: props.latestLog?.waterIntake.includes('少')
-        ? '最近饮水偏少，可以增加湿粮比例。'
-        : '今天保持稳定喂食，晚间补一条精神记录。',
+      main: '35g',
+      mainLabel: '主粮',
+      snack: '≤3块',
+      water: '换新水',
+      tip: props.latestLog?.waterIntake.includes('少') ? '多给湿粮' : '先不调整',
+      detail: props.latestLog?.waterIntake.includes('少')
+        ? '今天饮水偏少，可以把一部分干粮换成湿粮，并保持水碗新鲜。'
+        : '今天状态平稳，先维持原来的喂食节奏，继续观察饮水和体重。',
     }
   }
   return {
-    title: '今日配餐',
-    breakfast: '早餐：鸡肉配方粮 120g',
-    dinner: '晚餐：减少 5%，搭配 10 分钟互动游戏',
-    snackLimit: '零食：不超过 40 kcal',
-    waterTip: '饮水：外出或训练后补新鲜水',
-    nutritionTip: 'Cooper 精力旺盛，今天把部分零食换成训练奖励更合适。',
+    main: '120g',
+    mainLabel: '主粮',
+    snack: '≤40kcal',
+    water: '外出后补水',
+    tip: '先不调整',
+    detail: '把部分零食换成训练奖励会更稳，外出后记得补水，今天先不急着调整主粮。',
   }
 })
 
-const activityRecommendations = computed<ActivityRecommendation[]>(() => {
-  if (props.activePet?.species === 'cat') {
-    return [
-      {
-        id: 'cat-wand',
-        type: 'play',
-        title: '逗猫棒 10 分钟',
-        description: '让今天多一点小猎手的快乐。',
-        steps: ['模拟小猎物贴地移动', '让它追逐和扑抓两轮', '结束后给一点小奖励'],
-        estimatedMinutes: 10,
-        difficulty: '轻松',
-        reason: '适合健康猫咪释放精力，也能观察精神状态。',
-      },
-      {
-        id: 'cat-water',
-        type: 'knowledge',
-        title: '如何让猫多喝水',
-        description: '今天的小课堂：让饮水变得自然一点。',
-        steps: ['把水碗远离食盆', '每天换新鲜水', '适当增加湿粮比例'],
-        estimatedMinutes: 3,
-        difficulty: '入门',
-        reason: '饮水习惯是猫咪日常照护里很值得关注的小事。',
-      },
-    ]
-  }
-  return [
-    {
-      id: 'dog-sit',
-      type: 'training',
-      title: '坐下训练',
-      description: '5 分钟练出一点默契。',
-      steps: ['拿一颗小零食吸引注意', '手慢慢向上移动，让狗狗自然坐下', '坐下瞬间说“坐下”并奖励'],
-      estimatedMinutes: 5,
-      difficulty: '入门',
-      reason: `${petName.value} 精力比较旺盛，短训练可以消耗精力，也能增强互动。`,
-    },
-    {
-      id: 'dog-sniff',
-      type: 'play',
-      title: '找零食小游戏',
-      description: '用嗅闻消耗精力，比单纯吃零食更有趣。',
-      steps: ['准备 3-5 颗小零食', '藏在毛巾或玩具旁边', '找到后轻声夸奖并结束'],
-      estimatedMinutes: 8,
-      difficulty: '轻松',
-      reason: '适合饭后或散步前，能让陪伴更有参与感。',
-    },
-  ]
-})
+interface HomeDiscovery {
+  id: string
+  icon: string
+  title: string
+  status: string
+  detail: string
+  prompt?: string
+  route?: string
+}
 
-const activeActivity = computed(() => {
-  const list = sortedActivities.value
-  const index = activityIndexByPet[props.activePetId] || 0
-  return list[index % list.length]
-})
-const sortedActivities = computed(() => {
-  const preferred = props.checkInSummary.selectedMode
-  return [...activityRecommendations.value].sort(
-    (a, b) => activityPriority(a, preferred) - activityPriority(b, preferred),
-  )
-})
-const activityStatus = computed(() => activityStatusByPet[props.activePetId] || 'pending')
+const discoveryItems = computed<HomeDiscovery[]>(() => experienceCards.value.map(compactDiscovery))
 
-const pipelineSteps = computed<PipelineStep[]>(() => {
-  const steps: PipelineStep[] = [
-    {
-      id: 'checkin',
-      type: 'checkin',
-      title: props.activePet?.species === 'cat' ? '早晨问候' : '早晨问候',
-      description: props.checkInSummary.checkedIn ? '今日已打卡' : '开始今天的陪伴',
-      time: '早上',
-      icon: 'heart',
-      status: props.checkInSummary.checkedIn || completedStepIds.value.has('checkin') ? 'done' : 'pending',
-    },
-    {
-      id: 'meal',
-      type: 'meal',
-      title: props.activePet?.species === 'cat' ? '早餐/换水' : '早餐喂食',
-      description: props.activePet?.species === 'cat' ? mealPlan.value.breakfast : mealPlan.value.breakfast,
-      time: '08:00',
-      icon: 'food',
-      status: completedStepIds.value.has('meal') ? 'done' : 'pending',
-    },
-    {
-      id: 'record',
-      type: 'record',
-      title: props.activePet?.species === 'cat' ? '便便记录' : '饮水记录',
-      description:
-        props.hasTodayLog || completedStepIds.value.has('record') ? '今天已有记录' : '10 秒记录状态',
-      time: '现在',
-      icon: 'log',
-      status: props.hasTodayLog || completedStepIds.value.has('record') ? 'done' : 'pending',
-    },
-    {
-      id: 'activity',
-      type: activeActivity.value?.type === 'training' ? 'training' : 'activity',
-      title: activeActivity.value?.type === 'training' ? '训练/散步' : '陪伴游戏',
-      description: activeActivity.value?.title || '今日陪伴任务',
-      time: '傍晚',
-      icon: activeActivity.value?.type === 'training' ? 'trophy' : 'play',
-      status: activityStatus.value === 'done' || completedStepIds.value.has('activity') ? 'done' : 'pending',
-    },
-    {
-      id: 'care',
-      type: 'care',
-      title: props.activePet?.species === 'cat' ? '晚间观察' : '睡前记录',
-      description: '结束今天的小照顾',
-      time: '睡前',
-      icon: 'sparkle',
-      status: completedStepIds.value.has('care') ? 'done' : 'pending',
-    },
-  ]
-  const firstPending = steps.find((step) => step.status === 'pending')
-  return steps.map((step) => (step.id === firstPending?.id ? { ...step, status: 'current' } : step))
-})
-const completedPipelineCount = computed(
-  () => pipelineSteps.value.filter((step) => step.status === 'done').length,
-)
-const currentStep = computed(
-  () => pipelineSteps.value.find((step) => step.status === 'current') || pipelineSteps.value.at(-1),
-)
+const quickRecordChips: Array<{ type: QuickRecordType; label: string; icon: string }> = [
+  { type: 'appetite', label: '吃饭', icon: 'food' },
+  { type: 'water', label: '喝水', icon: 'water' },
+  { type: 'stool', label: '便便', icon: 'log' },
+  { type: 'walk', label: '散步', icon: 'walk' },
+  { type: 'mood', label: '心情', icon: 'heart' },
+]
+
+const lifeMoments = computed(() => [
+  {
+    id: 'breakfast',
+    title: '早餐',
+    icon: 'food',
+    status: shortStatus(props.latestLog?.appetite || '还没记'),
+    type: 'appetite' as QuickRecordType,
+  },
+  {
+    id: 'water',
+    title: '喝水',
+    icon: 'water',
+    status: shortStatus(props.latestLog?.waterIntake || '正常'),
+    type: 'water' as QuickRecordType,
+  },
+  {
+    id: 'stool',
+    title: '便便',
+    icon: 'log',
+    status: shortStatus(props.latestLog?.poop || '晚点看'),
+    type: 'stool' as QuickRecordType,
+  },
+  {
+    id: 'walk',
+    title: props.activePet?.species === 'cat' ? '玩一会' : '散步',
+    icon: props.activePet?.species === 'cat' ? 'play' : 'walk',
+    status: props.checkInSummary.selectedMode === 'training' ? '可互动' : '晚点看',
+    type: 'walk' as QuickRecordType,
+  },
+  {
+    id: 'mood',
+    title: '心情',
+    icon: 'heart',
+    status: shortStatus(props.latestLog?.mood || '平稳'),
+    type: 'mood' as QuickRecordType,
+  },
+])
 
 const quickRecordOptions = computed(() => {
   const options: Record<QuickRecordType, Array<{ label: string; value: string; note: string }>> = {
     appetite: [
-      { label: '很好', value: '很好', note: '食欲很好' },
+      { label: '很好', value: '很好', note: '吃饭很香' },
       { label: '正常', value: '正常', note: '正常吃完' },
-      { label: '吃得少', value: '少量进食', note: '今天吃得少' },
-      { label: '没胃口', value: '没胃口', note: '需要晚点观察' },
+      { label: '吃得少', value: '少量进食', note: '今天吃得少，晚点再看看' },
+      { label: '没胃口', value: '没胃口', note: '需要留意精神和饮水' },
     ],
     water: [
-      { label: '正常', value: '正常', note: '饮水正常' },
-      { label: '偏多', value: '偏多', note: '比平时多' },
-      { label: '偏少', value: '偏少', note: '需要提醒喝水' },
+      { label: '正常', value: '正常', note: '喝水正常' },
+      { label: '偏多', value: '偏多', note: '比平时喝得多' },
+      { label: '偏少', value: '偏少', note: '今天喝水偏少' },
     ],
     stool: [
-      { label: '正常', value: '成形', note: '便便正常' },
-      { label: '偏软', value: '略软', note: '晚上继续观察' },
-      { label: '拉稀', value: '拉稀', note: '记录完成，注意精神和食欲' },
-      { label: '未排便', value: '未排便', note: '今天还没看到' },
+      { label: '正常', value: '成形', note: '便便成形' },
+      { label: '偏软', value: '略软', note: '便便略软，晚上继续看' },
+      { label: '拉稀', value: '拉稀', note: '便便异常，留意精神和食欲' },
+      { label: '未看到', value: '未排便', note: '今天还没看到便便' },
     ],
-    energy: [
-      { label: '活跃', value: '活跃', note: '精神很好' },
+    walk: [
+      { label: '走过啦', value: '已散步', note: '今天已经散步' },
+      { label: '短短走', value: '短散步', note: '短时间散步，状态平稳' },
+      { label: '晚点走', value: '待观察', note: '晚点天气合适再出门' },
+    ],
+    mood: [
+      { label: '开心', value: '开心', note: '今天心情不错' },
       { label: '平稳', value: '平稳', note: '状态平稳' },
       { label: '有点累', value: '有点累', note: '今天偏安静' },
     ],
@@ -247,35 +198,41 @@ const quickRecordOptions = computed(() => {
   return options[quickRecordType.value]
 })
 
+const quickRecordTitle = computed(
+  () => quickRecordChips.find((chip) => chip.type === quickRecordType.value)?.label || '记录',
+)
+const latestRecordText = computed(() => {
+  const log = props.recentLogs[0] || props.latestLog
+  if (!log) return '暂无记录'
+  return `${formatDay(log.loggedAt)} · 食欲/饮水/便便${recordTone(log)}`
+})
+
+const detailSheetOpen = computed(() => Boolean(detailSheet.value))
+
 watch(
   () => props.activePetId,
   () => {
     quickRecordOpen.value = false
+    detailSheet.value = null
   },
 )
+
+watch([quickRecordOpen, detailSheetOpen], ([quickOpen, detailOpen]) => {
+  const isOpen = quickOpen || detailOpen
+  document.documentElement.classList.toggle('sheet-open', isOpen)
+  document.body.classList.toggle('sheet-open', isOpen)
+})
+
+onUnmounted(() => {
+  document.documentElement.classList.remove('sheet-open')
+  document.body.classList.remove('sheet-open')
+})
 
 function showToast(message: string) {
   toastMessage.value = message
   window.setTimeout(() => {
     if (toastMessage.value === message) toastMessage.value = ''
   }, 1800)
-}
-
-function completePipelineStep(step: PipelineStep) {
-  const next = new Set(completedStepIds.value)
-  next.add(step.id)
-  completedStepIds.value = next
-  if (step.id === 'record') openQuickRecord(props.activePet?.species === 'cat' ? 'stool' : 'water')
-  if (step.id === 'activity') completeActivity()
-  showToast(`${step.title} 已加入今日陪伴流水线`)
-}
-
-function refreshMealPlan() {
-  mealRefreshing.value = true
-  window.setTimeout(() => {
-    mealRefreshing.value = false
-    showToast('今日配餐已更新')
-  }, 650)
 }
 
 function openQuickRecord(type: QuickRecordType) {
@@ -304,254 +261,283 @@ function saveQuickRecord() {
   if (quickRecordType.value === 'appetite') payload.appetite = quickRecordValue.value
   if (quickRecordType.value === 'water') payload.waterIntake = quickRecordValue.value
   if (quickRecordType.value === 'stool') payload.poop = quickRecordValue.value
-  if (quickRecordType.value === 'energy') {
+  if (quickRecordType.value === 'mood') {
     payload.mood = quickRecordValue.value
-    payload.energyLevel = quickRecordValue.value === '活跃' ? 5 : quickRecordValue.value === '有点累' ? 3 : 4
+    payload.energyLevel = quickRecordValue.value === '开心' ? 5 : quickRecordValue.value === '有点累' ? 3 : 4
   }
+  if (quickRecordType.value === 'walk') payload.notes = `${quickRecordValue.value} · ${quickRecordNote.value}`
   emit('saveRecord', payload)
-  completedStepIds.value = new Set([...completedStepIds.value, 'record'])
   quickRecordOpen.value = false
-  showToast('已记录，这条记录已加入今天的陪伴流水线')
+  showToast('已帮你记下')
 }
 
-function startActivity() {
-  activityStatusByPet[props.activePetId] = 'started'
-  showToast('任务已开始，慢慢来就好')
+function refreshMealPlan() {
+  mealRefreshing.value = true
+  window.setTimeout(() => {
+    mealRefreshing.value = false
+    showToast('配餐已更新')
+  }, 650)
 }
 
-function switchActivity() {
-  activityIndexByPet[props.activePetId] = (activityIndexByPet[props.activePetId] || 0) + 1
-  activityStatusByPet[props.activePetId] = 'pending'
+function openDiscovery(item: HomeDiscovery) {
+  selectedDiscovery.value = item
+  detailSheet.value = 'insight'
 }
 
-function completeActivity() {
-  activityStatusByPet[props.activePetId] = 'done'
-  completedStepIds.value = new Set([...completedStepIds.value, 'activity'])
-  showToast('完成啦，今天也有好好陪它')
+function openMealDetail() {
+  detailSheet.value = 'meal'
 }
 
-function modeLabel(mode: DailyCheckInMode) {
-  const map: Record<DailyCheckInMode, string> = {
-    relaxed: '轻松陪伴',
-    care: '认真护理',
-    training: '训练一下',
-    memory: '记录瞬间',
+function closeDetailSheet() {
+  detailSheet.value = null
+}
+
+function openRecordsFromSheet() {
+  closeDetailSheet()
+  emit('openRecords')
+}
+
+function openAiFromSheet() {
+  closeDetailSheet()
+  emit(
+    'openAi',
+    selectedDiscovery.value?.prompt || selectedDiscovery.value?.title || '请展开今天的照看建议。',
+  )
+}
+
+function softenHomeCopy(value: string) {
+  return value
+    .replaceAll('完成一个轻量互动', '安排一个轻量互动')
+    .replaceAll('完成', '记下')
+    .replaceAll('任务', '小安排')
+    .replaceAll('打卡', '记录')
+    .replaceAll('待办', '照看')
+    .replaceAll('进度', '状态')
+}
+
+function shortStatus(value: string) {
+  if (!value) return '正常'
+  if (value.includes('还没')) return '待记'
+  if (value.includes('少')) return '偏少'
+  if (value.includes('多')) return '偏多'
+  if (value.includes('成形')) return '成形'
+  if (value.includes('软')) return '偏软'
+  if (value.includes('稀')) return '异常'
+  if (value.includes('没')) return '留意'
+  if (value.includes('未')) return '晚点看'
+  if (value.length > 4) return value.slice(0, 4)
+  return value
+}
+
+function compactDiscovery(card: {
+  id: string
+  title: string
+  description: string
+  icon: string
+  prompt?: string
+  route?: string
+}) {
+  const preset: Record<string, { title: string; status: string }> = {
+    social: { title: '社交练习', status: '从短时开始' },
+    'home-appetite': { title: '食欲留意', status: '先看精神' },
+    vaccine: { title: '驱虫疫苗', status: '按月龄安排' },
+    'walk-trend': { title: '散步少了', status: '晚点可以走走' },
+    'diet-stable': { title: '饮食稳定', status: '继续观察体重' },
+    training: { title: '可加互动', status: '轻松训练5分钟' },
+    'food-compare': { title: '口粮对比', status: '看成分热量' },
+    report: { title: '报告解读', status: '整理异常项' },
+    export: { title: '记录导出', status: '就医前整理' },
+    hospital: { title: '附近医院', status: '先备急诊电话' },
   }
-  return map[mode]
+  const compact = preset[card.id]
+  return {
+    id: card.id,
+    icon: card.icon,
+    title: compact?.title || trimText(card.title, 8),
+    status: compact?.status || trimText(card.description, 12),
+    detail: card.description,
+    prompt: card.prompt,
+    route: card.route,
+  }
 }
 
-function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMode | null) {
-  if (mode === 'training') return activity.type === 'training' ? 0 : 1
-  if (mode === 'memory') return activity.type === 'knowledge' ? 0 : 1
-  if (mode === 'care') return activity.type === 'knowledge' ? 0 : 1
-  return activity.type === 'play' ? 0 : 1
+function trimText(value: string, maxLength: number) {
+  const compact = value.replace(/\s+/g, '').trim()
+  return compact.length > maxLength ? compact.slice(0, maxLength) : compact
+}
+
+function recordTone(log: HealthLog) {
+  return [log.appetite, log.waterIntake, log.poop].some(
+    (value) => value.includes('少') || value.includes('稀') || value.includes('没'),
+  )
+    ? '需留意'
+    : '正常'
+}
+
+function formatDay(value?: string) {
+  if (!value) return '最近'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(value))
 }
 </script>
 
 <template>
   <section class="home-page" :class="`mode-${mode}`">
-    <!-- Playful Background Elements -->
-    <div class="bg-decorations" aria-hidden="true">
-      <span class="decor-paw decor-1"><AppIcon name="heart" :size="24" /></span>
-      <span class="decor-sparkle decor-2"><AppIcon name="sparkle" :size="20" /></span>
-      <span class="decor-paw decor-3"><AppIcon name="food" :size="28" /></span>
-    </div>
-
     <div v-if="toastMessage" class="home-toast">{{ toastMessage }}</div>
 
-    <article class="compact-pet-header">
+    <article class="pet-status-card">
       <button class="pet-avatar" type="button" @click="emit('selectPet', activePetId)">
         <img v-if="activePet?.avatarUrl" :src="activePet.avatarUrl" alt="" />
-        <span v-else>{{ activePet?.name?.slice(0, 1) || '宠' }}</span>
+        <span v-else>{{ petInitial }}</span>
       </button>
-      <div class="pet-header-copy">
-        <h1>{{ petName }}</h1>
-        <p>{{ activePetSummary }}</p>
-        <strong
-          >今日已打卡 · 陪伴第 {{ checkInSummary.companionDayCount }} 天 · {{ checkInModeLabel }}</strong
-        >
+      <div class="pet-status-copy">
+        <div class="pet-title-row">
+          <h1>{{ petName }}</h1>
+          <strong>{{ todayStatus }}</strong>
+        </div>
+        <p>{{ todayReminder }}</p>
       </div>
-      <div class="pet-switcher-mini">
-        <button
-          v-for="pet in petOptions"
-          :key="pet.id"
-          type="button"
-          :class="{ active: pet.id === activePetId }"
-          @click="emit('selectPet', pet.id)"
-        >
-          {{ pet.name.slice(0, 1) }}
-        </button>
-        <button type="button" @click="emit('addPet')"><AppIcon name="plus" :size="16" /></button>
-      </div>
+      <button
+        class="status-action"
+        type="button"
+        aria-label="快速记录宠物状态"
+        @click="openQuickRecord('appetite')"
+      >
+        记一笔
+      </button>
     </article>
 
-    <div class="home-dashboard">
-      <section class="daily-pipeline home-card">
-        <div class="section-head">
-          <div>
-            <p>Daily Pipeline</p>
-            <h2>今日陪伴流水线</h2>
-          </div>
-          <span>{{ completedPipelineCount }}/{{ pipelineSteps.length }} 已完成</span>
-        </div>
-        <div class="pipeline-summary">
-          <strong>下一步：{{ currentStep?.title }}</strong>
-          <small>今天也在好好照顾它</small>
-        </div>
-        <div class="pipeline-steps">
-          <button
-            v-for="step in pipelineSteps"
-            :key="step.id"
-            type="button"
-            class="pipeline-step"
-            :class="step.status"
-            @click="completePipelineStep(step)"
-          >
-            <span><AppIcon :name="step.status === 'done' ? 'check' : step.icon" :size="17" /></span>
-            <strong>{{ step.title }}</strong>
-            <small>{{ step.time }}</small>
-          </button>
-        </div>
-      </section>
-
-      <section class="meal-card home-card" :class="{ loading: mealRefreshing }">
-        <div class="section-head">
-          <div>
-            <p>Meal Plan</p>
-            <h2>{{ mealPlan.title }}</h2>
-          </div>
-          <span><AppIcon name="food" :size="18" /></span>
-        </div>
-        <div class="meal-hero">
-          <span class="bowl-icon"><AppIcon name="food" :size="24" /></span>
-          <div>
-            <strong>{{ mealPlan.breakfast }}</strong>
-            <small>{{ mealPlan.dinner }}</small>
-          </div>
-        </div>
-        <div class="meal-points">
-          <p>{{ mealPlan.snackLimit }}</p>
-          <p>{{ mealPlan.waterTip }}</p>
-          <p>{{ mealPlan.nutritionTip }}</p>
-        </div>
-        <div class="action-row">
-          <button type="button" class="primary-action" @click="refreshMealPlan">调整配餐</button>
-          <button type="button" @click="emit('generatePlan')">生成配餐</button>
-          <button type="button" @click="emit('openAi', '请根据当前宠物档案给出今天的口粮与零食建议。')">
-            查看口粮推荐
-          </button>
-        </div>
-      </section>
-
-      <section class="quick-record-card home-card">
-        <div class="section-head">
-          <div>
-            <p>Quick Record</p>
-            <h2>10 秒快速记录</h2>
-          </div>
-          <button type="button" @click="emit('openRecords')">更多</button>
-        </div>
-        <div class="quick-record-row">
-          <button type="button" @click="openQuickRecord('appetite')">
-            <AppIcon name="food" :size="17" /> 食欲
-          </button>
-          <button type="button" @click="openQuickRecord('water')">
-            <AppIcon name="water" :size="17" /> 饮水
-          </button>
-          <button type="button" @click="openQuickRecord('stool')">
-            <AppIcon name="log" :size="17" /> 便便
-          </button>
-          <button type="button" @click="openQuickRecord('energy')">
-            <AppIcon name="heart" :size="17" /> 精神
-          </button>
-        </div>
-      </section>
-
-      <section v-if="activeActivity" class="activity-card home-card">
-        <div class="section-head">
-          <div>
-            <p>
-              {{
-                activeActivity.type === 'training'
-                  ? 'Training'
-                  : activeActivity.type === 'knowledge'
-                    ? 'Knowledge'
-                    : 'Activity'
-              }}
-            </p>
-            <h2>
-              {{
-                activeActivity.type === 'training'
-                  ? '今日训练小任务'
-                  : activeActivity.type === 'knowledge'
-                    ? '今日宠物小课堂'
-                    : '今天玩什么'
-              }}
-            </h2>
-          </div>
-          <span>{{ activityStatus === 'done' ? '已完成' : `${activeActivity.estimatedMinutes} 分钟` }}</span>
-        </div>
-        <div class="activity-title-row">
-          <span
-            ><AppIcon
-              :name="
-                activeActivity.type === 'training'
-                  ? 'trophy'
-                  : activeActivity.type === 'knowledge'
-                    ? 'sparkle'
-                    : 'play'
-              "
-              :size="20"
-          /></span>
-          <div>
-            <strong>{{ activeActivity.title }} · {{ activeActivity.estimatedMinutes }} 分钟</strong>
-            <small>难度：{{ activeActivity.difficulty }}</small>
-          </div>
-        </div>
-        <p class="activity-description">{{ activeActivity.description }}</p>
-        <ol>
-          <li v-for="step in activeActivity.steps" :key="step">{{ step }}</li>
-        </ol>
-        <p class="activity-reason">适合原因：{{ activeActivity.reason }}</p>
-        <div class="action-row">
-          <button type="button" class="primary-action" @click="startActivity">开始</button>
-          <button type="button" @click="switchActivity">换一个</button>
-          <button type="button" @click="completeActivity">完成打卡</button>
-          <button type="button" @click="emit('openAi', `请详细讲讲：${activeActivity.title}`)">
-            查看知识
-          </button>
-        </div>
-      </section>
-
-      <section class="ai-tip-card home-card">
-        <div>
-          <strong>PetExpert AI</strong>
-          <p>{{ aiInsight || `${petName} 今天适合做一个 5 分钟互动任务，完成后可以记录精神状态。` }}</p>
-        </div>
-        <button type="button" @click="emit('openAi', '根据今天的配餐、记录和活动，给我一句今日建议。')">
-          问问 AI
+    <section class="life-flow-section">
+      <div class="compact-section-head">
+        <h2>生活快照</h2>
+        <button type="button" aria-label="查看生活记录" @click="emit('openRecords')">查看</button>
+      </div>
+      <div class="life-flow-row">
+        <button v-for="item in lifeMoments" :key="item.id" type="button" @click="openQuickRecord(item.type)">
+          <span><AppIcon :name="item.icon" :size="18" /></span>
+          <strong>{{ item.title }}</strong>
+          <small>{{ item.status }}</small>
         </button>
+      </div>
+    </section>
+
+    <article class="meal-summary-card" :class="{ loading: mealRefreshing }">
+      <div class="compact-section-head">
+        <h2>今日配餐</h2>
+        <div class="meal-head-actions">
+          <button type="button" aria-label="查看今日配餐详情" @click="openMealDetail">详情</button>
+          <button type="button" aria-label="调整今日配餐" @click="refreshMealPlan">调整</button>
+        </div>
+      </div>
+      <div class="meal-lines">
+        <span>
+          <small>{{ mealPlan.mainLabel }}</small>
+          <strong>{{ mealPlan.main }}</strong>
+        </span>
+        <span>
+          <small>零食</small>
+          <strong>{{ mealPlan.snack }}</strong>
+        </span>
+        <span>
+          <small>补水</small>
+          <strong>{{ mealPlan.water }}</strong>
+        </span>
+      </div>
+      <footer>
+        <p>状态平稳，{{ mealPlan.tip }}。</p>
+      </footer>
+    </article>
+
+    <section class="recommend-section" :class="`tone-${experienceContent.tone}`">
+      <div class="compact-section-head">
+        <h2>今天留意</h2>
+        <button
+          type="button"
+          aria-label="查看更多今日留意建议"
+          @click="emit('openAi', experienceContent.primaryAction.prompt)"
+        >
+          更多
+        </button>
+      </div>
+      <div class="recommend-list">
+        <button
+          v-for="item in discoveryItems"
+          :key="item.id"
+          type="button"
+          class="recommend-item"
+          @click="openDiscovery(item)"
+        >
+          <span><AppIcon :name="item.icon" :size="17" /></span>
+          <div>
+            <strong>{{ item.title }}</strong>
+            <small>{{ item.status }}</small>
+          </div>
+        </button>
+      </div>
+    </section>
+
+    <article class="recent-record-card">
+      <div>
+        <strong>最近记录</strong>
+        <p>{{ latestRecordText }}</p>
+      </div>
+      <button type="button" aria-label="查看最近记录" @click="emit('openRecords')">查看</button>
+    </article>
+
+    <div v-if="detailSheet" class="record-sheet-backdrop" @click.self="closeDetailSheet">
+      <section class="record-sheet detail-sheet" role="dialog" aria-modal="true" aria-label="详情">
+        <header>
+          <div>
+            <p>{{ detailSheet === 'meal' ? '配餐详情' : '发现详情' }}</p>
+            <h2>{{ detailSheet === 'meal' ? '今日配餐' : selectedDiscovery?.title || '今天留意' }}</h2>
+          </div>
+          <button type="button" @click="closeDetailSheet">收起</button>
+        </header>
+
+        <template v-if="detailSheet === 'meal'">
+          <div class="detail-metric-grid">
+            <span>
+              <small>{{ mealPlan.mainLabel }}</small>
+              <strong>{{ mealPlan.main }}</strong>
+            </span>
+            <span>
+              <small>零食</small>
+              <strong>{{ mealPlan.snack }}</strong>
+            </span>
+            <span>
+              <small>补水</small>
+              <strong>{{ mealPlan.water }}</strong>
+            </span>
+          </div>
+          <p class="detail-copy">{{ mealPlan.detail }}</p>
+          <button class="sheet-save" type="button" @click="emit('generatePlan')">详情</button>
+        </template>
+
+        <template v-else>
+          <p class="detail-copy">{{ selectedDiscovery?.detail || aiDetailLine }}</p>
+          <button
+            v-if="selectedDiscovery?.route === 'records'"
+            class="sheet-save"
+            type="button"
+            @click="openRecordsFromSheet"
+          >
+            查看
+          </button>
+          <button v-else class="sheet-save" type="button" @click="openAiFromSheet">更多</button>
+        </template>
       </section>
     </div>
 
     <div v-if="quickRecordOpen" class="record-sheet-backdrop" @click.self="quickRecordOpen = false">
-      <section class="record-sheet">
+      <section class="record-sheet" role="dialog" aria-modal="true" :aria-label="`记录${quickRecordTitle}`">
         <header>
           <div>
-            <p>快速记录</p>
-            <h2>
-              {{
-                quickRecordType === 'appetite'
-                  ? '食欲'
-                  : quickRecordType === 'water'
-                    ? '饮水'
-                    : quickRecordType === 'stool'
-                      ? '便便'
-                      : '精神'
-              }}
-            </h2>
+            <p>记一笔</p>
+            <h2>{{ quickRecordTitle }}</h2>
           </div>
-          <button type="button" @click="quickRecordOpen = false">关闭</button>
+          <button type="button" @click="quickRecordOpen = false">收起</button>
         </header>
         <div class="sheet-options">
           <button
@@ -569,7 +555,7 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
           补充一句
           <textarea v-model="quickRecordNote" rows="3" placeholder="例如：晚饭后精神很好"></textarea>
         </label>
-        <button class="sheet-save" type="button" @click="saveQuickRecord">保存记录</button>
+        <button class="sheet-save" type="button" @click="saveQuickRecord">记一笔</button>
       </section>
     </div>
   </section>
@@ -579,98 +565,51 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
 .home-page {
   position: relative;
   display: grid;
-  gap: 14px;
+  gap: 12px;
   color: #332820;
 }
 
-.bg-decorations {
-  display: none;
-}
-
-.bg-decorations span {
-  position: absolute;
-  color: rgba(217, 130, 75, 0.15);
-  animation: float-decor 6s ease-in-out infinite;
-}
-
-.decor-1 {
-  top: 5%;
-  right: 10%;
-  transform: rotate(15deg);
-  animation-delay: 0s;
-}
-
-.decor-2 {
-  top: 40%;
-  left: -2%;
-  color: rgba(102, 86, 175, 0.12) !important;
-  animation-delay: 1.5s;
-}
-
-.decor-3 {
-  bottom: 15%;
-  right: -5%;
-  transform: rotate(-20deg);
-  animation-delay: 3s;
-}
-
-@keyframes float-decor {
-  0%,
-  100% {
-    transform: translateY(0) rotate(inherit);
-  }
-  50% {
-    transform: translateY(-15px) rotate(calc(inherit + 10deg));
-  }
-}
-
-.compact-pet-header,
-.home-card {
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.65);
+.pet-status-card,
+.ai-discovery-card,
+.meal-summary-card,
+.recommend-section,
+.recent-record-card {
+  border: 1px solid rgba(145, 116, 78, 0.1);
+  background: rgba(255, 255, 255, 0.68);
   box-shadow:
-    0 8px 32px rgba(142, 104, 60, 0.04),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  transition:
-    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
-    box-shadow 0.3s ease;
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 10px 28px rgba(91, 66, 38, 0.06);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
-.home-card:hover {
-  transform: none;
-}
-
-.compact-pet-header {
+.pet-status-card {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 11px;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 8px 12px;
   align-items: center;
-  padding: 13px 12px;
-  border-radius: 22px;
-  background: linear-gradient(135deg, rgba(255, 249, 240, 0.96), rgba(255, 239, 219, 0.9)), #fff7ec;
+  min-height: 124px;
+  max-height: 136px;
+  padding: 12px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgba(255, 248, 237, 0.96), rgba(255, 238, 216, 0.9)), #fff7ed;
 }
 
 .pet-avatar {
   display: grid;
-  width: 50px;
-  height: 50px;
+  width: 54px;
+  height: 54px;
   place-items: center;
   overflow: hidden;
   border: 2px solid #fff;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #eea24e, #d9783d);
-  color: #fff8ef;
+  border-radius: 19px;
+  background: linear-gradient(135deg, #eca350, #d9783d);
+  color: #fffaf3;
   font: inherit;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 950;
-  box-shadow: 0 8px 16px rgba(217, 120, 61, 0.25);
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.pet-avatar:hover {
-  transform: none;
+  box-shadow: 0 8px 18px rgba(217, 120, 61, 0.22);
 }
 
 .pet-avatar img {
@@ -679,429 +618,457 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   object-fit: cover;
 }
 
-.pet-header-copy {
+.pet-status-copy {
   min-width: 0;
+  padding-bottom: 26px;
 }
 
-.pet-header-copy h1,
-.section-head h2,
+.pet-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.pet-title-row h1,
+.compact-section-head h2,
 .record-sheet h2 {
   margin: 0;
   letter-spacing: 0;
 }
 
-.pet-header-copy h1 {
+.pet-title-row h1 {
+  overflow: hidden;
+  color: #2f281f;
   font-size: 22px;
-  line-height: 1.08;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.pet-header-copy p,
-.pet-header-copy strong {
+.pet-title-row small {
+  flex: 0 0 auto;
+  color: #b97135;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.pet-status-copy p,
+.pet-status-copy strong,
+.pet-status-copy span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pet-header-copy p {
-  margin: 4px 0 0;
-  color: #877664;
+.pet-status-copy p {
+  margin: 3px 0 0;
+  color: #8b7967;
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.2;
 }
 
-.pet-header-copy strong {
+.pet-status-copy strong {
   margin-top: 5px;
-  color: #bd7431;
-  font-size: 12px;
-  font-weight: 950;
+  color: #3c3027;
+  font-size: 13px;
+  line-height: 1.2;
 }
 
-.pet-switcher-mini {
+.pet-status-copy span {
+  margin-top: 3px;
+  color: #9b6a38;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.status-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  left: 78px;
   display: flex;
   gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
-.pet-switcher-mini button {
-  display: grid;
-  width: 31px;
-  height: 31px;
-  place-items: center;
-  border: 1px solid rgba(145, 116, 78, 0.12);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.72);
-  color: #a66d38;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 950;
+.status-actions::-webkit-scrollbar {
+  display: none;
 }
 
-.pet-switcher-mini button.active {
-  background: #d9824b;
-  color: #fff;
-}
-
-.home-dashboard {
-  display: grid;
-  gap: 14px;
-}
-
-.home-card {
-  display: grid;
-  gap: 13px;
-  padding: 16px;
-  border-radius: 22px;
-}
-
-.section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.section-head p,
-.record-sheet p {
-  margin: 0;
-  color: #bd7932;
-  font-size: 11px;
-  font-weight: 950;
-  letter-spacing: 0;
-  text-transform: uppercase;
-}
-
-.section-head h2 {
-  margin-top: 3px;
-  font-size: 18px;
-}
-
-.section-head > span,
-.section-head > button {
+.status-actions button,
+.quick-record-strip button,
+.compact-section-head button,
+.meal-actions button,
+.recent-record-card button,
+.record-sheet header button,
+.sheet-save {
   border: 0;
-  background: transparent;
-  color: #bd7431;
+  font: inherit;
+  font-weight: 950;
+}
+
+.status-actions button {
+  flex: 0 0 auto;
+  min-height: 26px;
+  border-radius: 14px;
+  padding: 0 9px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #a66432;
+  font-size: 11px;
+}
+
+.ai-discovery-card {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 78px;
+  padding: 12px 13px;
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.88), rgba(250, 244, 255, 0.7)), rgba(255, 255, 255, 0.7);
+}
+
+.ai-discovery-card > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 14px;
+  background: #f4eefb;
+  color: #6656af;
+}
+
+.ai-discovery-card strong,
+.recent-record-card strong {
+  display: block;
+  color: #332820;
+  font-size: 13px;
+}
+
+.ai-discovery-card p,
+.meal-summary-card p,
+.recent-record-card p {
+  margin: 3px 0 0;
+  color: #766655;
+  font-size: 13px;
+  line-height: 1.38;
+}
+
+.ai-discovery-card p,
+.meal-summary-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.ai-discovery-card button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.74);
+  color: #6656af;
   font: inherit;
   font-size: 12px;
   font-weight: 950;
   white-space: nowrap;
 }
 
-.pipeline-summary {
-  display: grid;
-  gap: 3px;
-  padding: 12px;
-  border-radius: 17px;
-  background: #fff8ef;
-}
-
-.pipeline-summary strong {
-  font-size: 15px;
-}
-
-.pipeline-summary small,
-.activity-title-row small,
-.meal-hero small,
-.activity-description,
-.activity-reason,
-.ai-tip-card p {
-  color: #7e6d5c;
-  line-height: 1.5;
-}
-
-.pipeline-steps {
-  display: grid;
-  grid-template-columns: repeat(5, 96px);
+.quick-record-strip {
+  display: flex;
   gap: 8px;
-  margin: 0 -4px;
   overflow-x: auto;
-  padding: 1px 4px 5px;
+  margin: 0 -16px;
+  padding: 0 16px 2px;
+  scrollbar-width: none;
+}
+
+.quick-record-strip::-webkit-scrollbar,
+.life-flow-row::-webkit-scrollbar {
+  display: none;
+}
+
+.quick-record-strip button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 38px;
+  min-width: 68px;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: rgba(255, 255, 255, 0.7);
+  color: #8f6238;
+  font-size: 13px;
+  box-shadow: 0 6px 16px rgba(91, 66, 38, 0.04);
+}
+
+.life-flow-section {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.compact-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.compact-section-head p,
+.record-sheet p {
+  margin: 0;
+  color: #bd7932;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.compact-section-head h2 {
+  margin-top: 2px;
+  color: #2f281f;
+  font-size: 19px;
+  line-height: 1.18;
+}
+
+.compact-section-head button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.64);
+  color: #a66432;
+  font-size: 12px;
+}
+
+.life-flow-row {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  margin: 0 -16px;
+  padding: 0 16px 4px;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
 }
 
-.pipeline-steps::-webkit-scrollbar {
-  display: none;
-}
-
-.pipeline-step {
+.life-flow-row button {
   display: grid;
-  min-width: 0;
-  min-height: 92px;
+  flex: 0 0 102px;
+  height: 92px;
   align-content: center;
-  justify-items: center;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  border-radius: 20px;
-  padding: 8px 5px;
-  background: rgba(255, 255, 255, 0.4);
-  color: #7c6c5a;
+  border: 1px solid rgba(145, 116, 78, 0.1);
+  border-radius: 18px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.66);
+  color: #332820;
   font: inherit;
-  text-align: center;
+  text-align: left;
   scroll-snap-align: start;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 8px 20px rgba(91, 66, 38, 0.05);
 }
 
-.pipeline-step:hover:not(.done) {
-  transform: none;
-}
-
-.pipeline-step:active:not(.done) {
-  transform: scale(0.96);
-}
-
-.pipeline-step span,
-.bowl-icon,
-.activity-title-row > span {
+.life-flow-row span {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   place-items: center;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.8);
-  color: #c9782b;
-  box-shadow: 0 4px 10px rgba(201, 120, 43, 0.1);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.pipeline-step:hover:not(.done) span {
-  transform: none;
-}
-
-.pipeline-step strong {
-  overflow-wrap: anywhere;
-  color: #342b22;
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-.pipeline-step small {
-  color: #9a8a79;
-  font-size: 10px;
-  font-weight: 850;
-}
-
-.pipeline-step.done {
-  border-color: rgba(217, 130, 75, 0.26);
+  border-radius: 12px;
   background: #fff0dc;
+  color: #c9782b;
 }
 
-.pipeline-step.done span {
-  animation: check-pop 260ms ease both;
+.life-flow-row strong {
+  font-size: 13px;
+  line-height: 1.15;
 }
 
-.pipeline-step.current {
-  border-color: rgba(217, 130, 75, 0.5);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow:
-    0 0 0 4px rgba(217, 130, 75, 0.15),
-    0 8px 20px rgba(217, 130, 75, 0.1);
-  transform: translateY(-2px);
+.life-flow-row small {
+  overflow: hidden;
+  color: #8b7b68;
+  font-size: 11px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.meal-card.loading {
+.meal-summary-card {
+  display: grid;
+  gap: 8px;
+  min-height: 132px;
+  padding: 13px 14px;
+  border-radius: 23px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 237, 0.9), rgba(255, 255, 255, 0.7)), rgba(255, 255, 255, 0.68);
+}
+
+.meal-summary-card.loading {
   opacity: 0.78;
 }
 
-.meal-hero {
+.meal-lines {
   display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 13px;
-  border-radius: 18px;
-  background: #fff8ef;
-}
-
-.meal-hero strong,
-.activity-title-row strong {
-  display: block;
-  color: #332820;
-  font-size: 15px;
-}
-
-.meal-hero small {
-  display: block;
-  margin-top: 5px;
-  font-size: 13px;
-}
-
-.meal-points {
-  display: grid;
-  gap: 7px;
-}
-
-.meal-points p {
-  margin: 0;
-  color: #746453;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-.action-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.action-row button,
-.sheet-save {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 14px;
-  padding: 0 14px;
-  background: rgba(255, 255, 255, 0.5);
-  color: #9d6534;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 950;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.action-row button:hover,
-.sheet-save:hover {
-  transform: none;
-}
-
-.action-row button:active,
-.sheet-save:active {
-  transform: scale(0.96);
-}
-
-.action-row .primary-action,
-.sheet-save {
-  border-color: #d9824b;
-  background: linear-gradient(135deg, #df8544, #c96f3a);
-  color: #fff;
-  box-shadow: 0 6px 16px rgba(217, 130, 75, 0.25);
-}
-
-.action-row .primary-action:hover,
-.sheet-save:hover {
-  background: linear-gradient(135deg, #e69152, #d67a44);
-  box-shadow: 0 8px 20px rgba(217, 130, 75, 0.35);
-}
-
-.quick-record-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.quick-record-row button {
-  display: grid;
-  min-height: 72px;
-  place-items: center;
+  flex-wrap: wrap;
   gap: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.4);
-  color: #8f6238;
+}
+
+.meal-lines strong,
+.meal-lines span,
+.meal-lines button {
+  min-height: 26px;
+  border: 0;
+  border-radius: 999px;
+  padding: 5px 9px;
+  background: #fff8ef;
+  color: #7c6048;
   font: inherit;
-  font-size: 13px;
-  font-weight: 950;
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  font-size: 12px;
+  font-weight: 900;
 }
 
-.quick-record-row button:hover {
-  transform: none;
+.meal-lines strong {
+  color: #332820;
 }
 
-.quick-record-row button:hover :deep(svg) {
-  transform: none;
+.meal-lines .primary-action {
+  background: linear-gradient(135deg, #df8544, #c96f3a);
+  color: #fffaf3;
+  box-shadow: 0 8px 18px rgba(217, 130, 75, 0.2);
 }
 
-.quick-record-row button:active {
-  transform: scale(0.96);
-}
-
-.activity-title-row {
+.meal-actions {
   display: flex;
-  gap: 11px;
   align-items: center;
+  margin-top: -2px;
 }
 
-.activity-card ol {
+.meal-actions button {
+  min-height: 28px;
+  border-radius: 14px;
+  padding: 0;
+  background: transparent;
+  color: #a66432;
+  font-size: 12px;
+}
+
+.recommend-section {
   display: grid;
-  gap: 7px;
-  margin: 0;
-  padding-left: 22px;
-  color: #4f4033;
-  font-size: 13px;
-  line-height: 1.45;
+  gap: 10px;
+  padding: 15px;
+  border-radius: 23px;
 }
 
-.activity-description,
-.activity-reason {
-  margin: 0;
+.recommend-section.tone-gentle {
+  background: linear-gradient(135deg, rgba(255, 246, 232, 0.9), rgba(255, 255, 255, 0.72));
+}
+
+.recommend-section.tone-observant {
+  background: linear-gradient(135deg, rgba(246, 251, 244, 0.88), rgba(255, 249, 240, 0.72));
+}
+
+.recommend-section.tone-direct {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(246, 242, 235, 0.72));
+}
+
+.recommend-list {
+  display: grid;
+  gap: 8px;
+}
+
+.recommend-item {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  border: 1px solid rgba(145, 116, 78, 0.09);
+  border-radius: 17px;
+  padding: 9px 10px;
+  background: rgba(255, 255, 255, 0.62);
+  color: #332820;
+  font: inherit;
+  text-align: left;
+}
+
+.recommend-item > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 13px;
+  background: #fff0dc;
+  color: #c9782b;
+}
+
+.tone-observant .recommend-item > span {
+  background: #edf7ec;
+  color: #6e8f56;
+}
+
+.tone-direct .recommend-item > span {
+  background: #f2eee8;
+  color: #7f624b;
+}
+
+.recommend-item strong,
+.recommend-item small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommend-item strong {
+  color: #332820;
   font-size: 13px;
 }
 
-.ai-tip-card {
+.recommend-item small {
+  margin-top: 2px;
+  color: #7e6d5c;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.recent-record-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
   gap: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.85), rgba(247, 243, 255, 0.65));
-  box-shadow:
-    0 8px 24px rgba(102, 86, 175, 0.08),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  align-items: center;
+  min-height: 70px;
+  padding: 13px 14px;
+  border-radius: 22px;
 }
 
-.ai-tip-card strong {
-  display: block;
-  color: #6656af;
-  font-size: 13px;
-}
-
-.ai-tip-card p {
-  margin: 4px 0 0;
-  font-size: 13px;
-}
-
-.ai-tip-card button {
-  flex: 0 0 auto;
-  min-height: 38px;
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: 14px;
-  padding: 0 14px;
-  background: rgba(255, 255, 255, 0.6);
-  color: #6656af;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 950;
-  box-shadow: 0 4px 12px rgba(102, 86, 175, 0.1);
-  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-
-.ai-tip-card button:hover {
-  transform: none;
-}
-
-.ai-tip-card button:active {
-  transform: scale(0.96);
+.recent-record-card button {
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 0 12px;
+  background: #fff0dc;
+  color: #a66432;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .home-toast {
   position: fixed;
-  right: 20px;
-  bottom: 92px;
-  left: 20px;
+  right: 18px;
+  bottom: calc(130px + env(safe-area-inset-bottom));
+  left: 18px;
   z-index: 40;
   max-width: 420px;
   margin: 0 auto;
-  padding: 12px 16px;
-  border-radius: 18px;
+  padding: 11px 14px;
+  border-radius: 17px;
   background: rgba(54, 42, 32, 0.92);
   color: #fff8ef;
   font-size: 13px;
@@ -1117,17 +1084,17 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   z-index: 35;
   display: grid;
   align-items: end;
-  background: rgba(42, 32, 23, 0.24);
+  background: rgba(42, 32, 23, 0.22);
   backdrop-filter: blur(10px);
 }
 
 .record-sheet {
   display: grid;
-  gap: 16px;
+  gap: 14px;
   width: min(100%, 560px);
   margin: 0 auto;
-  padding: 20px 18px max(20px, env(safe-area-inset-bottom));
-  border-radius: 28px 28px 0 0;
+  padding: 18px 16px max(18px, env(safe-area-inset-bottom));
+  border-radius: 26px 26px 0 0;
   background: #fffaf4;
   box-shadow: 0 -22px 44px rgba(48, 35, 24, 0.16);
 }
@@ -1136,29 +1103,37 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.record-sheet h2 {
+  margin-top: 2px;
+  color: #2f281f;
+  font-size: 20px;
 }
 
 .record-sheet header button {
-  border: 0;
-  background: transparent;
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(255, 240, 220, 0.72);
   color: #9f6a3c;
-  font: inherit;
-  font-weight: 950;
+  font-size: 13px;
 }
 
 .sheet-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  gap: 8px;
 }
 
 .sheet-options button {
   display: grid;
-  min-height: 78px;
-  gap: 6px;
+  min-height: 68px;
+  gap: 5px;
   place-items: center;
   border: 1px solid rgba(145, 116, 78, 0.12);
-  border-radius: 18px;
+  border-radius: 17px;
   background: #fff;
   color: #332820;
   font: inherit;
@@ -1168,6 +1143,10 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   border-color: rgba(217, 130, 75, 0.42);
   background: #fff0dc;
   box-shadow: 0 0 0 3px rgba(217, 130, 75, 0.1);
+}
+
+.sheet-options strong {
+  font-size: 14px;
 }
 
 .sheet-options span {
@@ -1192,63 +1171,430 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   background: #fffaf4;
   color: #332820;
   font: inherit;
-  font-size: 13px;
+  font-size: 16px;
   resize: vertical;
 }
 
-@media (max-width: 430px) {
-  .compact-pet-header {
-    grid-template-columns: auto minmax(0, 1fr);
+.sheet-save {
+  min-height: 44px;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #df8544, #c96f3a);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 8px 18px rgba(217, 130, 75, 0.22);
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+.home-page {
+  gap: 13px;
+}
+
+.pet-status-card,
+.meal-summary-card,
+.recommend-section,
+.recent-record-card {
+  border-color: rgba(59, 47, 41, 0.08);
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 8px 20px rgba(82, 62, 38, 0.055);
+}
+
+.pet-status-card {
+  grid-template-columns: 52px minmax(0, 1fr) auto;
+  min-height: 88px;
+  max-height: none;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 22px;
+  background: rgba(255, 252, 247, 0.86);
+}
+
+.pet-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 17px;
+  box-shadow: 0 7px 14px rgba(217, 120, 61, 0.14);
+}
+
+.pet-status-copy {
+  padding-bottom: 0;
+}
+
+.pet-title-row {
+  justify-content: flex-start;
+}
+
+.pet-title-row h1 {
+  max-width: 48vw;
+  font-size: 20px;
+  line-height: 1.12;
+}
+
+.pet-title-row strong {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-height: 23px;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: #fff0dc;
+  color: #a66432;
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.pet-status-copy p {
+  margin-top: 7px;
+  color: #7f705f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-action {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: #d9824b;
+  color: #fffaf3;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  white-space: nowrap;
+  box-shadow: 0 8px 16px rgba(217, 130, 75, 0.16);
+}
+
+.life-flow-section {
+  gap: 8px;
+}
+
+.compact-section-head h2 {
+  color: #2f281f;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.compact-section-head button,
+.recent-record-card button {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: rgba(255, 255, 255, 0.52);
+  color: #9b6a38;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.meal-head-actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.meal-head-actions button:last-child {
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 0 14px;
+  background: #d9824b;
+  color: #fffaf3;
+  box-shadow: 0 8px 16px rgba(217, 130, 75, 0.14);
+}
+
+.life-flow-row {
+  gap: 8px;
+  padding-bottom: 3px;
+}
+
+.life-flow-row button {
+  flex-basis: 94px;
+  height: 84px;
+  gap: 5px;
+  border-color: rgba(59, 47, 41, 0.08);
+  border-radius: 18px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: none;
+}
+
+.life-flow-row span {
+  width: 28px;
+  height: 28px;
+  border-radius: 11px;
+  background: #f4efe8;
+  color: #9b7657;
+}
+
+.life-flow-row strong {
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.life-flow-row small {
+  color: #7f705f;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.meal-summary-card {
+  gap: 6px;
+  min-height: 0;
+  padding: 12px;
+  border-radius: 22px;
+  background: rgba(255, 252, 247, 0.84);
+}
+
+.meal-lines {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.meal-lines span {
+  display: grid;
+  min-width: 0;
+  min-height: 38px;
+  align-content: center;
+  gap: 2px;
+  border: 1px solid rgba(59, 47, 41, 0.07);
+  border-radius: 14px;
+  padding: 4px 7px;
+  background: #fff8ef;
+}
+
+.meal-lines small,
+.detail-metric-grid small {
+  overflow: hidden;
+  color: #9b8d7c;
+  font-size: 10px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-lines strong,
+.detail-metric-grid strong {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  overflow: hidden;
+  color: #332820;
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-summary-card footer {
+  display: block;
+}
+
+.meal-summary-card footer p {
+  display: block;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #7f705f;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recommend-section {
+  gap: 6px;
+  min-height: 0;
+  max-height: none;
+  padding: 10px 12px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.78) !important;
+}
+
+.recommend-list {
+  gap: 4px;
+}
+
+.recommend-item {
+  min-height: 48px;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  border-color: rgba(59, 47, 41, 0.07);
+  border-radius: 14px;
+  padding: 6px 9px;
+  background: rgba(255, 252, 247, 0.72);
+}
+
+.recommend-item > span,
+.tone-observant .recommend-item > span,
+.tone-direct .recommend-item > span {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  background: #f4efe8;
+  color: #8f765f;
+}
+
+.recommend-item strong {
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.05;
+}
+
+.recommend-item small {
+  max-width: 100%;
+  margin-top: 1px;
+  color: #7f705f;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.05;
+}
+
+.recent-record-card {
+  min-height: 78px;
+  padding: 14px;
+  border-radius: 22px;
+}
+
+.recent-record-card strong {
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.recent-record-card p {
+  display: block;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #7f705f;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.record-sheet-backdrop {
+  overscroll-behavior: contain;
+}
+
+.record-sheet {
+  gap: 13px;
+  padding: 17px 16px max(18px, env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+  background: #fffaf4;
+}
+
+.detail-sheet {
+  max-height: min(76vh, 520px);
+  overflow-y: auto;
+}
+
+.detail-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.detail-metric-grid span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  border: 1px solid rgba(59, 47, 41, 0.08);
+  border-radius: 15px;
+  padding: 10px;
+  background: #fff8ef;
+}
+
+.detail-copy {
+  margin: 0;
+  color: #5f5145;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.62;
+}
+
+.record-sheet h2 {
+  font-size: 20px;
+}
+
+.sheet-save {
+  font-weight: 850;
+  box-shadow: 0 8px 18px rgba(217, 130, 75, 0.16);
+}
+
+@media (max-width: 370px) {
+  .pet-status-card {
+    grid-template-columns: 48px minmax(0, 1fr);
+    padding: 12px;
   }
 
-  .pet-switcher-mini {
+  .pet-avatar {
+    width: 48px;
+    height: 48px;
+  }
+
+  .pet-title-row h1 {
+    max-width: 42vw;
+    font-size: 18px;
+  }
+
+  .status-action {
     grid-column: 1 / -1;
-  }
-
-  .ai-tip-card {
-    grid-template-columns: 1fr;
-    align-items: flex-start;
-  }
-
-  .ai-tip-card button {
     width: 100%;
-    min-height: 44px;
+  }
+
+  .life-flow-row button {
+    flex-basis: 88px;
+  }
+
+  .meal-lines {
+    grid-template-columns: 1fr;
+  }
+
+  .recommend-section {
+    padding: 10px;
   }
 }
 
 @media (min-width: 900px) {
-  .mode-desktop .home-dashboard {
-    grid-template-columns: minmax(0, 1.1fr) minmax(330px, 0.9fr);
-    align-items: start;
+  .mode-desktop {
+    gap: 16px;
   }
 
-  .mode-desktop .daily-pipeline {
-    grid-column: 1 / -1;
+  .mode-desktop .pet-status-card {
+    grid-template-columns: 58px minmax(0, 1fr) auto;
   }
 
-  .mode-desktop .pipeline-steps {
+  .mode-desktop .status-actions {
+    grid-column: auto;
+  }
+
+  .mode-desktop .quick-record-strip {
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+  }
+
+  .mode-desktop .life-flow-row {
+    display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     margin: 0;
-    overflow: visible;
     padding: 0;
+    overflow: visible;
   }
 
-  .mode-desktop .quick-record-row {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .mode-desktop .action-row {
-    display: flex;
-    flex-wrap: wrap;
-  }
-
-  .mode-desktop .activity-card {
-    grid-column: 1;
-  }
-
-  .mode-desktop .quick-record-card,
-  .mode-desktop .ai-tip-card {
-    grid-column: 2;
+  .mode-desktop .life-flow-row button {
+    width: auto;
   }
 
   .mode-desktop .record-sheet-backdrop {
@@ -1256,29 +1602,7 @@ function activityPriority(activity: ActivityRecommendation, mode: DailyCheckInMo
   }
 
   .mode-desktop .record-sheet {
-    border-radius: 28px;
-  }
-
-  .mode-desktop .home-toast {
-    right: 34px;
-    bottom: 28px;
-    left: auto;
-  }
-}
-
-@keyframes pet-bounce-idle {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-4px) scale(1.02);
-  }
-}
-
-@keyframes check-pop {
-  50% {
-    transform: scale(1.12);
+    border-radius: 26px;
   }
 }
 

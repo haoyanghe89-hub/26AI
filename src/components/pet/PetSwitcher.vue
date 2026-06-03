@@ -46,8 +46,8 @@ defineEmits<{
 <style scoped>
 .pet-switcher {
   display: grid;
-  gap: 10px;
-  padding-top: 10px;
+  gap: 8px;
+  padding-top: 8px;
 }
 
 .switcher-head {
@@ -61,18 +61,18 @@ defineEmits<{
 
 .switcher-head button {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   place-items: center;
   border: 1px solid rgba(145, 116, 78, 0.14);
-  border-radius: 10px;
+  border-radius: 9px;
   background: #fffaf4;
   color: #bd722f;
 }
 
 .pet-options {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   overflow: auto;
   margin: 0 -4px;
   padding: 0 4px 3px;
@@ -91,14 +91,14 @@ defineEmits<{
 
 .pet-options button {
   display: grid;
-  min-width: 136px;
-  min-height: 66px;
-  grid-template-columns: 38px 1fr;
-  column-gap: 10px;
+  min-width: 122px;
+  min-height: 56px;
+  grid-template-columns: 34px 1fr;
+  column-gap: 9px;
   align-items: center;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid rgba(146, 118, 86, 0.12);
-  border-radius: 18px;
+  border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   color: #302820;
   font: inherit;
@@ -119,9 +119,9 @@ defineEmits<{
 img,
 .pet-letter {
   grid-row: span 2;
-  width: 38px;
-  height: 38px;
-  border-radius: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
 }
 
 img {
@@ -145,7 +145,7 @@ small {
 }
 
 strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 
 small {

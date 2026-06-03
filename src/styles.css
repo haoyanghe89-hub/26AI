@@ -1,5 +1,48 @@
 :root {
-  /* 主色与原有界面一致，仅抽取为可复用 token 便于统一质感 */
+  /* Industrial mobile design tokens */
+  --color-bg: #fff7ed;
+  --color-bg-soft: #fffaf3;
+  --color-card: rgba(255, 255, 255, 0.9);
+  --color-card-muted: rgba(255, 250, 243, 0.78);
+  --color-primary: #d9824b;
+  --color-primary-strong: #c96f3a;
+  --color-secondary: #b66b3d;
+  --color-text: #332820;
+  --color-text-muted: #7f705f;
+  --color-text-weak: #9b8d7c;
+  --color-border: rgba(59, 47, 41, 0.1);
+  --color-success: #5f8f57;
+  --color-warning: #c47a2c;
+  --color-danger: #9b4644;
+  --color-ai: #6656af;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-sm: 12px;
+  --radius-md: 16px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --radius-2xl: 28px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.72) inset, 0 10px 24px rgba(82, 62, 38, 0.08);
+  --shadow-floating: 0 16px 34px rgba(92, 70, 44, 0.16);
+  --shadow-bottom-nav: 0 16px 36px rgba(82, 62, 38, 0.16);
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 14px;
+  --font-base: 15px;
+  --font-lg: 17px;
+  --font-xl: 20px;
+  --font-2xl: 24px;
+  --motion-fast: 120ms;
+  --motion-normal: 180ms;
+  --motion-slow: 240ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  /* Legacy aliases kept so existing product surfaces stay stable. */
   --t1-ink: #3b2f29;
   --t1-ink-muted: #8b6950;
   --t1-orange: #d9824b;
@@ -25,6 +68,11 @@
   --t1-space-5: 20px;
   --t1-space-6: 24px;
   --t1-space-8: 32px;
+  --t1-mobile-page-x: 16px;
+  --t1-mobile-section-gap: 12px;
+  --t1-mobile-card-pad: 16px;
+  --t1-mobile-radius-card: 24px;
+  --t1-mobile-radius-chip: 18px;
   --t1-surface-soft: rgba(255, 255, 255, 0.42);
   --t1-surface-elevated: rgba(255, 255, 255, 0.78);
   --t1-surface-strong: rgba(255, 255, 255, 0.92);
@@ -106,9 +154,42 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+html.sheet-open,
+body.sheet-open {
+  overflow: hidden;
+  touch-action: none;
+}
+
+html.app-scroll-locked,
+body.app-scroll-locked {
+  overflow: hidden;
+  touch-action: none;
+}
+
 #app {
   min-height: 100vh;
   min-height: 100svh;
+}
+
+@media (max-width: 899px) {
+  :root {
+    --t1-space-5: 18px;
+    --t1-space-6: 20px;
+    --t1-space-8: 24px;
+  }
+
+  html,
+  body,
+  #app {
+    width: 100%;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+  }
 }
 
 button,
@@ -120,6 +201,61 @@ select {
 
 button {
   touch-action: manipulation;
+}
+
+button,
+[role='button'] {
+  transition:
+    transform var(--motion-fast) var(--ease-standard),
+    opacity var(--motion-normal) var(--ease-standard),
+    background var(--motion-normal) var(--ease-standard),
+    border-color var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-normal) var(--ease-standard);
+}
+
+button:active:not(:disabled),
+[role='button']:active {
+  transform: scale(0.97);
+}
+
+button:focus-visible,
+[role='button']:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 4px rgba(217, 130, 75, 0.14),
+    0 0 0 1px rgba(217, 130, 75, 0.42);
+}
+
+button:disabled,
+button[aria-disabled='true'],
+.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.is-loading,
+[aria-busy='true'] {
+  cursor: progress;
+  pointer-events: none;
+}
+
+.state-empty,
+.is-empty {
+  border: 1px dashed var(--color-border);
+  background: var(--color-card-muted);
+  color: var(--color-text-muted);
+}
+
+.state-error,
+.is-error {
+  border-color: rgba(155, 70, 68, 0.32);
+  background: var(--t1-danger-soft);
+  color: var(--color-danger);
 }
 
 .auth-shell {
@@ -1351,15 +1487,15 @@ button {
   }
 
   .auth-cloud-field {
-    min-height: 38px;
-    border-radius: 22px;
-    padding: 5px 11px;
+    min-height: 48px;
+    border-radius: 24px;
+    padding: 6px 12px;
     background: rgba(255, 255, 255, 0.64);
   }
 
   .auth-cloud-field__icon {
-    width: 26px;
-    height: 26px;
+    width: 30px;
+    height: 30px;
     margin-right: 9px;
   }
 
@@ -1377,13 +1513,13 @@ button {
   }
 
   .auth-password-line {
-    grid-template-columns: minmax(0, 1fr) 44px;
+    grid-template-columns: minmax(0, 1fr) 48px;
     gap: 8px;
   }
 
   .auth-arrow-login {
-    min-height: 38px;
-    border-radius: 22px;
+    min-height: 48px;
+    border-radius: 24px;
   }
 
   .auth-arrow-login svg {
@@ -1397,6 +1533,7 @@ button {
 
   .auth-helper-links button,
   .auth-register-soft {
+    min-height: 44px;
     font-size: 11px;
   }
 
@@ -1406,8 +1543,8 @@ button {
   }
 
   .auth-icon-button {
-    width: 30px;
-    height: 30px;
+    width: 44px;
+    height: 44px;
     background: rgba(255, 255, 255, 0.56);
     box-shadow: 0 8px 18px rgba(59, 47, 41, 0.1);
   }

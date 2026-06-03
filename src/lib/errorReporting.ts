@@ -1,6 +1,7 @@
 import type { App } from 'vue'
 import type { Router } from 'vue-router'
 import * as Sentry from '@sentry/vue'
+import { apiUrl } from './request'
 
 interface ClientErrorPayload {
   message: string
@@ -86,7 +87,7 @@ async function reportClientError(error: unknown, context: Partial<ClientErrorPay
   const payload = normalizeError(error, context)
 
   try {
-    const response = await fetch('/api/client-errors', {
+    const response = await fetch(apiUrl('/api/client-errors'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

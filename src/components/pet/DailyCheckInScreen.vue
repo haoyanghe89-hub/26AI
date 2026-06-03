@@ -21,10 +21,10 @@ const isSuccess = ref(false)
 const petName = computed(() => props.pet?.name || '毛孩子')
 const hasPet = computed(() => Boolean(props.pet))
 const modes: Array<{ id: DailyCheckInMode; title: string; hint: string }> = [
-  { id: 'relaxed', title: '轻松陪伴', hint: '慢慢来，也很好' },
-  { id: 'care', title: '认真护理', hint: '把小照顾做稳' },
-  { id: 'training', title: '训练一下', hint: '练出一点默契' },
-  { id: 'memory', title: '记录瞬间', hint: '留下今天的可爱' },
+  { id: 'relaxed', title: '轻松陪伴', hint: '慢慢来' },
+  { id: 'care', title: '认真护理', hint: '照顾做稳' },
+  { id: 'training', title: '练点默契', hint: '几分钟' },
+  { id: 'memory', title: '记录瞬间', hint: '留住今天' },
 ]
 
 function complete() {
@@ -42,11 +42,9 @@ function complete() {
   <main class="check-in-screen" :class="{ success: isSuccess }">
     <section class="check-in-card">
       <div class="check-in-copy">
-        <p>今日陪伴打卡</p>
-        <h1>{{ hasPet ? `${petName} 正在等你` : '先添加一位宠物伙伴' }}</h1>
-        <span>{{
-          hasPet ? `今天和 ${petName} 的第 ${companionDays} 天` : '添加档案后，就能开启每天的陪伴打卡'
-        }}</span>
+        <p>今日陪伴</p>
+        <h1>{{ hasPet ? petName : '添加宠物' }}</h1>
+        <span>{{ hasPet ? `陪伴第 ${companionDays} 天` : '先建档案' }}</span>
       </div>
 
       <CheckInMascot
@@ -59,18 +57,18 @@ function complete() {
       <article v-if="hasPet" class="streak-card">
         <span>陪伴第 {{ companionDays }} 天</span>
         <strong>连续陪伴 {{ streakCount }} 天</strong>
-        <small>今天也一起好好生活吧</small>
+        <small>今天也在一起</small>
       </article>
       <article v-else class="streak-card empty-pet-card">
-        <span>新用户第一步</span>
+        <span>第一步</span>
         <strong>建立宠物档案</strong>
-        <small>名字、品种和生日会让每天的建议更贴近它。</small>
+        <small>建议会更贴近它</small>
       </article>
 
       <section v-if="hasPet" class="mode-selector" aria-label="今天想怎么陪它">
         <div>
-          <h2>今天想怎么陪它？</h2>
-          <p>选一个今天的节奏，Home 会优先推荐相关任务。</p>
+          <h2>今天节奏</h2>
+          <p>选一个就好</p>
         </div>
         <div class="mode-grid">
           <button
@@ -88,7 +86,7 @@ function complete() {
 
       <div class="check-in-actions">
         <button class="primary-action" type="button" @click="complete">
-          {{ !hasPet ? '添加宠物档案' : isSuccess ? '打卡成功，今天也有好好陪它' : `进入 ${petName} 的今天` }}
+          {{ !hasPet ? '添加档案' : isSuccess ? '已帮你记下' : '进入首页' }}
         </button>
       </div>
     </section>
@@ -101,7 +99,7 @@ function complete() {
   min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: max(18px, env(safe-area-inset-top)) 16px max(18px, env(safe-area-inset-bottom));
+  padding: max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom));
   background:
     radial-gradient(circle at top, rgba(255, 255, 255, 0.9), transparent 36%),
     linear-gradient(180deg, #fffaf3 0%, #fff0dc 100%);
@@ -112,10 +110,10 @@ function complete() {
 .check-in-card {
   display: grid;
   width: min(100%, 520px);
-  gap: 18px;
-  padding: 24px 18px 20px;
+  gap: 14px;
+  padding: 20px 16px 18px;
   border: 1px solid rgba(145, 116, 78, 0.12);
-  border-radius: 32px;
+  border-radius: 26px;
   background: rgba(255, 252, 247, 0.84);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.8) inset,
@@ -145,7 +143,7 @@ function complete() {
 .check-in-copy h1 {
   margin: 0;
   color: #2f281f;
-  font-size: clamp(28px, 8vw, 42px);
+  font-size: clamp(24px, 7vw, 34px);
   line-height: 1.1;
   letter-spacing: 0;
 }
@@ -160,10 +158,10 @@ function complete() {
 
 .streak-card {
   display: grid;
-  gap: 5px;
-  padding: 15px 16px;
+  gap: 4px;
+  padding: 12px 14px;
   border: 1px solid rgba(217, 130, 75, 0.16);
-  border-radius: 22px;
+  border-radius: 20px;
   background: linear-gradient(135deg, #fff8ef, #fff1de);
   text-align: center;
 }
@@ -176,12 +174,12 @@ function complete() {
 
 .streak-card strong {
   color: #342b22;
-  font-size: 19px;
+  font-size: 17px;
 }
 
 .mode-selector {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .mode-selector h2 {
@@ -200,17 +198,17 @@ function complete() {
 .mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .mode-grid button {
   display: grid;
   gap: 5px;
-  min-height: 74px;
+  min-height: 64px;
   align-content: center;
   border: 1px solid rgba(145, 116, 78, 0.12);
-  border-radius: 18px;
-  padding: 12px;
+  border-radius: 17px;
+  padding: 10px;
   background: rgba(255, 255, 255, 0.72);
   color: #342b22;
   font: inherit;
@@ -249,9 +247,9 @@ function complete() {
 }
 
 .primary-action {
-  min-height: 54px;
+  min-height: 48px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   font: inherit;
   font-weight: 950;
 }
@@ -271,15 +269,15 @@ function complete() {
   .check-in-card {
     gap: 12px;
     padding: 18px 16px 16px;
-    border-radius: 28px;
+    border-radius: 24px;
   }
 
   .check-in-card :deep(.mascot-stage) {
-    width: min(58vw, 252px);
+    width: min(48vw, 184px);
   }
 
   .check-in-copy h1 {
-    font-size: clamp(26px, 10vw, 36px);
+    font-size: clamp(23px, 8vw, 30px);
   }
 
   .streak-card {
@@ -310,7 +308,7 @@ function complete() {
   }
 
   .primary-action {
-    min-height: 52px;
+    min-height: 48px;
     border-radius: 18px;
   }
 }
@@ -354,7 +352,7 @@ function complete() {
   .check-in-card :deep(.mascot-stage) {
     grid-column: 2;
     grid-row: 1 / span 4;
-    width: min(34vw, 340px);
+    width: min(30vw, 280px);
   }
 }
 

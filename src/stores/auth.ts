@@ -2,6 +2,15 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { translate } from '../i18n'
 import { getStoredJson, setStoredJson } from '../lib/clientStorage'
+import { apiUrl } from '../lib/request'
+import {
+  DEFAULT_CARE_EXPERIENCE_LEVEL,
+  DEFAULT_GUIDANCE_PREFERENCE,
+  normalizeCareExperienceLevel,
+  normalizeGuidancePreference,
+  type CareExperienceLevel,
+  type GuidancePreference,
+} from '../config/careExperienceContent'
 
 export type AuthProvider = 'account' | 'phone' | 'wechat' | 'qq'
 
@@ -13,6 +22,9 @@ export interface AuthUser {
   avatarText: string
   linkedProviders: AuthProvider[]
   createdAt: string
+  careExperienceLevel: CareExperienceLevel
+  guidancePreference: GuidancePreference
+  onboardingCompleted: boolean
 }
 
 type SmsPurpose = 'login' | 'register'
@@ -31,6 +43,7 @@ export interface AuthCapabilities {
 
 const STORAGE_KEYS = {
   currentUser: 'twentys1x:auth-current-user',
+  onboardingPreference: 'twentys1x:auth-onboarding-preference',
   token: 'twentys1x:auth-token',
 }
 
@@ -51,18 +64,27 @@ export const useAuthStore = defineStore('auth', () => {
   const isHydrated = ref(false)
 
   const isAuthenticated = computed(() => Boolean(currentUser.value && token.value))
+  const hasCompletedOnboarding = computed(() => currentUser.value?.onboardingCompleted === true)
+  const careExperienceLevel = computed(() =>
+    normalizeCareExperienceLevel(currentUser.value?.careExperienceLevel),
+  )
+  const guidancePreference = computed(() =>
+    normalizeGuidancePreference(currentUser.value?.guidancePreference),
+  )
 
   async function hydrate() {
     if (isHydrated.value) return
 
     token.value = readToken()
-    currentUser.value = await getStoredJson<AuthUser | null>(STORAGE_KEYS.currentUser, null)
+    currentUser.value = normalizeAuthUser(
+      await getStoredJson<AuthUser | null>(STORAGE_KEYS.currentUser, null),
+    )
     await refreshCapabilities()
     if (token.value) {
       try {
         const data = await authRequest<{ user: AuthUser }>('/api/auth/me', { method: 'GET' })
-        currentUser.value = data.user
-        await setStoredJson(STORAGE_KEYS.currentUser, data.user)
+        currentUser.value = await mergeStoredOnboardingFallback(normalizeAuthUser(data.user))
+        await setStoredJson(STORAGE_KEYS.currentUser, currentUser.value)
       } catch {
         await clearAuthState()
       }
@@ -119,7 +141,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function loginWithQr(provider: Extract<AuthProvider, 'wechat' | 'qq'>) {
-    window.location.assign(`/api/auth/oauth/${provider}/start`)
+    const url = apiUrl(`/api/auth/oauth/${provider}/start`)
+    window.location.assign(typeof url === 'string' ? url : url.toString())
   }
 
   async function completeOAuthLogin(ticket: string) {
@@ -134,11 +157,39 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function saveOnboardingPreference(payload: {
+    careExperienceLevel?: CareExperienceLevel
+    guidancePreference?: GuidancePreference
+    onboardingCompleted?: boolean
+  }) {
+    const normalized = {
+      careExperienceLevel: normalizeCareExperienceLevel(payload.careExperienceLevel),
+      guidancePreference: normalizeGuidancePreference(payload.guidancePreference),
+      onboardingCompleted: payload.onboardingCompleted !== false,
+    }
+
+    try {
+      const data = await authRequest<{ user: AuthUser }>('/api/auth/preferences', {
+        method: 'PUT',
+        body: JSON.stringify(normalized),
+      })
+      currentUser.value = normalizeAuthUser(data.user)
+    } catch {
+      currentUser.value = normalizeAuthUser({
+        ...(currentUser.value || createFallbackUser()),
+        ...normalized,
+      })
+    }
+
+    await setStoredJson(STORAGE_KEYS.currentUser, currentUser.value)
+    await setStoredJson(STORAGE_KEYS.onboardingPreference, normalized)
+  }
+
   async function applyAuthResponse(response: AuthResponse) {
     token.value = response.token
-    currentUser.value = response.user
+    currentUser.value = await mergeStoredOnboardingFallback(normalizeAuthUser(response.user))
     writeToken(response.token)
-    await setStoredJson(STORAGE_KEYS.currentUser, response.user)
+    await setStoredJson(STORAGE_KEYS.currentUser, currentUser.value)
   }
 
   async function clearAuthState() {
@@ -162,6 +213,9 @@ export const useAuthStore = defineStore('auth', () => {
     currentUser,
     capabilities,
     isAuthenticated,
+    hasCompletedOnboarding,
+    careExperienceLevel,
+    guidancePreference,
     hydrate,
     requestSmsCode,
     loginWithPhone,
@@ -170,6 +224,7 @@ export const useAuthStore = defineStore('auth', () => {
     loginWithAccount,
     loginWithQr,
     completeOAuthLogin,
+    saveOnboardingPreference,
     logout,
   }
 })
@@ -183,7 +238,7 @@ async function publicAuthRequest<T>(url: string, body: Record<string, unknown>):
 
 async function authRequest<T>(url: string, init: RequestInit = {}): Promise<T> {
   const authToken = readToken()
-  const response = await fetch(url, {
+  const response = await fetch(apiUrl(url), {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -215,4 +270,60 @@ function normalizeCapabilities(value: AuthCapabilities | null | undefined): Auth
       qq: Boolean(value?.oauth?.qq),
     },
   }
+}
+
+function normalizeAuthUser(user: Partial<AuthUser> | null | undefined): AuthUser | null {
+  if (!user?.id) return null
+  return {
+    id: String(user.id),
+    name: String(user.name || '用户'),
+    phone: String(user.phone || ''),
+    provider: normalizeProvider(user.provider),
+    avatarText: String(user.avatarText || user.name?.slice(0, 1) || '宠').slice(0, 1),
+    linkedProviders: Array.isArray(user.linkedProviders) ? user.linkedProviders : [],
+    createdAt: String(user.createdAt || new Date().toISOString()),
+    careExperienceLevel: normalizeCareExperienceLevel(user.careExperienceLevel),
+    guidancePreference: normalizeGuidancePreference(user.guidancePreference),
+    onboardingCompleted: user.onboardingCompleted === true,
+  }
+}
+
+async function mergeStoredOnboardingFallback(user: AuthUser | null) {
+  if (!user) return null
+  if (user.onboardingCompleted) return user
+
+  const fallback = await getStoredJson<{
+    careExperienceLevel?: CareExperienceLevel
+    guidancePreference?: GuidancePreference
+    onboardingCompleted?: boolean
+  } | null>(STORAGE_KEYS.onboardingPreference, null)
+  if (!fallback?.onboardingCompleted) return user
+
+  return {
+    ...user,
+    careExperienceLevel: normalizeCareExperienceLevel(fallback.careExperienceLevel),
+    guidancePreference: normalizeGuidancePreference(fallback.guidancePreference),
+    onboardingCompleted: true,
+  }
+}
+
+function createFallbackUser(): AuthUser {
+  return {
+    id: 'local-user',
+    name: '用户',
+    phone: '',
+    provider: 'account',
+    avatarText: '宠',
+    linkedProviders: ['account'],
+    createdAt: new Date().toISOString(),
+    careExperienceLevel: DEFAULT_CARE_EXPERIENCE_LEVEL,
+    guidancePreference: DEFAULT_GUIDANCE_PREFERENCE,
+    onboardingCompleted: false,
+  }
+}
+
+function normalizeProvider(value: unknown): AuthProvider {
+  return value === 'phone' || value === 'wechat' || value === 'qq' || value === 'account'
+    ? value
+    : 'account'
 }

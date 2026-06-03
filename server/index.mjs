@@ -47,6 +47,7 @@ import {
   registerWithPhone,
   requestSmsCode,
   startOAuthLogin,
+  updateUserPreferences,
 } from './auth.mjs'
 
 const PORT = Number(process.env.PORT || 8787)
@@ -622,25 +623,126 @@ async function handlePetExpertStreamChat(req, res, body) {
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   })
+  res.flushHeaders?.()
 
   try {
-    const result = await handlePetExpertChat(req, body)
+    validateChatBody(body)
+    sanitizeUserMessages(body?.messages)
     res.write(
       `event: start\ndata: ${JSON.stringify({
-        inference: result.inference,
+        inference: {
+          providerId: 'pet_expert',
+          model: 'preparing-rag-stream',
+          reason: '宠物专家引擎正在准备 RAG 上下文并进入流式输出。',
+        },
         workspaceHits: [],
-        petExpert: result.petExpert,
       })}\n\n`,
     )
-
-    for (const chunk of simulateStreaming(result.content)) {
-      res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk })}\n\n`)
+    const gateway = createPetExpertGateway({
+      providers: PROVIDERS,
+      callProvider,
+      readProviderResponse,
+      extractProviderText,
+      extractProviderErrorMessage,
+      getApiKey,
+      httpError,
+    })
+    const state = req.user?.id ? await loadUserState(req.user.id).catch(() => ({})) : {}
+    const prepared = await gateway.prepareStream({ body, userId: req.user?.id || '', state })
+    if (prepared.fallbackResult) {
+      const result = prepared.fallbackResult
+      for (const chunk of chunkText(result.content)) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk })}\n\n`)
+      }
+      res.write(`event: done\ndata: ${JSON.stringify({ petExpert: result.petExpert })}\n\n`)
+      res.end()
+      return
     }
-    res.write(`event: done\ndata: ${JSON.stringify({ petExpert: result.petExpert })}\n\n`)
+
+    const streamRequest = prepared.streamRequest
+    let streamed = false
+    let lastError = null
+    for (const candidate of streamRequest.candidates) {
+      try {
+        const response = await callProviderStream(
+          candidate.target.providerId,
+          candidate.provider,
+          candidate.target.model,
+          streamRequest.messages,
+          candidate.apiKey,
+          streamRequest.systemPrompt,
+          { temperature: 0.3 },
+        )
+        if (!response.ok) {
+          const data = await readProviderResponse(response).catch(() => null)
+          throw new Error(extractProviderErrorMessage(data) || `Provider request failed: ${response.status}`)
+        }
+        await pipeProviderStreamToSse(response, candidate.provider.kind, res)
+        streamed = true
+        break
+      } catch (error) {
+        lastError = error
+      }
+    }
+
+    if (!streamed) {
+      const result = streamRequest.localFallbackResult
+      for (const chunk of chunkText(result.content)) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: chunk })}\n\n`)
+      }
+      res.write(
+        `event: tool_result\ndata: ${JSON.stringify({
+          name: 'PetExpertFallback',
+          result: {
+            reason: lastError instanceof Error ? lastError.message : '底层流式模型暂不可用',
+          },
+        })}\n\n`,
+      )
+    }
+    res.write(`event: done\ndata: ${JSON.stringify({ petExpert: streamRequest.metadata })}\n\n`)
     res.end()
   } catch (error) {
     sendStreamError(res, error instanceof Error ? error.message : '宠物专家引擎请求失败')
   }
+}
+
+async function pipeProviderStreamToSse(response, providerKind, res) {
+  const parser = createSseParser()
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      const events = parser.push(decoder.decode(value, { stream: true }))
+      for (const { event, data } of events) {
+        const delta = extractStreamDelta(providerKind, event, data)
+        if (delta.text) {
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.text })}\n\n`)
+        }
+      }
+    }
+
+    const events = parser.flush()
+    for (const { event, data } of events) {
+      const delta = extractStreamDelta(providerKind, event, data)
+      if (delta.text) {
+        res.write(`event: delta\ndata: ${JSON.stringify({ content: delta.text })}\n\n`)
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+function chunkText(text, size = 18) {
+  const chunks = []
+  for (let index = 0; index < String(text || '').length; index += size) {
+    chunks.push(String(text || '').slice(index, index + size))
+  }
+  return chunks
 }
 
 async function handleAuthRoute(req, res, routePath) {
@@ -698,6 +800,11 @@ async function handleAuthRoute(req, res, routePath) {
 
   if (req.method === 'GET' && routePath === '/api/auth/me') {
     sendJson(res, 200, { user: await authenticateRequest(req) })
+    return
+  }
+
+  if (req.method === 'PUT' && routePath === '/api/auth/preferences') {
+    sendJson(res, 200, await updateUserPreferences(req, await readJson(req, 16 * 1024)))
     return
   }
 

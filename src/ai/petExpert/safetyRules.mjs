@@ -75,6 +75,16 @@ const RED_FLAG_RULES = [
       /cat.*not eating.*(24|long|day)/i,
     ],
   },
+  {
+    id: 'not_eating_or_drinking',
+    label: '持续不吃不喝',
+    patterns: [
+      /持续.*(不吃不喝|不吃.*不喝)/,
+      /(不吃不喝|拒食拒水).*(一天|24\s*小时|两天|48\s*小时|很久)/,
+      /(几乎没喝|完全不喝).*(不吃|拒食|没胃口)/,
+      /(not eating|refusing food).*(not drinking|refusing water|24|48|day)/i,
+    ],
+  },
 ]
 
 export function evaluateSafetyRules({ userText = '', contextText = '' } = {}) {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import ElButton from 'element-plus/es/components/button/index.mjs'
 import ElDialog from 'element-plus/es/components/dialog/index.mjs'
@@ -7,6 +7,7 @@ import ElInput from 'element-plus/es/components/input/index.mjs'
 import ElInputNumber from 'element-plus/es/components/input-number/index.mjs'
 import ElSelect, { ElOption } from 'element-plus/es/components/select/index.mjs'
 import { ElMessage } from 'element-plus/es/components/message/index.mjs'
+import { ElMessageBox } from 'element-plus/es/components/message-box/index.mjs'
 import AppIcon from '../components/pet/AppIcon.vue'
 import DesktopSidebar from '../components/pet/DesktopSidebar.vue'
 import EmptyState from '../components/pet/EmptyState.vue'
@@ -17,18 +18,20 @@ import PetSwitcher from '../components/pet/PetSwitcher.vue'
 import SettingsPanel from '../components/chat/SettingsPanel.vue'
 import DailyCheckInScreen from '../components/pet/DailyCheckInScreen.vue'
 import { useDailyCheckIn, type DailyCheckInMode } from '../composables/useDailyCheckIn'
+import { parseMessageSegments } from '../lib/messageSegments'
 import {
   messagePreviewContent,
   type CareReminder,
   type ChatMessage,
+  type ChatSession,
   type HealthLog,
   type PetProfile,
   type PetSpecies,
-  type ProviderId,
   type ReminderType,
   useChatStore,
 } from '../stores/chat'
 import { useAuthStore } from '../stores/auth'
+import { useUiStore } from '../stores/ui'
 
 type MobileTab = 'home' | 'log' | 'ai' | 'plan' | 'profile'
 type DesktopModule =
@@ -44,9 +47,17 @@ type DesktopModule =
   | 'settings'
 type RecordTab = 'quick' | 'timeline'
 type QuickRecordField = 'appetite' | 'waterIntake' | 'poop' | 'vomiting' | 'mood'
+type AiEntry = {
+  title: string
+  description: string
+  icon: string
+  prompt: string
+  tone?: 'warm' | 'care' | 'ai'
+}
 
 const chat = useChatStore()
 const auth = useAuthStore()
+const ui = useUiStore()
 const router = useRouter()
 const dailyCheckIn = useDailyCheckIn()
 
@@ -61,6 +72,11 @@ const activeRecordTab = ref<RecordTab>('quick')
 const moreRecordFieldsOpen = ref(false)
 const mobilePetSwitcherOpen = ref(false)
 const aiInput = ref('')
+const chatSearchOpen = ref(false)
+const chatSearchQuery = ref('')
+const moreMenuOpen = ref(false)
+const chatShellReady = ref(false)
+const previousMobileTabBeforeAi = ref<MobileTab>('home')
 const messagesEl = ref<HTMLElement | null>(null)
 const fileInputEl = ref<HTMLInputElement | null>(null)
 const petAvatarInputEl = ref<HTMLInputElement | null>(null)
@@ -93,6 +109,75 @@ const aiPromptChips = [
   '根据最近记录给今日护理建议',
   '生成本周陪伴回顾',
   '便便略软要怎么观察？',
+]
+
+const suggestionSets: Record<string, string[]> = {
+  beginner: [
+    '便便正常吗？',
+    '今天怎么配餐？',
+    '怎么训练社交？',
+    '突然呕吐怎么办？',
+    '第一次驱虫怎么安排？',
+    '每天要玩多久？',
+  ],
+  intermediate: [
+    '便便正常吗？',
+    '今天怎么配餐？',
+    '狗粮帮我对比',
+    '最近健康趋势怎么样？',
+    '怎么训练社交？',
+    '突然呕吐怎么办？',
+  ],
+  advanced: [
+    '体检报告帮我解释',
+    '狗粮帮我对比',
+    '导出近期记录摘要',
+    '配餐怎么优化？',
+    '健康风险帮我排查',
+    '附近宠物医院',
+  ],
+  default: [
+    '便便正常吗？',
+    '今天怎么配餐？',
+    '狗粮帮我对比',
+    '怎么训练社交？',
+    '附近宠物医院',
+    '突然呕吐怎么办？',
+  ],
+}
+
+const aiEntryCards: AiEntry[] = [
+  {
+    title: 'AI 配餐',
+    description: '结合档案、体重、近期记录和口粮库生成餐次建议',
+    icon: 'food',
+    tone: 'warm',
+    prompt:
+      '请调用 Pet AI Orchestrator 为当前宠物生成 AI 配餐建议：结合 PetProfile、最近 7 天记录、当前口粮和口粮数据库，输出适用条件、每日估算、餐次拆分、观察点和需要咨询兽医的情况。',
+  },
+  {
+    title: '口粮对比',
+    description: '按成分、过敏、热量、价格和健康目标比较',
+    icon: 'product',
+    prompt:
+      '请调用 Pet AI Orchestrator 做口粮对比：从结构化 FoodProduct 数据库中选择适合当前宠物的两款候选口粮，结合过敏、病史、体重、近期便便和健康目标输出对比与风险点。',
+  },
+  {
+    title: '健康问答',
+    description: '结合日志和 RAG 做风险分级与观察清单',
+    icon: 'vet',
+    tone: 'care',
+    prompt:
+      '请调用 Pet AI Orchestrator 做健康问答：结合当前宠物档案、最近 7 天健康/饮食/便便/体重/运动记录和 PetKnowledge RAG，进行风险分级、观察清单和就医边界说明。',
+  },
+  {
+    title: '训练/行为建议',
+    description: '按物种、年龄、精力和近期状态给训练方案',
+    icon: 'ai',
+    tone: 'ai',
+    prompt:
+      '请调用 Pet AI Orchestrator 给出训练/行为建议：结合当前宠物档案、活动水平、最近日志和训练/护理知识库，给出短时可执行步骤、奖励方式、注意事项和何时需要专业行为咨询。',
+  },
 ]
 
 const mockMemories = [
@@ -214,6 +299,14 @@ const companionDays = computed(() => {
   return Math.max(1, Math.floor(diff / 86_400_000) + 1)
 })
 const checkInSummary = computed(() => dailyCheckIn.getSummary(chat.activePetId, companionDays.value))
+const carePreferenceLabel = computed(() => {
+  const map = {
+    beginner: '刚开始养宠',
+    intermediate: '已经比较熟悉',
+    advanced: '资深养宠人',
+  }
+  return map[auth.careExperienceLevel]
+})
 const shouldShowCheckIn = computed(() => {
   if (activeMobileTab.value !== 'home' || activeDesktopModule.value !== 'overview') return false
   if (!activePet.value) return true
@@ -235,10 +328,72 @@ const canSendAi = computed(
     !chat.isSending &&
     (aiInput.value.trim().length > 0 || chat.pendingFiles.length > 0),
 )
+const activePetName = computed(() => activePet.value?.name || '宝贝')
+const chatPlaceholder = computed(() =>
+  chatShellReady.value ? `描述${activePetName.value}的情况，或问我怎么照看它...` : '问问 AI',
+)
+const aiSuggestions = computed(() => {
+  const level = auth.careExperienceLevel || 'default'
+  return suggestionSets[level] || suggestionSets.default
+})
+const chatHistoryItems = computed(() =>
+  chat.sessions.map(toHistoryItem).filter((item) => item.messageCount > 0),
+)
+const filteredChatHistoryItems = computed(() => {
+  const query = chatSearchQuery.value.trim().toLowerCase()
+  if (!query) return chatHistoryItems.value
+  return chatHistoryItems.value.filter((item) =>
+    [item.title, item.petName, item.lastMessage, item.timeText, item.tags.join(' ')]
+      .join(' ')
+      .toLowerCase()
+      .includes(query),
+  )
+})
+const hasActiveConversationContent = computed(
+  () => Boolean(aiInput.value.trim()) || Boolean(chat.activeSession?.messages?.length),
+)
+
+let chatReadyTimer: number | null = null
 
 watch(
   () => chat.visibleMessages.length,
   () => scrollAiMessages(),
+)
+
+watch(
+  activeMobileTab,
+  (tab, previous) => {
+    if (tab === 'ai') {
+      if (previous !== 'ai') previousMobileTabBeforeAi.value = previous || 'home'
+      startChatOpening()
+      return
+    }
+    chatSearchOpen.value = false
+    moreMenuOpen.value = false
+    chatShellReady.value = false
+    ui.leaveChatImmersive()
+  },
+  { immediate: true },
+)
+
+watch(chatSearchOpen, (open) => {
+  ui.setActiveOverlay(open ? 'chat-search' : null)
+  if (!open) chatSearchQuery.value = ''
+})
+
+watch(
+  () => router.currentRoute.value.query.tab,
+  (tab) => {
+    if (tab === 'ai') {
+      if (activeMobileTab.value !== 'ai') {
+        previousMobileTabBeforeAi.value = activeMobileTab.value
+        activeMobileTab.value = 'ai'
+        activeDesktopModule.value = 'ai'
+      }
+      return
+    }
+    if (activeMobileTab.value === 'ai') closeImmersiveChat(false)
+  },
 )
 
 onMounted(async () => {
@@ -246,6 +401,14 @@ onMounted(async () => {
   await chat.hydrateClientState(auth.currentUser?.id || '')
   await chat.refreshProviderServerConfig()
   await chat.refreshLocalModels()
+  applyLaunchTab()
+  window.addEventListener('popstate', handleSystemBack)
+})
+
+onBeforeUnmount(() => {
+  if (chatReadyTimer) window.clearTimeout(chatReadyTimer)
+  window.removeEventListener('popstate', handleSystemBack)
+  ui.leaveChatImmersive()
 })
 
 watch(
@@ -377,17 +540,79 @@ function completeDailyCheckIn(mode: DailyCheckInMode) {
   activeDesktopModule.value = 'overview'
 }
 
+function startChatOpening() {
+  ensurePetExpertProvider()
+  ui.enterChatImmersive()
+  chatShellReady.value = false
+  if (chatReadyTimer) window.clearTimeout(chatReadyTimer)
+  chatReadyTimer = window.setTimeout(() => {
+    chatShellReady.value = true
+    scrollAiMessages()
+  }, 260)
+}
+
+function setMobileTab(tab: MobileTab) {
+  if (tab === activeMobileTab.value) return
+  if (tab === 'ai') {
+    openAi()
+    return
+  }
+  activeMobileTab.value = tab
+  if (tab === 'log') activeDesktopModule.value = 'records'
+  if (tab === 'plan') activeDesktopModule.value = 'plan'
+  if (tab === 'home') activeDesktopModule.value = 'overview'
+}
+
 function openAi(prompt = '') {
+  ensurePetExpertProvider()
   if (prompt) aiInput.value = prompt
+  if (activeMobileTab.value !== 'ai') previousMobileTabBeforeAi.value = activeMobileTab.value
   activeMobileTab.value = 'ai'
+  activeDesktopModule.value = 'ai'
   aiDrawerOpen.value = true
+  if (router.currentRoute.value.query.tab !== 'ai') {
+    void router.push({ name: 'chat', query: { ...router.currentRoute.value.query, tab: 'ai' } })
+  }
   nextTick(() => {
     scrollAiMessages()
-    document.querySelector<HTMLTextAreaElement>('.ai-composer textarea')?.focus()
   })
 }
 
+function closeImmersiveChat(syncRoute = true) {
+  if (chatSearchOpen.value) {
+    chatSearchOpen.value = false
+    return
+  }
+  const activeElement = document.activeElement as HTMLElement | null
+  if (activeElement && ['INPUT', 'TEXTAREA'].includes(activeElement.tagName)) {
+    activeElement.blur()
+    return
+  }
+  moreMenuOpen.value = false
+  activeMobileTab.value = previousMobileTabBeforeAi.value === 'ai' ? 'home' : previousMobileTabBeforeAi.value
+  activeDesktopModule.value =
+    activeMobileTab.value === 'log' ? 'records' : activeMobileTab.value === 'plan' ? 'plan' : 'overview'
+  if (syncRoute && router.currentRoute.value.query.tab === 'ai') {
+    const query = { ...router.currentRoute.value.query }
+    delete query.tab
+    void router.replace({ name: 'chat', query })
+  }
+}
+
+function handleSystemBack() {
+  if (chatSearchOpen.value) {
+    chatSearchOpen.value = false
+  }
+}
+
+function openCarePreferenceOnboarding() {
+  settingsVisible.value = false
+  mobilePetSwitcherOpen.value = false
+  router.push({ name: 'careExperienceOnboarding' })
+}
+
 async function sendAi() {
+  ensurePetExpertProvider()
   const content = aiInput.value.trim()
   aiInput.value = ''
   const sent = await chat.sendMessage(content)
@@ -397,9 +622,61 @@ async function sendAi() {
   }
 }
 
+async function startNewChat() {
+  moreMenuOpen.value = false
+  if (hasActiveConversationContent.value) {
+    try {
+      await ElMessageBox.confirm('当前内容会保存在历史里。', '开始新的对话？', {
+        confirmButtonText: '开始新对话',
+        cancelButtonText: '取消',
+        type: 'warning',
+      })
+    } catch {
+      return
+    }
+  }
+  chat.newSession()
+  aiInput.value = ''
+  await nextTick()
+  scrollAiMessages()
+}
+
+function openChatSearch() {
+  moreMenuOpen.value = false
+  chatSearchOpen.value = true
+  nextTick(() => document.querySelector<HTMLInputElement>('.ai-chat-search-input')?.focus())
+}
+
+function useSuggestion(prompt: string) {
+  aiInput.value = prompt
+  void sendAi()
+}
+
+function openHistorySession(id: string) {
+  chat.setActiveSession(id)
+  chatSearchOpen.value = false
+  nextTick(scrollAiMessages)
+}
+
 async function runAiFlow(prompt: string, module?: DesktopModule) {
   if (module) activeDesktopModule.value = module
   openAi(prompt)
+}
+
+function ensurePetExpertProvider() {
+  if (chat.selectedProviderId !== 'pet_expert') chat.setProvider('pet_expert')
+}
+
+function applyLaunchTab() {
+  const tab = String(router.currentRoute.value.query.tab || '')
+  if (tab === 'ai') {
+    activeMobileTab.value = 'ai'
+    activeDesktopModule.value = 'ai'
+  }
+  if (tab === 'log') {
+    activeMobileTab.value = 'log'
+    activeDesktopModule.value = 'records'
+  }
 }
 
 async function handleFiles(event: Event) {
@@ -435,6 +712,53 @@ function readFileAsDataUrl(file: File) {
 
 function messageText(message: ChatMessage) {
   return typeof message.content === 'string' ? message.content : messagePreviewContent(message.content)
+}
+
+function messageSegments(message: ChatMessage) {
+  return parseMessageSegments(message.content)
+}
+
+function toHistoryItem(session: ChatSession) {
+  const messages = session.messages || []
+  const lastMessage = [...messages].reverse().find((message) => messageText(message).trim())
+  const fallbackTitle = messages[0] ? messageText(messages[0]).slice(0, 12) : '和 AI 的新对话'
+  const summary = session.summary?.content || ''
+  return {
+    id: session.id,
+    title: safeText(session.title, fallbackTitle || '和 AI 的新对话'),
+    petName: activePet.value?.name || '当前宠物',
+    lastMessage: safeText(lastMessage ? messageText(lastMessage) : summary, '还没有摘要'),
+    timeText: formatChatTime(session.updatedAt || session.createdAt),
+    tags: (session.tags || []).filter(Boolean).slice(0, 3),
+    messageCount: messages.length,
+  }
+}
+
+function safeText(value: unknown, fallback = '') {
+  const text = String(value ?? '').trim()
+  if (!text || text === 'undefined' || text === 'null' || text === 'NaN') return fallback
+  return text
+}
+
+function formatChatTime(value?: string) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '刚刚'
+  const today = localDateKey(new Date())
+  const target = localDateKey(date)
+  const yesterdayDate = new Date()
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1)
+  if (target === today) {
+    return `今天 ${new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date)}`
+  }
+  if (target === localDateKey(yesterdayDate)) return '昨天'
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+  }).format(date)
 }
 
 function scrollAiMessages() {
@@ -491,10 +815,6 @@ function localDateKey(value: string | Date) {
   }).format(date)
 }
 
-function selectProvider(value: string) {
-  chat.setProvider(value as ProviderId)
-}
-
 async function logout() {
   await auth.logout()
   router.push({ name: 'login' })
@@ -515,8 +835,8 @@ async function logout() {
     />
 
     <template v-else>
-      <section class="mobile-app">
-        <header class="mobile-header">
+      <section class="mobile-app" :class="{ 'is-chat-immersive': ui.isChatImmersive }">
+        <header class="mobile-header" :class="{ 'is-hidden': ui.isAppHeaderHidden }">
           <div class="mobile-header-row">
             <button
               class="pet-context-button"
@@ -527,7 +847,9 @@ async function logout() {
               <span v-else>{{ activePet?.name?.slice(0, 1) || '宠' }}</span>
               <strong>{{ activePet?.name || '选择宠物' }}</strong>
             </button>
-            <button class="icon-button" type="button" @click="openAi()"><AppIcon name="ai" /></button>
+            <button class="icon-button" type="button" aria-label="打开 AI 宠物管家" @click="openAi()">
+              <AppIcon name="ai" />
+            </button>
           </div>
           <PetSwitcher
             v-if="mobilePetSwitcherOpen"
@@ -543,7 +865,7 @@ async function logout() {
           />
         </header>
 
-        <div class="mobile-scroll">
+        <div class="mobile-scroll app-scroll" :class="{ 'is-chat-immersive': ui.isChatImmersive }">
           <section v-if="activeMobileTab === 'home'" class="screen-stack">
             <HomePage
               mode="mobile"
@@ -557,6 +879,7 @@ async function logout() {
               :has-today-log="hasTodayLog"
               :ai-insight="aiInsight"
               :check-in-summary="checkInSummary"
+              :care-experience-level="auth.careExperienceLevel"
               @select-pet="chat.setActivePet"
               @add-pet="openPetDialog()"
               @toggle-care-task="chat.toggleCareReminderDone"
@@ -614,10 +937,11 @@ async function logout() {
               <button
                 class="record-more-button"
                 type="button"
+                :aria-expanded="moreRecordFieldsOpen"
                 @click="moreRecordFieldsOpen = !moreRecordFieldsOpen"
               >
                 <AppIcon name="log" />
-                {{ moreRecordFieldsOpen ? '收起护理笔记' : '添加更多护理笔记（体重/用药等）' }}
+                {{ moreRecordFieldsOpen ? '收起护理笔记' : '更多护理笔记' }}
               </button>
 
               <article v-if="moreRecordFieldsOpen" class="app-card log-form record-extra-form">
@@ -671,56 +995,184 @@ async function logout() {
             </section>
           </section>
 
-          <section v-else-if="activeMobileTab === 'ai'" class="screen-stack ai-screen">
-            <div class="screen-heading">
-              <p class="eyebrow">PetExpert AI</p>
-              <h1>宠物护理咨询</h1>
-              <span>{{ activePet?.name || '当前宠物' }} · {{ activePetSummary }}</span>
-            </div>
-            <article class="ai-context-card">
-              <AppIcon name="ai" />
-              <p>{{ aiInsight }}</p>
-            </article>
-            <div class="prompt-chip-row">
-              <button v-for="chip in aiPromptChips" :key="chip" type="button" @click="openAi(chip)">
-                {{ chip }}
-              </button>
-            </div>
-            <section ref="messagesEl" class="ai-messages">
-              <EmptyState
-                v-if="!chat.visibleMessages.length"
-                icon="ai"
-                title="PetExpert 已准备好"
-                description="它会结合当前宠物档案、最近记录、护理计划和上传资料回答。"
-              />
-              <article
-                v-for="message in chat.visibleMessages"
-                v-else
-                :key="message.id"
-                class="message-card"
-                :class="message.role"
+          <section
+            v-else-if="activeMobileTab === 'ai'"
+            class="ai-chat-shell"
+            :class="{ 'is-ready': chatShellReady }"
+            :aria-busy="chat.isSending"
+          >
+            <header class="ai-chat-header ai-chat-card-reveal">
+              <button
+                class="ai-chat-icon-button ai-chat-back"
+                type="button"
+                aria-label="返回"
+                @click="closeImmersiveChat()"
               >
-                <strong>{{ message.role === 'assistant' ? 'PetExpert AI' : '我' }}</strong>
-                <p>{{ messageText(message) }}</p>
-              </article>
-              <div v-if="chat.isSending" class="typing-indicator">
-                <span></span><span></span><span></span>
+                <AppIcon name="back" />
+              </button>
+              <div class="ai-chat-title">
+                <strong>AI 宠物管家</strong>
+                <span>正在陪你照看{{ activePetName }}</span>
+              </div>
+              <div class="ai-chat-actions">
+                <button
+                  class="ai-chat-text-button"
+                  type="button"
+                  aria-label="开始新对话"
+                  @click="startNewChat"
+                >
+                  新对话
+                </button>
+                <button
+                  class="ai-chat-icon-button"
+                  type="button"
+                  aria-label="搜索历史"
+                  @click="openChatSearch"
+                >
+                  <AppIcon name="search" />
+                </button>
+                <button
+                  class="ai-chat-icon-button ai-chat-more"
+                  type="button"
+                  aria-label="更多"
+                  @click="moreMenuOpen = !moreMenuOpen"
+                >
+                  <AppIcon name="more" />
+                </button>
+                <div v-if="moreMenuOpen" class="ai-chat-more-menu">
+                  <button type="button" @click="startNewChat">新对话</button>
+                  <button type="button" @click="openChatSearch">搜索历史</button>
+                  <button type="button" @click="aiInput = ''">清空当前输入</button>
+                </div>
+              </div>
+            </header>
+
+            <section class="ai-chat-context ai-chat-card-reveal">
+              <AppIcon name="ai" />
+              <div>
+                <strong>{{ activePet?.name || '当前宠物' }} · PetExpert 在线</strong>
+                <p>{{ aiInsight }}</p>
               </div>
             </section>
-            <footer class="ai-input-bar">
-              <button type="button" @click="fileInputEl?.click()"><AppIcon name="upload" /></button>
+
+            <main ref="messagesEl" class="ai-chat-messages ai-chat-card-reveal" aria-live="polite">
+              <section v-if="!chat.visibleMessages.length" class="ai-chat-empty">
+                <span><AppIcon name="ai" :size="24" /></span>
+                <h1>想问{{ activePetName }}的什么事？</h1>
+                <p>我可以帮你看症状、配餐、训练、狗粮对比和突发情况。</p>
+                <div class="ai-chat-suggestions">
+                  <button
+                    v-for="chip in aiSuggestions"
+                    :key="chip"
+                    type="button"
+                    @click="useSuggestion(chip)"
+                  >
+                    {{ chip }}
+                  </button>
+                </div>
+                <small>紧急症状请及时联系宠物医院，AI 建议不能替代兽医诊断。</small>
+              </section>
+              <template v-else>
+                <article
+                  v-for="message in chat.visibleMessages"
+                  :key="message.id"
+                  class="message-card"
+                  :class="message.role"
+                >
+                  <strong>{{ message.role === 'assistant' ? 'PetExpert AI' : '我' }}</strong>
+                  <template v-if="message.role === 'assistant'">
+                    <template v-for="(segment, index) in messageSegments(message)" :key="index">
+                      <div
+                        v-if="segment.type === 'text'"
+                        class="message-content"
+                        v-html="segment.content"
+                      ></div>
+                      <pre v-else class="message-code-block"><code>{{ segment.content }}</code></pre>
+                    </template>
+                  </template>
+                  <p v-else>{{ messageText(message) }}</p>
+                </article>
+                <div v-if="chat.isSending" class="ai-chat-loading">
+                  <span>正在查看{{ activePetName }}的记录...</span>
+                  <i></i><i></i><i></i>
+                </div>
+              </template>
+            </main>
+
+            <footer class="ai-chat-composer ai-composer-expand">
+              <button
+                class="ai-chat-icon-button"
+                type="button"
+                aria-label="上传资料"
+                @click="fileInputEl?.click()"
+              >
+                <AppIcon name="upload" />
+              </button>
               <el-input
                 v-model="aiInput"
                 class="ai-composer"
                 type="textarea"
                 resize="none"
                 :autosize="{ minRows: 1, maxRows: 4 }"
-                placeholder="描述症状、饮食、报告或护理目标..."
+                :placeholder="chatPlaceholder"
                 @keydown.enter.exact.prevent="sendAi"
               />
-              <el-button type="primary" :disabled="!canSendAi" @click="sendAi">发送</el-button>
+              <button
+                class="ai-chat-send"
+                type="button"
+                :disabled="!canSendAi"
+                aria-label="发送"
+                @click="sendAi"
+              >
+                <AppIcon name="send" />
+              </button>
             </footer>
-            <p class="medical-disclaimer">AI 建议仅供护理参考，不能替代兽医诊断；急症请联系执业兽医。</p>
+
+            <Transition name="ai-search-sheet">
+              <section v-if="chatSearchOpen" class="ai-chat-search-sheet" role="dialog" aria-modal="true">
+                <header>
+                  <button
+                    class="ai-chat-icon-button"
+                    type="button"
+                    aria-label="关闭搜索"
+                    @click="chatSearchOpen = false"
+                  >
+                    <AppIcon name="back" />
+                  </button>
+                  <input
+                    v-model="chatSearchQuery"
+                    class="ai-chat-search-input"
+                    type="search"
+                    placeholder="搜索历史对话"
+                  />
+                  <button type="button" @click="chatSearchOpen = false">取消</button>
+                </header>
+                <main>
+                  <h2>{{ chatSearchQuery ? '搜索结果' : '最近对话' }}</h2>
+                  <div v-if="filteredChatHistoryItems.length" class="ai-chat-history-list">
+                    <button
+                      v-for="item in filteredChatHistoryItems"
+                      :key="item.id"
+                      class="ai-chat-history-item"
+                      type="button"
+                      @click="openHistorySession(item.id)"
+                    >
+                      <div>
+                        <strong>{{ item.title }}</strong>
+                        <span>{{ item.petName }} · {{ item.timeText }} · {{ item.messageCount }} 条</span>
+                      </div>
+                      <p>{{ item.lastMessage }}</p>
+                      <small v-if="item.tags.length">{{ item.tags.join(' · ') }}</small>
+                    </button>
+                  </div>
+                  <section v-else class="ai-chat-search-empty">
+                    <AppIcon name="search" />
+                    <strong>还没有找到相关对话</strong>
+                    <p>换个关键词试试</p>
+                  </section>
+                </main>
+              </section>
+            </Transition>
           </section>
 
           <section v-else-if="activeMobileTab === 'plan'" class="screen-stack">
@@ -834,6 +1286,13 @@ async function logout() {
                 @click="activeDesktopModule = 'products'"
               />
               <FeatureEntryCard
+                icon="heart"
+                title="养宠偏好"
+                :description="carePreferenceLabel"
+                tone="warm"
+                @click="openCarePreferenceOnboarding"
+              />
+              <FeatureEntryCard
                 icon="ai"
                 title="会员权益"
                 description="高级咨询、报告解释、家庭共享"
@@ -852,7 +1311,8 @@ async function logout() {
         <MobileTabBar
           :tabs="mobileTabs"
           :active-tab="activeMobileTab"
-          @update:active-tab="(tab) => (activeMobileTab = tab as MobileTab)"
+          :hidden="ui.isTabBarHidden"
+          @update:active-tab="(tab) => setMobileTab(tab as MobileTab)"
         />
       </section>
 
@@ -893,6 +1353,7 @@ async function logout() {
               :has-today-log="hasTodayLog"
               :ai-insight="aiInsight"
               :check-in-summary="checkInSummary"
+              :care-experience-level="auth.careExperienceLevel"
               @select-pet="chat.setActivePet"
               @add-pet="openPetDialog()"
               @toggle-care-task="chat.toggleCareReminderDone"
@@ -994,6 +1455,20 @@ async function logout() {
               <h1>宠物护理咨询</h1>
               <span>{{ activePet?.name || '当前宠物' }} · {{ activePetSummary }}</span>
             </div>
+            <section class="ai-entry-grid desktop-ai-entry-grid" aria-label="PetExpert 专属能力入口">
+              <button
+                v-for="entry in aiEntryCards"
+                :key="entry.title"
+                class="ai-entry-card"
+                :class="entry.tone ? `tone-${entry.tone}` : ''"
+                type="button"
+                @click="openAi(entry.prompt)"
+              >
+                <span><AppIcon :name="entry.icon" /></span>
+                <strong>{{ entry.title }}</strong>
+                <small>{{ entry.description }}</small>
+              </button>
+            </section>
             <div class="prompt-chip-row">
               <button v-for="chip in aiPromptChips" :key="chip" type="button" @click="openAi(chip)">
                 {{ chip }}
@@ -1014,7 +1489,17 @@ async function logout() {
                 :class="message.role"
               >
                 <strong>{{ message.role === 'assistant' ? 'PetExpert AI' : '我' }}</strong>
-                <p>{{ messageText(message) }}</p>
+                <template v-if="message.role === 'assistant'">
+                  <template v-for="(segment, index) in messageSegments(message)" :key="index">
+                    <div
+                      v-if="segment.type === 'text'"
+                      class="message-content"
+                      v-html="segment.content"
+                    ></div>
+                    <pre v-else class="message-code-block"><code>{{ segment.content }}</code></pre>
+                  </template>
+                </template>
+                <p v-else>{{ messageText(message) }}</p>
               </article>
               <div v-if="chat.isSending" class="typing-indicator">
                 <span></span><span></span><span></span>
@@ -1197,13 +1682,6 @@ async function logout() {
               :local-model-status="chat.localModelStatus"
               :hybrid-fallback-to-cloud="chat.hybridFallbackToCloud"
               :is-refreshing-local-models="chat.isRefreshingLocalModels"
-              @select-provider="selectProvider"
-              @update-api-key="chat.setApiKey"
-              @select-model="chat.setModel"
-              @select-inference-mode="chat.setInferenceMode"
-              @select-local-model="chat.setLocalModel"
-              @update-hybrid-fallback="chat.setHybridFallbackToCloud"
-              @refresh-local-models="chat.refreshLocalModels"
               @clear-history="chat.clearAllSessions"
             />
           </section>
@@ -1236,7 +1714,13 @@ async function logout() {
               :class="message.role"
             >
               <strong>{{ message.role === 'assistant' ? 'PetExpert AI' : '我' }}</strong>
-              <p>{{ messageText(message) }}</p>
+              <template v-if="message.role === 'assistant'">
+                <template v-for="(segment, index) in messageSegments(message)" :key="index">
+                  <div v-if="segment.type === 'text'" class="message-content" v-html="segment.content"></div>
+                  <pre v-else class="message-code-block"><code>{{ segment.content }}</code></pre>
+                </template>
+              </template>
+              <p v-else>{{ messageText(message) }}</p>
             </article>
           </section>
           <footer class="ai-input-bar">
@@ -1326,7 +1810,23 @@ async function logout() {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="settingsVisible" title="设置与模型" width="720px">
+    <el-dialog v-model="settingsVisible" title="设置" width="720px">
+      <section class="preference-mini-card">
+        <div>
+          <strong>养宠偏好</strong>
+          <p>
+            {{ carePreferenceLabel }} ·
+            {{
+              auth.guidancePreference === 'minimal'
+                ? '少打扰'
+                : auth.guidancePreference === 'more_guidance'
+                  ? '多提醒'
+                  : '平衡建议'
+            }}
+          </p>
+        </div>
+        <el-button @click="openCarePreferenceOnboarding">修改</el-button>
+      </section>
       <SettingsPanel
         :providers="chat.providers"
         :selected-provider-id="chat.selectedProviderId"
@@ -1340,13 +1840,6 @@ async function logout() {
         :local-model-status="chat.localModelStatus"
         :hybrid-fallback-to-cloud="chat.hybridFallbackToCloud"
         :is-refreshing-local-models="chat.isRefreshingLocalModels"
-        @select-provider="selectProvider"
-        @update-api-key="chat.setApiKey"
-        @select-model="chat.setModel"
-        @select-inference-mode="chat.setInferenceMode"
-        @select-local-model="chat.setLocalModel"
-        @update-hybrid-fallback="chat.setHybridFallbackToCloud"
-        @refresh-local-models="chat.refreshLocalModels"
         @clear-history="chat.clearAllSessions"
       />
       <template #footer>
@@ -1386,6 +1879,30 @@ button {
   cursor: pointer;
 }
 
+.preference-mini-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid rgba(154, 105, 58, 0.12);
+  border-radius: 18px;
+  background: #fff8ef;
+}
+
+.preference-mini-card strong {
+  display: block;
+  color: #332820;
+  font-size: 14px;
+}
+
+.preference-mini-card p {
+  margin: 4px 0 0;
+  color: #8c735d;
+  font-size: 13px;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1395,10 +1912,13 @@ button {
 }
 
 .mobile-app {
-  display: block;
+  display: flex;
+  height: 100vh;
+  height: 100svh;
   min-height: 100vh;
   min-height: 100svh;
-  padding-bottom: calc(84px + env(safe-area-inset-bottom));
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .desktop-workspace {
@@ -1409,12 +1929,28 @@ button {
   position: sticky;
   top: 0;
   z-index: 10;
-  padding: max(12px, env(safe-area-inset-top)) 16px 10px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 8px;
   border-bottom: 1px solid rgba(150, 118, 76, 0.1);
   background: rgba(255, 251, 246, 0.94);
   box-shadow: 0 10px 24px rgba(82, 62, 38, 0.05);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
+  transition:
+    transform 260ms cubic-bezier(0.2, 0, 0, 1),
+    opacity 220ms ease;
+  will-change: transform, opacity;
+}
+
+.mobile-app.is-chat-immersive .mobile-header {
+  position: fixed;
+  right: 0;
+  left: 0;
+}
+
+.mobile-header.is-hidden {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-100%);
 }
 
 .mobile-header-row,
@@ -1439,9 +1975,9 @@ button {
   align-items: center;
   gap: 9px;
   min-width: 0;
-  min-height: 46px;
-  padding: 7px 13px 7px 7px;
-  border-radius: 16px;
+  min-height: 44px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 15px;
   font: inherit;
   font-weight: 950;
 }
@@ -1459,27 +1995,40 @@ button {
 
 .pet-context-button img,
 .pet-context-button span {
-  width: 32px;
-  height: 32px;
-  border-radius: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 11px;
   background: #e09245;
 }
 
 .icon-button {
   display: grid;
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   place-items: center;
-  border-radius: 16px;
+  border-radius: 15px;
 }
 
 .mobile-scroll {
-  padding: 14px 14px 24px;
+  min-height: 0;
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 12px 16px 20px;
+  padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-scroll.is-chat-immersive {
+  padding: 0;
+  overflow: hidden;
+  background: linear-gradient(180deg, #fffaf4 0%, #f5eee7 100%);
 }
 
 .screen-stack {
   display: grid;
-  gap: 16px;
+  gap: 12px;
   animation: fade-up 0.22s ease both;
 }
 
@@ -1777,7 +2326,7 @@ label {
 :deep(.el-textarea__inner),
 :deep(.el-select__wrapper),
 :deep(.el-input-number) {
-  min-height: 46px;
+  min-height: 48px;
   border-radius: 14px;
 }
 
@@ -1793,25 +2342,24 @@ label {
 .record-page,
 .desktop-record-page {
   display: grid;
-  gap: 18px;
-  animation: fade-up 0.22s ease both;
+  gap: var(--space-4);
+  animation: fade-up var(--motion-slow) var(--ease-standard) both;
 }
 
 .record-hero-card {
   display: grid;
-  gap: 18px;
-  padding: 18px;
-  border-radius: 28px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.82) inset,
-    0 12px 26px rgba(82, 62, 38, 0.1);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
 }
 
 .record-hero-card h1 {
   margin: 0;
-  color: #2f281f;
-  font-size: 28px;
+  color: var(--color-text);
+  font-size: var(--font-2xl);
   font-weight: 950;
   letter-spacing: 0;
 }
@@ -1819,30 +2367,30 @@ label {
 .record-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px;
-  padding: 6px;
-  border-radius: 22px;
+  gap: var(--space-1);
+  padding: var(--space-1);
+  border-radius: var(--radius-lg);
   background: #f3f1ef;
 }
 
 .record-tabs button {
-  min-height: 54px;
+  min-height: 48px;
   border: 0;
-  border-radius: 18px;
-  color: #776b62;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
   background: transparent;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-base);
   font-weight: 950;
   transition:
-    background 0.18s ease,
-    box-shadow 0.18s ease,
-    color 0.18s ease,
-    transform 0.18s ease;
+    background var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-normal) var(--ease-standard),
+    color var(--motion-normal) var(--ease-standard),
+    transform var(--motion-fast) var(--ease-standard);
 }
 
 .record-tabs button.active {
-  color: #2f281f;
+  color: var(--color-text);
   background: #fff;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.9) inset,
@@ -1850,42 +2398,40 @@ label {
 }
 
 .record-subtitle {
-  margin: 4px 10px 0;
-  color: #81756b;
-  font-size: 15px;
+  margin: var(--space-1) var(--space-2) 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-base);
   font-weight: 850;
 }
 
 .record-quick-stack {
   display: grid;
-  gap: 18px;
+  gap: var(--space-4);
 }
 
 .record-choice-card {
   display: grid;
-  gap: 14px;
-  padding: 16px;
-  border: 1px solid rgba(145, 116, 78, 0.1);
-  border-radius: 26px;
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.78) inset,
-    0 10px 24px rgba(82, 62, 38, 0.09);
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
 }
 
 .record-choice-card header {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .record-choice-card header > span {
   display: grid;
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   place-items: center;
-  border-radius: 999px;
-  font-size: 22px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-xl);
 }
 
 .record-choice-card header > span.tone-food {
@@ -1910,34 +2456,34 @@ label {
 
 .record-choice-card h2 {
   margin: 0;
-  color: #2f281f;
-  font-size: 19px;
+  color: var(--color-text);
+  font-size: var(--font-xl);
   font-weight: 950;
 }
 
 .record-option-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .record-option-grid button {
   display: grid;
   place-items: center;
-  gap: 10px;
-  min-height: 88px;
-  border: 1px solid rgba(145, 116, 78, 0.08);
-  border-radius: 20px;
-  padding: 12px 6px;
-  color: #4d443d;
+  gap: var(--space-2);
+  min-height: 76px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-2);
+  color: var(--color-text);
   background: #faf9f8;
   font: inherit;
   box-shadow: 0 6px 14px rgba(82, 62, 38, 0.04);
   transition:
-    transform 0.16s ease,
-    border-color 0.16s ease,
-    background 0.16s ease,
-    box-shadow 0.16s ease;
+    transform var(--motion-fast) var(--ease-standard),
+    border-color var(--motion-normal) var(--ease-standard),
+    background var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-normal) var(--ease-standard);
 }
 
 .record-option-grid button.active {
@@ -1953,12 +2499,12 @@ label {
 }
 
 .record-option-grid strong {
-  font-size: 26px;
+  font-size: var(--font-2xl);
   line-height: 1;
 }
 
 .record-option-grid span {
-  font-size: 13px;
+  font-size: var(--font-sm);
   font-weight: 950;
   line-height: 1.2;
 }
@@ -1967,15 +2513,15 @@ label {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 56px;
+  gap: var(--space-2);
+  min-height: 48px;
   border: 0;
-  border-radius: 22px;
-  padding: 0 16px;
+  border-radius: var(--radius-lg);
+  padding: 0 var(--space-4);
   color: #d85f1f;
   background: #fff2e5;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-base);
   font-weight: 950;
 }
 
@@ -1983,35 +2529,32 @@ label {
   animation: fade-up 0.18s ease both;
 }
 
-.record-save-bar {
-  bottom: 88px;
-}
-
 .sticky-save {
-  position: sticky;
-  bottom: calc(82px + env(safe-area-inset-bottom));
-  z-index: 8;
+  position: static;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(145, 116, 78, 0.12);
-  border-radius: 20px;
-  background: rgba(255, 252, 247, 0.9);
-  box-shadow: 0 14px 30px rgba(92, 70, 44, 0.12);
+  gap: var(--space-3);
+  min-height: 64px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
 }
 
 .sticky-save .el-button {
   min-width: 128px;
-  min-height: 46px;
+  min-height: 48px;
+  border-radius: var(--radius-md);
 }
 
 .sticky-save span {
-  color: #a9582f;
-  font-size: 13px;
+  color: var(--color-primary-strong);
+  font-size: var(--font-sm);
   font-weight: 900;
 }
 
@@ -2042,6 +2585,65 @@ label {
   margin: 0;
   color: #665b84;
   line-height: 1.55;
+}
+
+.ai-entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ai-entry-card {
+  display: grid;
+  min-height: 118px;
+  gap: 7px;
+  align-content: start;
+  padding: 14px;
+  border: 1px solid rgba(129, 102, 201, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #3f335f;
+  font: inherit;
+  text-align: left;
+  box-shadow: 0 12px 28px rgba(74, 55, 34, 0.07);
+}
+
+.ai-entry-card span {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: 8px;
+  background: #f4f0ff;
+  color: #6b5ab5;
+}
+
+.ai-entry-card strong {
+  color: #322a49;
+  font-size: 14px;
+  font-weight: 1000;
+}
+
+.ai-entry-card small {
+  color: #746b83;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.ai-entry-card.tone-warm span {
+  background: #fff3df;
+  color: #b66c1d;
+}
+
+.ai-entry-card.tone-care span {
+  background: #eaf8f0;
+  color: #27805c;
+}
+
+.ai-entry-card.tone-ai span {
+  background: #edf4ff;
+  color: #3c66c4;
 }
 
 .prompt-chip-row {
@@ -2098,6 +2700,96 @@ label {
   margin: 0;
 }
 
+.message-content {
+  display: grid;
+  gap: 10px;
+  color: inherit;
+}
+
+.message-content + .message-content {
+  margin-top: 10px;
+}
+
+.message-card.assistant .message-content {
+  color: #312821;
+  font-size: 15px;
+  line-height: 1.78;
+}
+
+.message-card.assistant :deep(.message-content > :first-child) {
+  margin-top: 0;
+}
+
+.message-card.assistant :deep(.message-content > :last-child) {
+  margin-bottom: 0;
+}
+
+.message-card.assistant :deep(p) {
+  margin: 0;
+}
+
+.message-card.assistant :deep(h2),
+.message-card.assistant :deep(h3) {
+  margin: 16px 0 4px;
+  color: #2b241d;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.message-card.assistant :deep(h2) {
+  font-size: 18px;
+}
+
+.message-card.assistant :deep(h3) {
+  font-size: 16px;
+}
+
+.message-card.assistant :deep(ul),
+.message-card.assistant :deep(ol) {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding-left: 20px;
+}
+
+.message-card.assistant :deep(li) {
+  padding-left: 2px;
+}
+
+.message-card.assistant :deep(strong) {
+  color: #2f281f;
+  font-weight: 950;
+}
+
+.message-card.assistant :deep(blockquote) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-left: 3px solid #d9824b;
+  border-radius: 12px;
+  background: #fff7ed;
+  color: #7a604b;
+}
+
+.message-card.assistant :deep(code) {
+  border-radius: 7px;
+  padding: 2px 5px;
+  background: #fff0dc;
+  color: #9d542e;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.message-code-block {
+  overflow: auto;
+  margin: 10px 0 0;
+  border-radius: 14px;
+  padding: 12px;
+  background: #2b211c;
+  color: #fff7ed;
+  font-size: 13px;
+  line-height: 1.65;
+}
+
 .ai-input-bar {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
@@ -2133,6 +2825,520 @@ label {
   color: #9a8773;
   font-size: 12px;
   line-height: 1.55;
+}
+
+.ai-chat-shell {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100svh;
+  min-height: 100svh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 10% 10%, rgba(255, 221, 181, 0.72), transparent 34%),
+    linear-gradient(180deg, #fffaf4 0%, #f5eee7 100%);
+  opacity: 0;
+  transform: translateY(16px) scale(0.94);
+  transform-origin: 50% 82%;
+  transition:
+    opacity 320ms ease,
+    transform 340ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform, opacity;
+}
+
+.ai-chat-shell.is-ready {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.ai-chat-header {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: calc(58px + env(safe-area-inset-top));
+  padding: max(10px, env(safe-area-inset-top)) 14px 8px;
+  border-bottom: 1px solid rgba(145, 116, 78, 0.1);
+  background: rgba(255, 251, 246, 0.86);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.ai-chat-icon-button,
+.ai-chat-send {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  place-items: center;
+  border: 1px solid rgba(145, 116, 78, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
+  color: #604832;
+  font: inherit;
+}
+
+.ai-chat-back {
+  background: #fff4e7;
+  color: #bd7431;
+}
+
+.ai-chat-title {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.ai-chat-title strong {
+  overflow: hidden;
+  color: #2f281f;
+  font-size: 16px;
+  font-weight: 1000;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-chat-title span {
+  overflow: hidden;
+  color: #8e7e6b;
+  font-size: 12px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-chat-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-chat-text-button {
+  min-height: 44px;
+  border: 1px solid rgba(145, 116, 78, 0.12);
+  border-radius: 14px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #bd7431;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.ai-chat-more {
+  display: none;
+}
+
+.ai-chat-more-menu {
+  position: absolute;
+  top: 46px;
+  right: 0;
+  z-index: 16;
+  display: grid;
+  min-width: 148px;
+  padding: 8px;
+  border: 1px solid rgba(145, 116, 78, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 252, 247, 0.98);
+  box-shadow: 0 16px 34px rgba(82, 62, 38, 0.16);
+}
+
+.ai-chat-more-menu button {
+  border: 0;
+  border-radius: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  background: transparent;
+  color: #4b3c2e;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  text-align: left;
+}
+
+.ai-chat-more-menu button:active {
+  background: #fff0dc;
+}
+
+.ai-chat-context {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 10px 14px 0;
+  padding: 12px;
+  border: 1px solid rgba(129, 102, 201, 0.14);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 10px 24px rgba(82, 62, 38, 0.05);
+}
+
+.ai-chat-context > .app-icon {
+  flex: 0 0 auto;
+  color: #6656af;
+}
+
+.ai-chat-context strong {
+  display: block;
+  color: #3f335f;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ai-chat-context p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 3px 0 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #776b84;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-chat-card-reveal {
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition:
+    opacity 260ms ease,
+    transform 300ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform, opacity;
+}
+
+.ai-chat-shell.is-ready .ai-chat-card-reveal {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.ai-chat-shell.is-ready .ai-chat-context {
+  transition-delay: 45ms;
+}
+
+.ai-chat-shell.is-ready .ai-chat-messages {
+  transition-delay: 90ms;
+}
+
+.ai-chat-messages {
+  display: grid;
+  align-content: end;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  gap: 10px;
+  padding: 14px 14px calc(18px + env(safe-area-inset-bottom));
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ai-chat-messages .message-card.user {
+  max-width: 78%;
+  border-radius: 18px 18px 6px 18px;
+  background: #d9824b;
+}
+
+.ai-chat-messages .message-card.assistant {
+  max-width: 88%;
+  border: 1px solid rgba(145, 116, 78, 0.1);
+  border-radius: 18px 18px 18px 6px;
+  box-shadow: 0 10px 22px rgba(82, 62, 38, 0.06);
+}
+
+.ai-chat-empty {
+  align-self: center;
+  display: grid;
+  gap: 12px;
+  justify-items: center;
+  padding: 24px 8px 10px;
+  text-align: center;
+}
+
+.ai-chat-empty > span {
+  display: grid;
+  width: 54px;
+  height: 54px;
+  place-items: center;
+  border-radius: 20px;
+  background: #fff0dc;
+  color: #bd7431;
+  box-shadow: 0 12px 24px rgba(169, 88, 47, 0.1);
+}
+
+.ai-chat-empty h1 {
+  margin: 0;
+  color: #2f281f;
+  font-size: 23px;
+  font-weight: 1000;
+  letter-spacing: 0;
+}
+
+.ai-chat-empty p {
+  max-width: 290px;
+  margin: 0;
+  color: #7f705f;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ai-chat-empty small {
+  max-width: 300px;
+  color: #9a765d;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-chat-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 360px;
+}
+
+.ai-chat-suggestions button {
+  min-height: 44px;
+  border: 1px solid rgba(129, 102, 201, 0.14);
+  border-radius: 999px;
+  padding: 0 11px;
+  background: rgba(255, 255, 255, 0.82);
+  color: #6656af;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.ai-chat-loading {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 88%;
+  padding: 11px 13px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  color: #7a6d5d;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.ai-chat-loading i {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #bd7431;
+  animation: typing 0.9s ease-in-out infinite;
+}
+
+.ai-chat-loading i:nth-child(3) {
+  animation-delay: 0.12s;
+}
+
+.ai-chat-loading i:nth-child(4) {
+  animation-delay: 0.24s;
+}
+
+.ai-chat-composer {
+  position: sticky;
+  bottom: 0;
+  z-index: 12;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: end;
+  margin: 0 12px;
+  padding: 10px 10px calc(10px + env(safe-area-inset-bottom));
+  border: 1px solid rgba(145, 116, 78, 0.12);
+  border-radius: 22px 22px 0 0;
+  background: rgba(255, 252, 247, 0.94);
+  box-shadow: 0 -12px 30px rgba(82, 62, 38, 0.1);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+  transform: scaleX(0.46);
+  transform-origin: 50% 100%;
+  opacity: 0.72;
+  transition:
+    opacity 240ms ease,
+    transform 320ms cubic-bezier(0.2, 0, 0, 1);
+  will-change: transform, opacity;
+}
+
+.ai-chat-shell.is-ready .ai-chat-composer {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+.ai-chat-composer > button,
+.ai-chat-composer .ai-composer {
+  transition:
+    opacity 220ms ease,
+    transform 240ms ease;
+}
+
+.ai-chat-shell:not(.is-ready) .ai-chat-composer > button {
+  opacity: 0;
+  transform: scale(0.92);
+}
+
+.ai-chat-send {
+  border: 0;
+  background: #d9824b;
+  color: #fff;
+}
+
+.ai-chat-send:disabled {
+  background: #eaded1;
+  color: #aa9a89;
+}
+
+.ai-chat-composer :deep(.el-textarea__inner) {
+  min-height: 44px !important;
+  border: 0;
+  border-radius: 15px;
+  padding: 10px 12px;
+  background: #fff8ef;
+  box-shadow: none;
+  color: #342b22;
+  line-height: 1.35;
+}
+
+.ai-chat-search-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: #fffaf4;
+  color: #2f281f;
+}
+
+.ai-chat-search-sheet header {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: max(10px, env(safe-area-inset-top)) 14px 10px;
+  border-bottom: 1px solid rgba(145, 116, 78, 0.1);
+  background: rgba(255, 251, 246, 0.94);
+}
+
+.ai-chat-search-sheet header > button:last-child {
+  border: 0;
+  min-height: 44px;
+  background: transparent;
+  color: #bd7431;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.ai-chat-search-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid rgba(145, 116, 78, 0.1);
+  border-radius: 14px;
+  padding: 0 12px;
+  outline: 0;
+  background: #fff;
+  color: #342b22;
+  font: inherit;
+  font-size: 16px;
+}
+
+.ai-chat-search-sheet main {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 14px calc(24px + env(safe-area-inset-bottom));
+}
+
+.ai-chat-search-sheet h2 {
+  margin: 0 0 12px;
+  color: #6f604f;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.ai-chat-history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.ai-chat-history-item {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid rgba(145, 116, 78, 0.1);
+  border-radius: 18px;
+  padding: 13px;
+  background: rgba(255, 255, 255, 0.78);
+  color: #342b22;
+  font: inherit;
+  text-align: left;
+}
+
+.ai-chat-history-item div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ai-chat-history-item strong {
+  font-size: 14px;
+  font-weight: 1000;
+}
+
+.ai-chat-history-item span,
+.ai-chat-history-item small {
+  color: #967f69;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.ai-chat-history-item p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  color: #6f604f;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ai-chat-search-empty {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  min-height: 45vh;
+  color: #8e7e6b;
+  text-align: center;
+}
+
+.ai-chat-search-empty strong {
+  color: #3f3429;
+}
+
+.ai-chat-search-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ai-search-sheet-enter-active,
+.ai-search-sheet-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.ai-search-sheet-enter-from,
+.ai-search-sheet-leave-to {
+  opacity: 0;
+  transform: translateY(16px);
 }
 
 .typing-indicator {
@@ -2272,6 +3478,13 @@ label {
 }
 
 @media (max-width: 899px) {
+  .pet-product {
+    width: 100%;
+    height: 100vh;
+    height: 100svh;
+    overflow: hidden;
+  }
+
   :global(.el-dialog) {
     width: calc(100vw - 24px) !important;
     max-height: calc(100svh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
@@ -2373,10 +3586,6 @@ label {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
-  .desktop-record-page .record-save-bar {
-    bottom: 20px;
-  }
-
   .span-2 {
     grid-column: 1 / span 1;
   }
@@ -2427,6 +3636,10 @@ label {
     display: grid;
     max-width: 980px;
     gap: 16px;
+  }
+
+  .desktop-ai-entry-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .desktop-messages {
@@ -2539,6 +3752,52 @@ label {
 
   .message-card {
     max-width: 94%;
+  }
+
+  .ai-chat-actions .ai-chat-text-button,
+  .ai-chat-actions > .ai-chat-icon-button:not(.ai-chat-more) {
+    display: none;
+  }
+
+  .ai-chat-more {
+    display: grid;
+  }
+
+  .ai-chat-header {
+    grid-template-columns: 44px minmax(0, 1fr) 44px;
+  }
+
+  .ai-chat-empty h1 {
+    font-size: 21px;
+  }
+
+  .ai-chat-history-item div {
+    display: grid;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-header,
+  .ai-chat-shell,
+  .ai-chat-card-reveal,
+  .ai-chat-composer,
+  .ai-search-sheet-enter-active,
+  .ai-search-sheet-leave-active {
+    transition-duration: 80ms;
+  }
+
+  .ai-chat-shell,
+  .ai-chat-shell.is-ready,
+  .ai-chat-card-reveal,
+  .ai-chat-shell.is-ready .ai-chat-card-reveal,
+  .ai-chat-composer,
+  .ai-chat-shell.is-ready .ai-chat-composer {
+    transform: none;
+  }
+
+  .typing-indicator span,
+  .ai-chat-loading i {
+    animation: none;
   }
 }
 
