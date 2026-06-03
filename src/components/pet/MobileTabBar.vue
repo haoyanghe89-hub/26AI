@@ -37,15 +37,17 @@ defineEmits<{
   z-index: 20;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 3px;
-  min-height: 64px;
+  gap: 4px;
+  min-height: 66px;
   max-width: 520px;
   margin: 0 auto;
-  padding: 6px;
-  border: 1px solid var(--color-border);
-  border-radius: 24px;
-  background: rgba(255, 252, 247, 0.96);
-  box-shadow: var(--shadow-bottom-nav);
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 26px;
+  background: rgba(255, 252, 246, 0.72);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 18px 38px rgba(66, 55, 37, 0.15);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   transition:
@@ -68,9 +70,9 @@ button {
   gap: 1px;
   padding: var(--space-1) 0;
   border: 0;
-  border-radius: 16px;
+  border-radius: 18px;
   background: transparent;
-  color: var(--color-text-weak);
+  color: rgba(73, 66, 52, 0.62);
   font: inherit;
   font-size: var(--font-xs);
   font-weight: 700;
@@ -81,11 +83,11 @@ button {
 }
 
 button.active {
-  background: linear-gradient(180deg, #fff4e8, #fff0dc);
-  color: var(--color-primary-strong);
+  background: linear-gradient(180deg, rgba(255, 249, 239, 0.96), rgba(239, 232, 210, 0.86));
+  color: #73794f;
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.86) inset,
-    0 6px 14px rgba(173, 101, 42, 0.1);
+    0 10px 18px rgba(79, 67, 44, 0.11);
 }
 
 button:active {

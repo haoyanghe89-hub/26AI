@@ -1,0 +1,8 @@
+{
+  "id": "care-constellation",
+  "status": "failed",
+  "attempt": 2,
+  "pid": 27082,
+  "startedAt": "2026-06-03T09:45:44.760877+00:00",
+  "lastHeartbeatAt": "2026-06-03T09:48:42.437699+00:00"
+}

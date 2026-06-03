@@ -1,0 +1,3 @@
+Done. Generated one PNG and wrote the required `result.json`.
+
+Verified PNG: `1024 x 1536`, RGB, non-interlaced.

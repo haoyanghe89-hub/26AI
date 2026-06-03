@@ -1,0 +1,1 @@
+Done. Native image generation ran, but no accessible saved PNG path was returned, so I wrote `result.json` with `status: "failed"` as requested.

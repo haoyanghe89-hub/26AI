@@ -12,6 +12,19 @@ import {
 type HomeMode = 'mobile' | 'desktop'
 type QuickRecordType = 'appetite' | 'water' | 'stool' | 'walk' | 'mood'
 type DetailSheetType = 'meal' | 'insight' | null
+type MealIngredient = { name: string; grams: number; note: string }
+type MealPlan = {
+  main: string
+  mainLabel: string
+  snack: string
+  water: string
+  tip: string
+  detail: string
+  calories: string
+  basis: string
+  ingredients: MealIngredient[]
+  cautions: string[]
+}
 
 const props = withDefaults(
   defineProps<{
@@ -84,28 +97,12 @@ const aiDetailLine = computed(() => {
   return '最近两天散步记录少了一点，如果天气合适，可以带它走走，顺便观察精神状态。'
 })
 
-const mealPlan = computed(() => {
-  if (props.activePet?.species === 'cat') {
-    return {
-      main: '35g',
-      mainLabel: '主粮',
-      snack: '≤3块',
-      water: '换新水',
-      tip: props.latestLog?.waterIntake.includes('少') ? '多给湿粮' : '先不调整',
-      detail: props.latestLog?.waterIntake.includes('少')
-        ? '今天饮水偏少，可以把一部分干粮换成湿粮，并保持水碗新鲜。'
-        : '今天状态平稳，先维持原来的喂食节奏，继续观察饮水和体重。',
-    }
-  }
-  return {
-    main: '120g',
-    mainLabel: '主粮',
-    snack: '≤40kcal',
-    water: '外出后补水',
-    tip: '先不调整',
-    detail: '把部分零食换成训练奖励会更稳，外出后记得补水，今天先不急着调整主粮。',
-  }
-})
+const mealPlan = computed<MealPlan>(() => buildMealPlan(props.activePet, props.latestLog))
+const foodKindLabel = computed(() => (props.activePet?.species === 'cat' ? '猫粮' : '狗粮'))
+const foodRecommendationPrompt = computed(
+  () =>
+    `请根据${petName.value}的品种、体重、年龄、过敏和食物偏好，推荐适合的${foodKindLabel.value}，并说明每日克重和换粮注意事项。`,
+)
 
 interface HomeDiscovery {
   id: string
@@ -305,6 +302,154 @@ function openAiFromSheet() {
   )
 }
 
+function buildMealPlan(pet: PetProfile | null, latestLog: HealthLog | null): MealPlan {
+  const species = pet?.species === 'cat' ? 'cat' : 'dog'
+  const weightKg = normalizeWeightKg(pet, latestLog)
+  const ageMonths = getAgeMonths(pet)
+  const lifeStage = ageMonths > 0 && ageMonths < 12 ? '幼龄' : '成年'
+  const breedProfile = getBreedProfile(pet)
+  const sterilized = /已|是|done|yes|true/i.test(pet?.sterilizationStatus || '')
+  const dailyCalories = estimateDailyCaloriesForHome(species, weightKg, ageMonths, sterilized, breedProfile)
+  const dryKcalPerGram = species === 'cat' ? 3.8 : breedProfile.size === 'large' ? 3.35 : 3.6
+  const wetKcalPerGram = species === 'cat' ? 0.95 : 1.15
+  const dryRatio = species === 'cat' ? 0.72 : 0.78
+  const topperRatio = species === 'cat' ? 0.18 : 0.14
+  const dryGrams = roundToFive((dailyCalories * dryRatio) / dryKcalPerGram)
+  const topper = pickMealTopper(pet, breedProfile)
+  const topperGrams = roundToFive((dailyCalories * topperRatio) / wetKcalPerGram)
+  const fiber = pickFiberIngredient(pet, breedProfile)
+  const fiberGrams =
+    species === 'cat' ? Math.max(5, roundToFive(weightKg * 2)) : Math.max(10, roundToFive(weightKg * 1.5))
+  const snackKcal = Math.max(8, Math.round(dailyCalories * 0.08))
+  const waterMl = species === 'cat' ? roundToTen(weightKg * 45) : roundToTen(weightKg * 55)
+  const poorAppetite = latestLog?.appetite.includes('少') || latestLog?.appetite.includes('没')
+  const lowWater = latestLog?.waterIntake.includes('少')
+  const softStool = latestLog?.poop.includes('软') || latestLog?.poop.includes('稀')
+  const ingredients: MealIngredient[] = [
+    {
+      name: species === 'cat' ? '成猫/幼猫主粮' : '成犬/幼犬主粮',
+      grams: dryGrams,
+      note: `${dryRatio * 100}% 热量来自主粮`,
+    },
+    {
+      name: topper,
+      grams: topperGrams,
+      note: species === 'cat' ? '增加湿润度与适口性' : '作为蛋白搭配，不替代主粮',
+    },
+    { name: fiber, grams: fiberGrams, note: softStool ? '便便偏软时先减半观察' : '少量增加纤维和饱腹感' },
+  ]
+  const cautions = [
+    pet?.allergies ? `已记录过敏/不耐受：${pet.allergies}，新食材先避开。` : '',
+    softStool ? '最近便便异常，今天不要突然加新食材，搭配量先减半。' : '',
+    poorAppetite ? '如果持续没胃口、精神差或不喝水，应尽快咨询兽医。' : '',
+    '克重为日常估算，不替代处方粮、减重处方或疾病期饮食建议。',
+  ].filter(Boolean)
+
+  return {
+    main: `${dryGrams}g`,
+    mainLabel: '主粮',
+    snack: `≤${snackKcal}kcal`,
+    water: `${waterMl}ml+`,
+    tip: lowWater ? `${topper}加到${topperGrams}g` : `${topper}${topperGrams}g`,
+    calories: `${dailyCalories}kcal`,
+    basis: `${pet?.breed || (species === 'cat' ? '猫' : '犬')} · ${lifeStage} · ${formatWeight(weightKg)}`,
+    detail: [
+      `按 ${formatWeight(weightKg)}、${pet?.breed || '未填写品种'}、${lifeStage}${sterilized ? '、已绝育' : ''} 估算，今日约 ${dailyCalories}kcal。`,
+      `建议：主粮 ${dryGrams}g + ${topper} ${topperGrams}g + ${fiber} ${fiberGrams}g，零食不超过 ${snackKcal}kcal。`,
+      lowWater
+        ? `今天饮水偏少，优先把干粮的一小部分换成湿润搭配，并保持 ${waterMl}ml 以上新鲜水。`
+        : `饮水目标约 ${waterMl}ml 以上，继续观察体重和便便。`,
+    ].join(''),
+    ingredients,
+    cautions,
+  }
+}
+
+function normalizeWeightKg(pet: PetProfile | null, latestLog: HealthLog | null) {
+  const value = Number(pet?.weightKg ?? latestLog?.weightKg ?? 0)
+  if (Number.isFinite(value) && value > 0) return value
+  return pet?.species === 'cat' ? 4 : 10
+}
+
+function getAgeMonths(pet: PetProfile | null) {
+  if (!pet?.birthday) return 0
+  const birthday = new Date(pet.birthday)
+  if (Number.isNaN(birthday.getTime())) return 0
+  const now = new Date()
+  return Math.max(0, (now.getFullYear() - birthday.getFullYear()) * 12 + now.getMonth() - birthday.getMonth())
+}
+
+function getBreedProfile(pet: PetProfile | null) {
+  const breed = `${pet?.breed || ''} ${pet?.ageLabel || ''}`.toLowerCase()
+  const species = pet?.species === 'cat' ? 'cat' : 'dog'
+  if (species === 'cat') {
+    return {
+      size: 'cat',
+      trait: /英短|British|加菲|exotic|橘|蓝猫/i.test(breed)
+        ? 'weight-prone'
+        : /布偶|ragdoll|缅因|maine|长毛|波斯|persian/i.test(breed)
+          ? 'long-hair'
+          : 'balanced',
+    }
+  }
+  if (/金毛|拉布拉多|德牧|阿拉斯加|萨摩|哈士奇|边牧|大型|golden|labrador|husky|shepherd/i.test(breed)) {
+    return { size: 'large', trait: 'joint-support' }
+  }
+  if (/泰迪|贵宾|比熊|博美|约克夏|吉娃娃|小型|poodle|bichon|pomeranian|yorkshire|chihuahua/i.test(breed)) {
+    return { size: 'small', trait: 'small-breed' }
+  }
+  return { size: 'medium', trait: 'balanced' }
+}
+
+function estimateDailyCaloriesForHome(
+  species: 'cat' | 'dog',
+  weightKg: number,
+  ageMonths: number,
+  sterilized: boolean,
+  breedProfile: { size: string; trait: string },
+) {
+  const rer = 70 * Math.pow(weightKg, 0.75)
+  let multiplier = species === 'cat' ? 1.2 : 1.45
+  if (ageMonths > 0 && ageMonths < 12) multiplier = species === 'cat' ? 2 : 2.2
+  if (sterilized) multiplier -= species === 'cat' ? 0.1 : 0.08
+  if (breedProfile.trait === 'weight-prone') multiplier -= 0.08
+  if (breedProfile.size === 'large') multiplier += 0.08
+  if (breedProfile.size === 'small') multiplier -= 0.05
+  return Math.max(60, Math.round(rer * multiplier))
+}
+
+function pickMealTopper(pet: PetProfile | null, breedProfile: { trait: string }) {
+  const avoid = `${pet?.allergies || ''} ${pet?.foodPreferences || ''}`.toLowerCase()
+  if (pet?.species === 'cat') {
+    if (!/鱼|fish|三文鱼|salmon/.test(avoid))
+      return breedProfile.trait === 'long-hair' ? '三文鱼湿粮' : '鸡肉湿粮'
+    if (!/鸡|chicken/.test(avoid)) return '鸡肉湿粮'
+    return '鸭肉湿粮'
+  }
+  if (!/鸡|chicken/.test(avoid)) return '熟鸡胸'
+  if (!/羊|lamb/.test(avoid)) return '熟羊肉'
+  return '熟白鱼'
+}
+
+function pickFiberIngredient(pet: PetProfile | null, breedProfile: { trait: string }) {
+  const avoid = `${pet?.allergies || ''} ${pet?.foodPreferences || ''}`.toLowerCase()
+  if (pet?.species === 'cat') return breedProfile.trait === 'long-hair' ? '化毛片/南瓜泥' : '南瓜泥'
+  if (/南瓜|pumpkin/.test(avoid)) return '胡萝卜泥'
+  return breedProfile.trait === 'joint-support' ? '南瓜泥' : '胡萝卜泥'
+}
+
+function roundToFive(value: number) {
+  return Math.max(5, Math.round(value / 5) * 5)
+}
+
+function roundToTen(value: number) {
+  return Math.max(50, Math.round(value / 10) * 10)
+}
+
+function formatWeight(value: number) {
+  return `${Number.isInteger(value) ? value : value.toFixed(1)}kg`
+}
+
 function softenHomeCopy(value: string) {
   return value
     .replaceAll('完成一个轻量互动', '安排一个轻量互动')
@@ -388,25 +533,36 @@ function formatDay(value?: string) {
     <div v-if="toastMessage" class="home-toast">{{ toastMessage }}</div>
 
     <article class="pet-status-card">
+      <div class="hero-top-actions" aria-hidden="true">
+        <span><AppIcon name="more" :size="18" /></span>
+        <span><AppIcon name="reminder" :size="17" /></span>
+      </div>
+
       <button class="pet-avatar" type="button" @click="emit('selectPet', activePetId)">
         <img v-if="activePet?.avatarUrl" :src="activePet.avatarUrl" alt="" />
         <span v-else>{{ petInitial }}</span>
       </button>
+
+      <div class="hero-side-metrics" aria-label="今日状态概览">
+        <button
+          v-for="item in lifeMoments.slice(1, 4)"
+          :key="`hero-${item.id}`"
+          type="button"
+          @click="openQuickRecord(item.type)"
+        >
+          <AppIcon :name="item.icon" :size="15" />
+          <small>{{ item.status }}</small>
+        </button>
+      </div>
+
       <div class="pet-status-copy">
+        <p class="today-eyebrow">Living pulse</p>
         <div class="pet-title-row">
           <h1>{{ petName }}</h1>
           <strong>{{ todayStatus }}</strong>
         </div>
         <p>{{ todayReminder }}</p>
       </div>
-      <button
-        class="status-action"
-        type="button"
-        aria-label="快速记录宠物状态"
-        @click="openQuickRecord('appetite')"
-      >
-        记一笔
-      </button>
     </article>
 
     <section class="life-flow-section">
@@ -425,28 +581,51 @@ function formatDay(value?: string) {
 
     <article class="meal-summary-card" :class="{ loading: mealRefreshing }">
       <div class="compact-section-head">
-        <h2>今日配餐</h2>
+        <div>
+          <h2>今日配餐</h2>
+          <p>{{ mealPlan.basis }} · {{ mealPlan.calories }}</p>
+        </div>
         <div class="meal-head-actions">
           <button type="button" aria-label="查看今日配餐详情" @click="openMealDetail">详情</button>
           <button type="button" aria-label="调整今日配餐" @click="refreshMealPlan">调整</button>
         </div>
       </div>
+      <div class="meal-visual" aria-label="今日推荐食材">
+        <div class="ingredient-orbit" aria-hidden="true">
+          <span
+            v-for="(ingredient, index) in mealPlan.ingredients"
+            :key="ingredient.name"
+            :style="{ '--ingredient-index': index }"
+          >
+            {{ ingredient.name.slice(0, 1) }}
+          </span>
+        </div>
+        <div class="meal-ingredient-stack">
+          <span v-for="ingredient in mealPlan.ingredients" :key="`visual-${ingredient.name}`">
+            <strong>{{ ingredient.name }}</strong>
+            <small>{{ ingredient.grams }}g</small>
+          </span>
+        </div>
+        <button type="button" class="food-recommend-action" @click="emit('openAi', foodRecommendationPrompt)">
+          要不要推荐{{ foodKindLabel }}？
+        </button>
+      </div>
       <div class="meal-lines">
-        <span>
+        <span class="meal-line-primary">
           <small>{{ mealPlan.mainLabel }}</small>
           <strong>{{ mealPlan.main }}</strong>
+        </span>
+        <span v-for="ingredient in mealPlan.ingredients.slice(1)" :key="ingredient.name">
+          <small>{{ ingredient.name }}</small>
+          <strong>{{ ingredient.grams }}g</strong>
         </span>
         <span>
           <small>零食</small>
           <strong>{{ mealPlan.snack }}</strong>
         </span>
-        <span>
-          <small>补水</small>
-          <strong>{{ mealPlan.water }}</strong>
-        </span>
       </div>
       <footer>
-        <p>状态平稳，{{ mealPlan.tip }}。</p>
+        <p>建议搭配：{{ mealPlan.tip }}，饮水 {{ mealPlan.water }}。</p>
       </footer>
     </article>
 
@@ -498,9 +677,9 @@ function formatDay(value?: string) {
 
         <template v-if="detailSheet === 'meal'">
           <div class="detail-metric-grid">
-            <span>
-              <small>{{ mealPlan.mainLabel }}</small>
-              <strong>{{ mealPlan.main }}</strong>
+            <span v-for="ingredient in mealPlan.ingredients" :key="ingredient.name">
+              <small>{{ ingredient.name }}</small>
+              <strong>{{ ingredient.grams }}g</strong>
             </span>
             <span>
               <small>零食</small>
@@ -512,6 +691,9 @@ function formatDay(value?: string) {
             </span>
           </div>
           <p class="detail-copy">{{ mealPlan.detail }}</p>
+          <ul class="meal-caution-list">
+            <li v-for="caution in mealPlan.cautions" :key="caution">{{ caution }}</li>
+          </ul>
           <button class="sheet-save" type="button" @click="emit('generatePlan')">详情</button>
         </template>
 
@@ -1310,37 +1492,44 @@ button:active {
 
 .life-flow-row {
   gap: 8px;
-  padding-bottom: 3px;
+  padding-bottom: 6px;
 }
 
 .life-flow-row button {
-  flex-basis: 94px;
-  height: 84px;
-  gap: 5px;
+  flex-basis: 102px;
+  min-height: 104px;
+  height: auto;
+  align-content: start;
+  gap: 7px;
   border-color: rgba(59, 47, 41, 0.08);
-  border-radius: 18px;
-  padding: 10px;
+  border-radius: 22px;
+  padding: 12px 12px 10px;
   background: rgba(255, 255, 255, 0.74);
   box-shadow: none;
 }
 
 .life-flow-row span {
-  width: 28px;
-  height: 28px;
-  border-radius: 11px;
+  width: 32px;
+  height: 32px;
+  border-radius: 13px;
   background: #f4efe8;
   color: #9b7657;
 }
 
 .life-flow-row strong {
-  font-size: 13px;
+  overflow: hidden;
+  font-size: 15px;
   font-weight: 800;
+  line-height: 1.18;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .life-flow-row small {
   color: #7f705f;
   font-size: 12px;
   font-weight: 750;
+  line-height: 1.18;
 }
 
 .meal-summary-card {
@@ -1532,6 +1721,343 @@ button:active {
   box-shadow: 0 8px 18px rgba(217, 130, 75, 0.16);
 }
 
+.home-page {
+  --ritual-ink: #342b22;
+  --ritual-muted: #7b705f;
+  --ritual-green: #77805a;
+  --ritual-moss: #59603f;
+  --ritual-cream: rgba(255, 251, 243, 0.82);
+}
+
+.pet-status-card {
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: end;
+  min-height: clamp(318px, 58vh, 440px);
+  overflow: hidden;
+  padding: 16px;
+  border-color: rgba(74, 68, 45, 0.12);
+  border-radius: 32px;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(255, 247, 226, 0.92) 0 19%, transparent 29%),
+    radial-gradient(circle at 78% 20%, rgba(242, 166, 83, 0.42), transparent 19%),
+    linear-gradient(
+      165deg,
+      rgba(254, 245, 229, 0.92) 0%,
+      rgba(175, 160, 112, 0.5) 52%,
+      rgba(242, 236, 218, 0.94) 100%
+    );
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.86) inset,
+    0 26px 58px rgba(87, 71, 45, 0.16);
+}
+
+.pet-status-card::before,
+.pet-status-card::after {
+  position: absolute;
+  right: -18%;
+  bottom: 32%;
+  left: -18%;
+  z-index: -1;
+  height: 150px;
+  border-radius: 50% 50% 0 0;
+  background: linear-gradient(180deg, rgba(112, 125, 78, 0.72), rgba(91, 99, 64, 0.62));
+  content: '';
+}
+
+.pet-status-card::after {
+  right: -28%;
+  bottom: 25%;
+  left: 12%;
+  height: 122px;
+  background: linear-gradient(180deg, rgba(91, 101, 63, 0.62), rgba(74, 82, 51, 0.42));
+}
+
+.hero-top-actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  left: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.hero-top-actions span,
+.hero-side-metrics button {
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(74, 68, 45, 0.09);
+  background: rgba(255, 252, 246, 0.62);
+  color: rgba(68, 59, 45, 0.74);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.72) inset,
+    0 12px 24px rgba(66, 55, 37, 0.1);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.hero-top-actions span {
+  width: 40px;
+  height: 40px;
+  border-radius: 16px;
+}
+
+.pet-status-card .pet-avatar {
+  position: relative;
+  z-index: 2;
+  align-self: start;
+  justify-self: center;
+  width: clamp(132px, 39vw, 172px);
+  height: clamp(132px, 39vw, 172px);
+  margin-top: 42px;
+  border: 5px solid rgba(255, 250, 241, 0.92);
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e1a157, #c7783f);
+  box-shadow:
+    0 0 0 18px rgba(255, 252, 246, 0.18),
+    0 22px 42px rgba(61, 48, 31, 0.22);
+}
+
+.pet-status-card .pet-avatar span {
+  color: #fffaf3;
+  font-size: 46px;
+}
+
+.hero-side-metrics {
+  position: absolute;
+  top: 76px;
+  right: 15px;
+  z-index: 3;
+  display: grid;
+  gap: 9px;
+}
+
+.hero-side-metrics button {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 18px;
+  padding: 6px 7px;
+  font: inherit;
+  gap: 2px;
+}
+
+.hero-side-metrics small {
+  max-width: 42px;
+  overflow: hidden;
+  color: rgba(81, 74, 58, 0.68);
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-status-card .pet-status-copy {
+  z-index: 2;
+  display: grid;
+  width: 100%;
+  gap: 5px;
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.64);
+  border-radius: 24px;
+  background: rgba(255, 252, 246, 0.72);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.78) inset,
+    0 18px 38px rgba(66, 55, 37, 0.12);
+  backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
+}
+
+.pet-status-card .today-eyebrow {
+  margin: 0;
+  color: rgba(112, 119, 79, 0.88);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pet-status-card .pet-title-row {
+  justify-content: space-between;
+}
+
+.pet-status-card .pet-title-row h1 {
+  max-width: none;
+  color: var(--ritual-ink);
+  font-size: 26px;
+  font-weight: 950;
+}
+
+.pet-status-card .pet-title-row strong {
+  background: rgba(237, 232, 210, 0.74);
+  color: #6c744d;
+}
+
+.pet-status-card .pet-status-copy > p:not(.today-eyebrow) {
+  margin: 0;
+  color: var(--ritual-muted);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.pet-status-card .status-action {
+  z-index: 2;
+  display: inline-flex;
+  width: fit-content;
+  min-height: 40px;
+  align-items: center;
+  justify-self: center;
+  gap: 6px;
+  margin-top: -2px;
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  background: rgba(255, 252, 246, 0.78);
+  color: #7a7f55;
+  box-shadow: 0 14px 28px rgba(66, 55, 37, 0.12);
+}
+
+.meal-summary-card {
+  overflow: hidden;
+  border-radius: 28px;
+  background: linear-gradient(180deg, rgba(255, 249, 237, 0.9), rgba(239, 232, 210, 0.88)), #fffaf3;
+}
+
+.meal-visual {
+  position: relative;
+  display: grid;
+  min-height: 132px;
+  align-items: center;
+  gap: 12px;
+  overflow: hidden;
+  border-radius: 24px;
+  padding: 18px 14px 14px;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 255, 255, 0.7), transparent 18%),
+    radial-gradient(circle at 82% 22%, rgba(220, 132, 66, 0.22), transparent 18%),
+    linear-gradient(135deg, rgba(244, 239, 225, 0.92), rgba(230, 236, 219, 0.78));
+}
+
+.ingredient-orbit {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  width: 78px;
+  height: 58px;
+  pointer-events: none;
+}
+
+.ingredient-orbit span {
+  position: absolute;
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 50%;
+  background: linear-gradient(135deg, rgba(220, 132, 66, 0.92), rgba(177, 121, 73, 0.88));
+  color: #fffaf3;
+  font-size: 14px;
+  font-weight: 950;
+  opacity: 0.36;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.58) inset,
+    0 10px 18px rgba(68, 55, 35, 0.14);
+  animation: ingredient-float 2.8s ease-in-out infinite;
+  animation-delay: calc(var(--ingredient-index) * -0.45s);
+  transform: translate(calc(var(--ingredient-index) * -24px), calc(var(--ingredient-index) * 13px));
+}
+
+.meal-ingredient-stack {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 8px;
+  padding-right: 0;
+}
+
+.meal-ingredient-stack span {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.66);
+  border-radius: 999px;
+  padding: 7px 10px 7px 12px;
+  background: rgba(255, 252, 246, 0.68);
+  box-shadow: 0 8px 18px rgba(77, 62, 38, 0.07);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.meal-ingredient-stack strong {
+  overflow: hidden;
+  color: #3b3128;
+  font-size: 13px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-ingredient-stack small {
+  flex: 0 0 auto;
+  color: #7c7f56;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.food-recommend-action {
+  position: relative;
+  z-index: 1;
+  width: fit-content;
+  min-height: 36px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 13px;
+  background: rgba(255, 252, 246, 0.78);
+  color: #9a6739;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 950;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.74) inset,
+    0 10px 20px rgba(66, 55, 37, 0.1);
+}
+
+.meal-lines span {
+  border-radius: 18px;
+  background: rgba(255, 252, 246, 0.74);
+}
+
+.meal-lines {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.meal-lines .meal-line-primary {
+  background: rgba(255, 246, 226, 0.84);
+}
+
+.meal-caution-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meal-caution-list li {
+  border-radius: 13px;
+  padding: 9px 10px;
+  background: rgba(255, 246, 232, 0.82);
+  color: #7a6049;
+  font-size: 12px;
+  font-weight: 720;
+  line-height: 1.45;
+}
+
 @media (max-width: 370px) {
   .pet-status-card {
     grid-template-columns: 48px minmax(0, 1fr);
@@ -1558,7 +2084,7 @@ button:active {
   }
 
   .meal-lines {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .recommend-section {
@@ -1606,10 +2132,89 @@ button:active {
   }
 }
 
+@media (max-width: 370px) {
+  .pet-status-card {
+    grid-template-columns: 1fr;
+    min-height: 304px;
+    padding: 12px;
+  }
+
+  .pet-status-card .pet-avatar {
+    width: 118px;
+    height: 118px;
+    margin-top: 40px;
+  }
+
+  .pet-status-card .pet-title-row h1 {
+    max-width: none;
+    font-size: 23px;
+  }
+
+  .pet-status-card .status-action {
+    grid-column: auto;
+    width: fit-content;
+  }
+
+  .hero-side-metrics {
+    right: 12px;
+  }
+
+  .hero-side-metrics button {
+    min-width: 42px;
+    min-height: 42px;
+  }
+
+  .meal-visual {
+    min-height: 128px;
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .meal-ingredient-stack {
+    padding-right: 0;
+  }
+
+  .ingredient-orbit {
+    right: 8px;
+    bottom: 10px;
+    width: 64px;
+    opacity: 0.72;
+  }
+
+  .ingredient-orbit span {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+}
+
+@media (min-width: 900px) {
+  .mode-desktop .pet-status-card {
+    grid-template-columns: 1fr;
+    min-height: 360px;
+  }
+
+  .mode-desktop .pet-status-card .pet-avatar {
+    width: 168px;
+    height: 168px;
+  }
+}
+
 @keyframes toast-rise {
   from {
     opacity: 0;
     transform: translateY(10px);
+  }
+}
+
+@keyframes ingredient-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+
+  50% {
+    translate: 0 -6px;
   }
 }
 </style>

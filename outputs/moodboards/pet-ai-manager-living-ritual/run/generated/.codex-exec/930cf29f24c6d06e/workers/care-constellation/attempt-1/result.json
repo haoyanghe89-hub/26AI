@@ -1,0 +1,7 @@
+{
+  "id": "care-constellation",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned no savable file path or binary handle.",
+  "caveats": ""
+}

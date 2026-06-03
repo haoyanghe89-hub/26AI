@@ -1,0 +1,7 @@
+{
+  "id": "emotion-light-field",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed, but no saved PNG file handle or accessible generated image path was returned to copy into the required location.",
+  "caveats": ""
+}

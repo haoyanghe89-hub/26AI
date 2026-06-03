@@ -1,0 +1,7 @@
+{
+  "id": "ai-care-companion",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed but no filesystem path or binary handle was exposed for saving the PNG.",
+  "caveats": ""
+}

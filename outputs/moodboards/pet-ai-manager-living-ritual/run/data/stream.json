@@ -1,0 +1,895 @@
+{
+  "meta": {
+    "title": "宠物 AI 管家：活体系统与日常仪式感",
+    "subtitle": "Mobile interaction mood board for a warm, trustworthy pet-care AI workspace",
+    "brief": "为 AI 对话、宠物档案、健康日志、日常打卡、就医准备设计更有新意的移动端交互与视觉体验。",
+    "audience": "猫狗主人、多宠家庭、重视健康记录和 AI 辅助决策的用户。",
+    "constraints": [
+      "核心隐喻：活体宠物系统",
+      "视觉语言：日常仪式感、成长记忆档案",
+      "避免幼稚卡通、后台面板、恐慌医疗",
+      "每张图是单一视觉参考，不是 mini mood board"
+    ]
+  },
+  "signals": {
+    "product": "宠物 AI 管家",
+    "interactionMetaphor": "living pet operating system",
+    "visualLanguage": [
+      "quiet daily ritual",
+      "growth memory archive",
+      "soft biomorphic interface",
+      "calm clinical trust"
+    ],
+    "avoid": [
+      "childish cartoon",
+      "desktop dashboard",
+      "alarmist medical red",
+      "readable UI text",
+      "logo marks",
+      "collage layout"
+    ]
+  },
+  "items": [
+    {
+      "id": "living-pulse-home",
+      "title": "Living Pulse Home",
+      "caption": "首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "warm, alive, calm",
+      "motif": "breathing biometric line, pet care home screen, soft morning light",
+      "palette": [
+        "#FFF8EF",
+        "#F6C46E",
+        "#8DB5A6",
+        "#2F3A36",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of a premium mobile pet care app home screen on a phone, the interface feels like a living pet operating system with a subtle breathing biometric line, warm off-white surfaces, amber and sage status glow, compact pet identity area, no readable text, no logos, no charts, no desktop dashboard, elegant iOS-quality UI, practical and emotionally warm, not childish. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Minimal Home",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Living Pulse Home",
+            "promptHint": "Strip Living Pulse Home down to a minimal premium frame; keep 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。 legible but change the surrounding space"
+          },
+          {
+            "label": "Motion Home",
+            "description": "More kinetic gesture, blur, or environmental energy around Living Pulse Home",
+            "promptHint": "Introduce controlled motion to Living Pulse Home while preserving the campaign cue: 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。"
+          },
+          {
+            "label": "Material Home",
+            "description": "A closer tactile read of surface, temperature, and finish around Living Pulse Home",
+            "promptHint": "Rebuild Living Pulse Home as a tactile material study inspired by 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。, with a visibly different crop and focal plane"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Cool Home",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Living Pulse Home; keep 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。 intact"
+          },
+          {
+            "label": "Monochrome Home",
+            "description": "A narrower near-monochrome treatment that lets one cue around Living Pulse Home stand out",
+            "promptHint": "Reduce the palette around Living Pulse Home to tonal restraint plus one preserved cue from 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。"
+          },
+          {
+            "label": "Warm Home",
+            "description": "Warmer neutrals and tactile highlights around Living Pulse Home",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Living Pulse Home"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Home Studio",
+            "description": "A cleaner controlled studio setting that keeps Living Pulse Home dominant",
+            "promptHint": "Move Living Pulse Home into a cleaner studio-hero setting while preserving 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。"
+          },
+          {
+            "label": "Home Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for Living Pulse Home, keeping the most important source cue visible"
+          },
+          {
+            "label": "Home Backstage",
+            "description": "A behind-the-scenes environment that adds process and atmosphere around Living Pulse Home",
+            "promptHint": "Reframe Living Pulse Home as a backstage or preparation moment; keep 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。 recognizable"
+          }
+        ],
+        "props": [
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Living Pulse Home carries more weight",
+            "promptHint": "Remove nonessential props and keep Living Pulse Home as the dominant read"
+          },
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around Living Pulse Home; preserve the source image's composition"
+          },
+          {
+            "label": "Process Cues",
+            "description": "Tools, traces, or handling details that make Living Pulse Home feel actively used",
+            "promptHint": "Add restrained process cues around Living Pulse Home; preserve the strongest visual idea from 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Living Pulse Home",
+            "promptHint": "Add a cropped passing figure or gesture around Living Pulse Home; keep identity nonspecific and preserve 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Living Pulse Home",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Living Pulse Home"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Living Pulse Home carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Home Crop",
+            "description": "Closer inspection of the material, surface, or focal subject",
+            "promptHint": "Create a closer detail crop of Living Pulse Home; keep 首页像一套会呼吸的宠物生命系统，状态由细腻波形和温度色表达。 legible"
+          },
+          {
+            "label": "Split-Depth Home",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Living Pulse Home; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Home",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Living Pulse Home to a wide hero composition with room for layout"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/living-pulse-home.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/living-pulse-home.jpg",
+      "sourceImageUrl": "/generated/living-pulse-home.png"
+    },
+    {
+      "id": "symptom-clue-board",
+      "title": "Symptom Clue Board",
+      "caption": "AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "careful, investigative, reassuring",
+      "motif": "clinical clue cards, AI reasoning, calm investigation",
+      "palette": [
+        "#F9F6EF",
+        "#E8F2ED",
+        "#D99A5B",
+        "#39433F",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of a mobile AI chat interface transformed into a calm symptom investigation board, layered clue cards with abstract icons and timeline dots, warm clinic lighting, clear hierarchy, no readable text, no red emergency panic, no detective cliches, no corkboard, no collage, elegant pet health assistant UI. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Motion Board",
+            "description": "More kinetic gesture, blur, or environmental energy around Symptom Clue Board",
+            "promptHint": "Introduce controlled motion to Symptom Clue Board while preserving the campaign cue: AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Material Board",
+            "description": "A closer tactile read of surface, temperature, and finish around Symptom Clue Board",
+            "promptHint": "Rebuild Symptom Clue Board as a tactile material study inspired by AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。, with a visibly different crop and focal plane"
+          },
+          {
+            "label": "Dramatic Board",
+            "description": "Richer blacks, sharper highlights, and more cinematic emphasis",
+            "promptHint": "Apply high-contrast cinematic treatment to Symptom Clue Board; keep AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。 recognizable but alter camera angle or staging"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Unexpected Board",
+            "description": "A more surprising secondary color relationship around Symptom Clue Board",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Cool Board",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Symptom Clue Board; keep AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。 intact"
+          },
+          {
+            "label": "Monochrome Board",
+            "description": "A narrower near-monochrome treatment that lets one cue around Symptom Clue Board stand out",
+            "promptHint": "Reduce the palette around Symptom Clue Board to tonal restraint plus one preserved cue from AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Board Exterior",
+            "description": "Move Symptom Clue Board into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Symptom Clue Board into an exterior or entryway scene while preserving the core cue: AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Board Studio",
+            "description": "A cleaner controlled studio setting that keeps Symptom Clue Board dominant",
+            "promptHint": "Move Symptom Clue Board into a cleaner studio-hero setting while preserving AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Board Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for Symptom Clue Board, keeping the most important source cue visible"
+          }
+        ],
+        "props": [
+          {
+            "label": "Unexpected Board Prop",
+            "description": "One surprising but believable object that opens a new story around Symptom Clue Board",
+            "promptHint": "Add one unexpected supporting prop that extends AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。 without stealing focus from Symptom Clue Board"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Symptom Clue Board carries more weight",
+            "promptHint": "Remove nonessential props and keep Symptom Clue Board as the dominant read"
+          },
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around Symptom Clue Board; preserve the source image's composition"
+          }
+        ],
+        "character": [
+          {
+            "label": "Everyday Use",
+            "description": "More approachable human presence while preserving the mood",
+            "promptHint": "Show Symptom Clue Board in an everyday user context without losing AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Symptom Clue Board",
+            "promptHint": "Add a cropped passing figure or gesture around Symptom Clue Board; keep identity nonspecific and preserve AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Symptom Clue Board",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Symptom Clue Board"
+          }
+        ],
+        "format": [
+          {
+            "label": "Portrait Board",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt Symptom Clue Board to a portrait social crop while preserving the key visual read"
+          },
+          {
+            "label": "Board Crop",
+            "description": "Closer inspection of the material, surface, or focal subject",
+            "promptHint": "Create a closer detail crop of Symptom Clue Board; keep AI 对话在异常场景下变成线索板，把症状、饮食、精神状态和风险信号分层。 legible"
+          },
+          {
+            "label": "Split-Depth Board",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Symptom Clue Board; do not make a collage or panel layout"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/symptom-clue-board.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/symptom-clue-board.jpg",
+      "sourceImageUrl": "/generated/symptom-clue-board.png"
+    },
+    {
+      "id": "vet-briefing-capsule",
+      "title": "Vet Briefing Capsule",
+      "caption": "就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "focused, composed, trustworthy",
+      "motif": "quiet medical briefing, export-ready summary, structured calm",
+      "palette": [
+        "#FFFFFF",
+        "#EAF6F2",
+        "#6EA897",
+        "#263431",
+        "#D9A35F"
+      ],
+      "prompt": "Single visual reference image of a mobile veterinary briefing mode, a clean phone screen with calm white and blue-green panels, structured summary blocks, attachment chips, and a soft status rail, no readable words, no hospital fear, no red alert styling, no dashboard density, premium clinical mobile UI for pet owners. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Minimal Capsule",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Vet Briefing Capsule",
+            "promptHint": "Strip Vet Briefing Capsule down to a minimal premium frame; keep 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。 legible but change the surrounding space"
+          },
+          {
+            "label": "Motion Capsule",
+            "description": "More kinetic gesture, blur, or environmental energy around Vet Briefing Capsule",
+            "promptHint": "Introduce controlled motion to Vet Briefing Capsule while preserving the campaign cue: 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          },
+          {
+            "label": "Material Capsule",
+            "description": "A closer tactile read of surface, temperature, and finish around Vet Briefing Capsule",
+            "promptHint": "Rebuild Vet Briefing Capsule as a tactile material study inspired by 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。, with a visibly different crop and focal plane"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Accent Capsule",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to Vet Briefing Capsule without changing the main subject"
+          },
+          {
+            "label": "Unexpected Capsule",
+            "description": "A more surprising secondary color relationship around Vet Briefing Capsule",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          },
+          {
+            "label": "Cool Capsule",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Vet Briefing Capsule; keep 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。 intact"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Capsule In Use",
+            "description": "A more believable real-world context for Vet Briefing Capsule",
+            "promptHint": "Place Vet Briefing Capsule into a realistic usage context; preserve the source image's core cue: 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          },
+          {
+            "label": "Capsule Exterior",
+            "description": "Move Vet Briefing Capsule into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Vet Briefing Capsule into an exterior or entryway scene while preserving the core cue: 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          },
+          {
+            "label": "Capsule Studio",
+            "description": "A cleaner controlled studio setting that keeps Vet Briefing Capsule dominant",
+            "promptHint": "Move Vet Briefing Capsule into a cleaner studio-hero setting while preserving 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Capsule Cues",
+            "description": "Add restrained supporting objects that clarify the context of Vet Briefing Capsule",
+            "promptHint": "Add a few contextual props that reinforce 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。 without distracting from Vet Briefing Capsule"
+          },
+          {
+            "label": "Unexpected Capsule Prop",
+            "description": "One surprising but believable object that opens a new story around Vet Briefing Capsule",
+            "promptHint": "Add one unexpected supporting prop that extends 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。 without stealing focus from Vet Briefing Capsule"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Vet Briefing Capsule carries more weight",
+            "promptHint": "Remove nonessential props and keep Vet Briefing Capsule as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with Vet Briefing Capsule",
+            "promptHint": "Introduce a collector or tastemaker presence around Vet Briefing Capsule while changing wardrobe, gesture, or posture"
+          },
+          {
+            "label": "Everyday Use",
+            "description": "More approachable human presence while preserving the mood",
+            "promptHint": "Show Vet Briefing Capsule in an everyday user context without losing 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          },
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Vet Briefing Capsule",
+            "promptHint": "Add a cropped passing figure or gesture around Vet Briefing Capsule; keep identity nonspecific and preserve 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。"
+          }
+        ],
+        "format": [
+          {
+            "label": "Square Capsule",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Vet Briefing Capsule as a square frame with a changed focal balance and the core cue intact"
+          },
+          {
+            "label": "Portrait Capsule",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt Vet Briefing Capsule to a portrait social crop while preserving the key visual read"
+          },
+          {
+            "label": "Capsule Crop",
+            "description": "Closer inspection of the material, surface, or focal subject",
+            "promptHint": "Create a closer detail crop of Vet Briefing Capsule; keep 就医准备像一个冷静简报舱，帮助主人把混乱信息整理成兽医可读结构。 legible"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/vet-briefing-capsule.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/vet-briefing-capsule.jpg",
+      "sourceImageUrl": "/generated/vet-briefing-capsule.png"
+    },
+    {
+      "id": "daily-care-orbit",
+      "title": "Daily Care Orbit",
+      "caption": "喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "ritualistic, gentle, efficient",
+      "motif": "care orbit, daily routine, small pet avatar path",
+      "palette": [
+        "#FFF7EC",
+        "#F2B75D",
+        "#A7C9B7",
+        "#705B43",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of a mobile daily pet care ritual screen, compact orbit path with abstract care icons for meals, water, bathroom, walk, medication, a small pet avatar marker moving along the orbit, warm cream background, tactile mobile UI, no readable labels, no gamified childish cartoon, no oversized cards. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Candid Orbit",
+            "description": "More natural texture and believable lived-in detail for Daily Care Orbit",
+            "promptHint": "Shift Daily Care Orbit toward documentary realism while preserving 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Orbit",
+            "description": "Cleaner light and hierarchy around Daily Care Orbit",
+            "promptHint": "Apply a polished editorial treatment to Daily Care Orbit; preserve 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Orbit",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Daily Care Orbit",
+            "promptHint": "Strip Daily Care Orbit down to a minimal premium frame; keep 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。 legible but change the surrounding space"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Unexpected Orbit",
+            "description": "A more surprising secondary color relationship around Daily Care Orbit",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          },
+          {
+            "label": "Cool Orbit",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Daily Care Orbit; keep 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。 intact"
+          },
+          {
+            "label": "Monochrome Orbit",
+            "description": "A narrower near-monochrome treatment that lets one cue around Daily Care Orbit stand out",
+            "promptHint": "Reduce the palette around Daily Care Orbit to tonal restraint plus one preserved cue from 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Orbit In Use",
+            "description": "A more believable real-world context for Daily Care Orbit",
+            "promptHint": "Place Daily Care Orbit into a realistic usage context; preserve the source image's core cue: 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          },
+          {
+            "label": "Orbit Exterior",
+            "description": "Move Daily Care Orbit into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Daily Care Orbit into an exterior or entryway scene while preserving the core cue: 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          },
+          {
+            "label": "Orbit Studio",
+            "description": "A cleaner controlled studio setting that keeps Daily Care Orbit dominant",
+            "promptHint": "Move Daily Care Orbit into a cleaner studio-hero setting while preserving 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Orbit Cues",
+            "description": "Add restrained supporting objects that clarify the context of Daily Care Orbit",
+            "promptHint": "Add a few contextual props that reinforce 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。 without distracting from Daily Care Orbit"
+          },
+          {
+            "label": "Unexpected Orbit Prop",
+            "description": "One surprising but believable object that opens a new story around Daily Care Orbit",
+            "promptHint": "Add one unexpected supporting prop that extends 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。 without stealing focus from Daily Care Orbit"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Daily Care Orbit carries more weight",
+            "promptHint": "Remove nonessential props and keep Daily Care Orbit as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Daily Care Orbit",
+            "promptHint": "Add a cropped passing figure or gesture around Daily Care Orbit; keep identity nonspecific and preserve 喂饭、喝水、便便、散步、用药围成日常轨道，形成轻仪式而非机械打勾。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Daily Care Orbit",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Daily Care Orbit"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Daily Care Orbit carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Split-Depth Orbit",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Daily Care Orbit; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Orbit",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Daily Care Orbit to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Orbit",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Daily Care Orbit as a square frame with a changed focal balance and the core cue intact"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/daily-care-orbit.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/daily-care-orbit.jpg",
+      "sourceImageUrl": "/generated/daily-care-orbit.png"
+    },
+    {
+      "id": "memory-archive-ribbon",
+      "title": "Memory Archive Ribbon",
+      "caption": "成长档案不是相册，而是一条可回看的照护记忆丝带。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "nostalgic, clean, intimate",
+      "motif": "timeline ribbon, health memories, monthly pet archive",
+      "palette": [
+        "#FEF7EF",
+        "#E7CDA5",
+        "#87AA9B",
+        "#4A4039",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of a mobile pet growth memory archive, an elegant vertical ribbon of abstract photo thumbnails, health moments, soft paper texture, small status beads, warm archive aesthetic, no readable text, no scrapbook collage, no cute stickers, no social media feed look. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Candid Ribbon",
+            "description": "More natural texture and believable lived-in detail for Memory Archive Ribbon",
+            "promptHint": "Shift Memory Archive Ribbon toward documentary realism while preserving 成长档案不是相册，而是一条可回看的照护记忆丝带。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Ribbon",
+            "description": "Cleaner light and hierarchy around Memory Archive Ribbon",
+            "promptHint": "Apply a polished editorial treatment to Memory Archive Ribbon; preserve 成长档案不是相册，而是一条可回看的照护记忆丝带。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Ribbon",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Memory Archive Ribbon",
+            "promptHint": "Strip Memory Archive Ribbon down to a minimal premium frame; keep 成长档案不是相册，而是一条可回看的照护记忆丝带。 legible but change the surrounding space"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Unexpected Ribbon",
+            "description": "A more surprising secondary color relationship around Memory Archive Ribbon",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Cool Ribbon",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Memory Archive Ribbon; keep 成长档案不是相册，而是一条可回看的照护记忆丝带。 intact"
+          },
+          {
+            "label": "Monochrome Ribbon",
+            "description": "A narrower near-monochrome treatment that lets one cue around Memory Archive Ribbon stand out",
+            "promptHint": "Reduce the palette around Memory Archive Ribbon to tonal restraint plus one preserved cue from 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Ribbon In Use",
+            "description": "A more believable real-world context for Memory Archive Ribbon",
+            "promptHint": "Place Memory Archive Ribbon into a realistic usage context; preserve the source image's core cue: 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Ribbon Exterior",
+            "description": "Move Memory Archive Ribbon into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Memory Archive Ribbon into an exterior or entryway scene while preserving the core cue: 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Ribbon Studio",
+            "description": "A cleaner controlled studio setting that keeps Memory Archive Ribbon dominant",
+            "promptHint": "Move Memory Archive Ribbon into a cleaner studio-hero setting while preserving 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Ribbon Cues",
+            "description": "Add restrained supporting objects that clarify the context of Memory Archive Ribbon",
+            "promptHint": "Add a few contextual props that reinforce 成长档案不是相册，而是一条可回看的照护记忆丝带。 without distracting from Memory Archive Ribbon"
+          },
+          {
+            "label": "Unexpected Ribbon Prop",
+            "description": "One surprising but believable object that opens a new story around Memory Archive Ribbon",
+            "promptHint": "Add one unexpected supporting prop that extends 成长档案不是相册，而是一条可回看的照护记忆丝带。 without stealing focus from Memory Archive Ribbon"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Memory Archive Ribbon carries more weight",
+            "promptHint": "Remove nonessential props and keep Memory Archive Ribbon as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Memory Archive Ribbon",
+            "promptHint": "Add a cropped passing figure or gesture around Memory Archive Ribbon; keep identity nonspecific and preserve 成长档案不是相册，而是一条可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Memory Archive Ribbon",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Memory Archive Ribbon"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Memory Archive Ribbon carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Split-Depth Ribbon",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Memory Archive Ribbon; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Ribbon",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Memory Archive Ribbon to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Ribbon",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Memory Archive Ribbon as a square frame with a changed focal balance and the core cue intact"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/memory-archive-ribbon.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/memory-archive-ribbon.jpg",
+      "sourceImageUrl": "/generated/memory-archive-ribbon.png"
+    },
+    {
+      "id": "food-bowl-calibrator",
+      "title": "Food Bowl Calibrator",
+      "caption": "喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "tactile, practical, warm",
+      "motif": "interactive bowl gauge, feeding plan, portion ritual",
+      "palette": [
+        "#FFF4E4",
+        "#DFA451",
+        "#B7D3C1",
+        "#3C332B",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of a mobile feeding plan interface centered on an elegant bowl-shaped gauge, kibble amount indicated by subtle fill level, small sliders and chips around it, warm tactile materials, no readable numbers or text, no brand packaging, no cartoon bowl mascot, polished pet nutrition app UI. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Editorial Calibrator",
+            "description": "Cleaner light and hierarchy around Food Bowl Calibrator",
+            "promptHint": "Apply a polished editorial treatment to Food Bowl Calibrator; preserve 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Calibrator",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Food Bowl Calibrator",
+            "promptHint": "Strip Food Bowl Calibrator down to a minimal premium frame; keep 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 legible but change the surrounding space"
+          },
+          {
+            "label": "Motion Calibrator",
+            "description": "More kinetic gesture, blur, or environmental energy around Food Bowl Calibrator",
+            "promptHint": "Introduce controlled motion to Food Bowl Calibrator while preserving the campaign cue: 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Cool Calibrator",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Food Bowl Calibrator; keep 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 intact"
+          },
+          {
+            "label": "Monochrome Calibrator",
+            "description": "A narrower near-monochrome treatment that lets one cue around Food Bowl Calibrator stand out",
+            "promptHint": "Reduce the palette around Food Bowl Calibrator to tonal restraint plus one preserved cue from 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          },
+          {
+            "label": "Warm Calibrator",
+            "description": "Warmer neutrals and tactile highlights around Food Bowl Calibrator",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Food Bowl Calibrator"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Calibrator Backstage",
+            "description": "A behind-the-scenes environment that adds process and atmosphere around Food Bowl Calibrator",
+            "promptHint": "Reframe Food Bowl Calibrator as a backstage or preparation moment; keep 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 recognizable"
+          },
+          {
+            "label": "Calibrator In Use",
+            "description": "A more believable real-world context for Food Bowl Calibrator",
+            "promptHint": "Place Food Bowl Calibrator into a realistic usage context; preserve the source image's core cue: 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          },
+          {
+            "label": "Calibrator Exterior",
+            "description": "Move Food Bowl Calibrator into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Food Bowl Calibrator into an exterior or entryway scene while preserving the core cue: 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Process Cues",
+            "description": "Tools, traces, or handling details that make Food Bowl Calibrator feel actively used",
+            "promptHint": "Add restrained process cues around Food Bowl Calibrator; preserve the strongest visual idea from 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          },
+          {
+            "label": "Calibrator Cues",
+            "description": "Add restrained supporting objects that clarify the context of Food Bowl Calibrator",
+            "promptHint": "Add a few contextual props that reinforce 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 without distracting from Food Bowl Calibrator"
+          },
+          {
+            "label": "Unexpected Calibrator Prop",
+            "description": "One surprising but believable object that opens a new story around Food Bowl Calibrator",
+            "promptHint": "Add one unexpected supporting prop that extends 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。 without stealing focus from Food Bowl Calibrator"
+          }
+        ],
+        "character": [
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with Food Bowl Calibrator",
+            "promptHint": "Introduce a collector or tastemaker presence around Food Bowl Calibrator while changing wardrobe, gesture, or posture"
+          },
+          {
+            "label": "Everyday Use",
+            "description": "More approachable human presence while preserving the mood",
+            "promptHint": "Show Food Bowl Calibrator in an everyday user context without losing 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          },
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Food Bowl Calibrator",
+            "promptHint": "Add a cropped passing figure or gesture around Food Bowl Calibrator; keep identity nonspecific and preserve 喂养计划变成可调节饭碗刻度，主粮和零食预算被直观看见。"
+          }
+        ],
+        "format": [
+          {
+            "label": "Split-Depth Calibrator",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Food Bowl Calibrator; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Calibrator",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Food Bowl Calibrator to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Calibrator",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Food Bowl Calibrator as a square frame with a changed focal balance and the core cue intact"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/food-bowl-calibrator.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/food-bowl-calibrator.jpg",
+      "sourceImageUrl": "/generated/food-bowl-calibrator.png"
+    },
+    {
+      "id": "ai-care-companion",
+      "title": "AI Care Companion",
+      "caption": "AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。",
+      "source": "Generated from Pet AI Manager brief.",
+      "tone": "attentive, intelligent, warm",
+      "motif": "adaptive AI chat, companion presence, pet-safe reasoning",
+      "palette": [
+        "#FFF9F1",
+        "#EFB35B",
+        "#8FBCA9",
+        "#363E39",
+        "#FFFFFF"
+      ],
+      "prompt": "Single visual reference image of an immersive mobile AI pet care chat, messages softly transform into compact care cards and next-step action chips, a subtle ambient assistant presence without a face or mascot, warm premium UI, no readable text, no chatbot cliches, no doctor avatar, no desktop panels. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Material Companion",
+            "description": "A closer tactile read of surface, temperature, and finish around AI Care Companion",
+            "promptHint": "Rebuild AI Care Companion as a tactile material study inspired by AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。, with a visibly different crop and focal plane"
+          },
+          {
+            "label": "Dramatic Companion",
+            "description": "Richer blacks, sharper highlights, and more cinematic emphasis",
+            "promptHint": "Apply high-contrast cinematic treatment to AI Care Companion; keep AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。 recognizable but alter camera angle or staging"
+          },
+          {
+            "label": "Candid Companion",
+            "description": "More natural texture and believable lived-in detail for AI Care Companion",
+            "promptHint": "Shift AI Care Companion toward documentary realism while preserving AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。; make lighting and staging feel newly observed"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Monochrome Companion",
+            "description": "A narrower near-monochrome treatment that lets one cue around AI Care Companion stand out",
+            "promptHint": "Reduce the palette around AI Care Companion to tonal restraint plus one preserved cue from AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          },
+          {
+            "label": "Warm Companion",
+            "description": "Warmer neutrals and tactile highlights around AI Care Companion",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of AI Care Companion"
+          },
+          {
+            "label": "Accent Companion",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to AI Care Companion without changing the main subject"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Companion In Use",
+            "description": "A more believable real-world context for AI Care Companion",
+            "promptHint": "Place AI Care Companion into a realistic usage context; preserve the source image's core cue: AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          },
+          {
+            "label": "Companion Exterior",
+            "description": "Move AI Care Companion into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate AI Care Companion into an exterior or entryway scene while preserving the core cue: AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          },
+          {
+            "label": "Companion Studio",
+            "description": "A cleaner controlled studio setting that keeps AI Care Companion dominant",
+            "promptHint": "Move AI Care Companion into a cleaner studio-hero setting while preserving AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Companion Cues",
+            "description": "Add restrained supporting objects that clarify the context of AI Care Companion",
+            "promptHint": "Add a few contextual props that reinforce AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。 without distracting from AI Care Companion"
+          },
+          {
+            "label": "Unexpected Companion Prop",
+            "description": "One surprising but believable object that opens a new story around AI Care Companion",
+            "promptHint": "Add one unexpected supporting prop that extends AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。 without stealing focus from AI Care Companion"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so AI Care Companion carries more weight",
+            "promptHint": "Remove nonessential props and keep AI Care Companion as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Everyday Use",
+            "description": "More approachable human presence while preserving the mood",
+            "promptHint": "Show AI Care Companion in an everyday user context without losing AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          },
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over AI Care Companion",
+            "promptHint": "Add a cropped passing figure or gesture around AI Care Companion; keep identity nonspecific and preserve AI 不是医生头像，而是界面里的安静陪护智能，随场景改变回复形态。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with AI Care Companion",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with AI Care Companion"
+          }
+        ],
+        "format": [
+          {
+            "label": "Wide Companion",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt AI Care Companion to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Companion",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose AI Care Companion as a square frame with a changed focal balance and the core cue intact"
+          },
+          {
+            "label": "Portrait Companion",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt AI Care Companion to a portrait social crop while preserving the key visual read"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/ai-care-companion.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/ai-care-companion.jpg",
+      "sourceImageUrl": "/generated/ai-care-companion.png"
+    }
+  ]
+}

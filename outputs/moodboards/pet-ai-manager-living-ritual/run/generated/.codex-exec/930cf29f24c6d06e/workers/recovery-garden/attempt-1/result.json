@@ -1,0 +1,7 @@
+{
+  "id": "recovery-garden",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation completed, but this session did not expose a local PNG file path to save to the requested location.",
+  "caveats": ""
+}

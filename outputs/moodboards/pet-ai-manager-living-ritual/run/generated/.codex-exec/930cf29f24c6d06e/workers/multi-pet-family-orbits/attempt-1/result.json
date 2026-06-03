@@ -1,0 +1,7 @@
+{
+  "id": "multi-pet-family-orbits",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned an image in-chat, but no filesystem-accessible PNG path or bytes were available to save it.",
+  "caveats": ""
+}

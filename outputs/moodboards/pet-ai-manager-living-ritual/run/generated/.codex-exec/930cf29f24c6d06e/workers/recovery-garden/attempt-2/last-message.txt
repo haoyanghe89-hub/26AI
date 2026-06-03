@@ -1,0 +1,1 @@
+Done. Native image generation ran, but no filesystem PNG artifact/path was exposed to copy, so I wrote `result.json` with `status: "failed"` and the required shape.

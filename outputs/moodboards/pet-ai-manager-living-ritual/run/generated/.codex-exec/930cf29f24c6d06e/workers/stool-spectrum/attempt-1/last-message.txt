@@ -1,0 +1,5 @@
+Generated the image with `image_gen.imagegen`, but the tool did not expose a local PNG path/file handle I could copy to the required destination.
+
+Wrote the required failed worker JSON to:
+
+`generated/.codex-exec/930cf29f24c6d06e/workers/stool-spectrum/attempt-1/result.json`

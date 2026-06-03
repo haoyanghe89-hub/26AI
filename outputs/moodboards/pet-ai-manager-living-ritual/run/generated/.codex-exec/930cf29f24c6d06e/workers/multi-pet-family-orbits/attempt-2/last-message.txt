@@ -1,0 +1,5 @@
+Wrote the required failed worker result JSON to:
+
+`generated/.codex-exec/930cf29f24c6d06e/workers/multi-pet-family-orbits/attempt-2/result.json`
+
+The PNG could not be saved because the native image generation tool did not expose a filesystem path or binary handle in this environment.

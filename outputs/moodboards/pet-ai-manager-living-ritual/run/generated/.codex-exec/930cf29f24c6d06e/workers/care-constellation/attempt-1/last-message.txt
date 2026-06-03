@@ -1,0 +1,1 @@
+Wrote the required `result.json` with `status: "failed"` because native image generation did not provide a savable file path or binary handle for `image.png`.

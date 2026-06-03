@@ -1,0 +1,1 @@
+Done. Native image generation ran, but I could not access a filesystem PNG path or bytes to copy into the requested location, so I wrote the required `failed` result JSON at the target path.

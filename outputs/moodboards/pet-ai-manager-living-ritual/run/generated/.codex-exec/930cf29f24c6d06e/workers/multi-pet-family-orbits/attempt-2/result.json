@@ -1,0 +1,7 @@
+{
+  "id": "multi-pet-family-orbits",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned an image preview but no filesystem path or binary handle to save as PNG.",
+  "caveats": ""
+}

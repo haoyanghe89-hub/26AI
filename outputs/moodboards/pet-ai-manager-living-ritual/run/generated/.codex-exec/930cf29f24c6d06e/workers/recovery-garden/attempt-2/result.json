@@ -1,0 +1,7 @@
+{
+  "id": "recovery-garden",
+  "status": "failed",
+  "image_path": null,
+  "error": "Native image generation returned an image in-chat but did not provide a filesystem path or writable PNG artifact to save.",
+  "caveats": ""
+}

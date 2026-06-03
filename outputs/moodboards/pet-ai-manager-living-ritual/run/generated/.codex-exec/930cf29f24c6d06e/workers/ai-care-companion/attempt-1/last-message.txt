@@ -1,0 +1,1 @@
+Wrote the required `result.json` with `status: "failed"` because the native image generation result was not exposed as a savable PNG path or binary handle. No placeholder image was created.
