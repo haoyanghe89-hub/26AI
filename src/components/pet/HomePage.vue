@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import type { DailyCheckInSummary } from '../../composables/useDailyCheckIn'
 import type { HealthLog, PetProfile } from '../../stores/chat'
@@ -64,6 +64,8 @@ const toastMessage = ref('')
 const mealRefreshing = ref(false)
 const detailSheet = ref<DetailSheetType>(null)
 const selectedDiscovery = ref<HomeDiscovery | null>(null)
+const detailSheetEl = ref<HTMLElement | null>(null)
+const quickRecordSheetEl = ref<HTMLElement | null>(null)
 
 const petName = computed(() => props.activePet?.name || '毛孩子')
 const petInitial = computed(() => petName.value.slice(0, 1) || '宠')
@@ -204,8 +206,6 @@ const latestRecordText = computed(() => {
   return `${formatDay(log.loggedAt)} · 食欲/饮水/便便${recordTone(log)}`
 })
 
-const detailSheetOpen = computed(() => Boolean(detailSheet.value))
-
 watch(
   () => props.activePetId,
   () => {
@@ -213,17 +213,6 @@ watch(
     detailSheet.value = null
   },
 )
-
-watch([quickRecordOpen, detailSheetOpen], ([quickOpen, detailOpen]) => {
-  const isOpen = quickOpen || detailOpen
-  document.documentElement.classList.toggle('sheet-open', isOpen)
-  document.body.classList.toggle('sheet-open', isOpen)
-})
-
-onUnmounted(() => {
-  document.documentElement.classList.remove('sheet-open')
-  document.body.classList.remove('sheet-open')
-})
 
 function showToast(message: string) {
   toastMessage.value = message
@@ -233,10 +222,12 @@ function showToast(message: string) {
 }
 
 function openQuickRecord(type: QuickRecordType) {
+  detailSheet.value = null
   quickRecordType.value = type
   quickRecordValue.value = quickRecordOptions.value[0]?.value || ''
   quickRecordNote.value = quickRecordOptions.value[0]?.note || ''
   quickRecordOpen.value = true
+  scrollSheetIntoView(quickRecordSheetEl)
 }
 
 function selectQuickRecordOption(option: { value: string; note: string }) {
@@ -277,12 +268,16 @@ function refreshMealPlan() {
 }
 
 function openDiscovery(item: HomeDiscovery) {
+  quickRecordOpen.value = false
   selectedDiscovery.value = item
   detailSheet.value = 'insight'
+  scrollSheetIntoView(detailSheetEl)
 }
 
 function openMealDetail() {
+  quickRecordOpen.value = false
   detailSheet.value = 'meal'
+  scrollSheetIntoView(detailSheetEl)
 }
 
 function closeDetailSheet() {
@@ -300,6 +295,16 @@ function openAiFromSheet() {
     'openAi',
     selectedDiscovery.value?.prompt || selectedDiscovery.value?.title || '请展开今天的照看建议。',
   )
+}
+
+async function scrollSheetIntoView(sheetRef: { value: HTMLElement | null }) {
+  await nextTick()
+  window.requestAnimationFrame(() => {
+    sheetRef.value?.scrollIntoView({
+      behavior: props.mode === 'mobile' ? 'smooth' : 'auto',
+      block: 'end',
+    })
+  })
 }
 
 function buildMealPlan(pet: PetProfile | null, latestLog: HealthLog | null): MealPlan {
@@ -665,81 +670,90 @@ function formatDay(value?: string) {
       <button type="button" aria-label="查看最近记录" @click="emit('openRecords')">查看</button>
     </article>
 
-    <div v-if="detailSheet" class="record-sheet-backdrop" @click.self="closeDetailSheet">
-      <section class="record-sheet detail-sheet" role="dialog" aria-modal="true" aria-label="详情">
-        <header>
-          <div>
-            <p>{{ detailSheet === 'meal' ? '配餐详情' : '发现详情' }}</p>
-            <h2>{{ detailSheet === 'meal' ? '今日配餐' : selectedDiscovery?.title || '今天留意' }}</h2>
-          </div>
-          <button type="button" @click="closeDetailSheet">收起</button>
-        </header>
+    <Transition name="record-sheet-inline">
+      <div v-if="detailSheet" class="record-sheet-slot">
+        <section ref="detailSheetEl" class="record-sheet detail-sheet" role="region" aria-label="详情">
+          <header>
+            <div>
+              <p>{{ detailSheet === 'meal' ? '配餐详情' : '发现详情' }}</p>
+              <h2>{{ detailSheet === 'meal' ? '今日配餐' : selectedDiscovery?.title || '今天留意' }}</h2>
+            </div>
+            <button type="button" @click="closeDetailSheet">收起</button>
+          </header>
 
-        <template v-if="detailSheet === 'meal'">
-          <div class="detail-metric-grid">
-            <span v-for="ingredient in mealPlan.ingredients" :key="ingredient.name">
-              <small>{{ ingredient.name }}</small>
-              <strong>{{ ingredient.grams }}g</strong>
-            </span>
-            <span>
-              <small>零食</small>
-              <strong>{{ mealPlan.snack }}</strong>
-            </span>
-            <span>
-              <small>补水</small>
-              <strong>{{ mealPlan.water }}</strong>
-            </span>
-          </div>
-          <p class="detail-copy">{{ mealPlan.detail }}</p>
-          <ul class="meal-caution-list">
-            <li v-for="caution in mealPlan.cautions" :key="caution">{{ caution }}</li>
-          </ul>
-          <button class="sheet-save" type="button" @click="emit('generatePlan')">详情</button>
-        </template>
+          <template v-if="detailSheet === 'meal'">
+            <div class="detail-metric-grid">
+              <span v-for="ingredient in mealPlan.ingredients" :key="ingredient.name">
+                <small>{{ ingredient.name }}</small>
+                <strong>{{ ingredient.grams }}g</strong>
+              </span>
+              <span>
+                <small>零食</small>
+                <strong>{{ mealPlan.snack }}</strong>
+              </span>
+              <span>
+                <small>补水</small>
+                <strong>{{ mealPlan.water }}</strong>
+              </span>
+            </div>
+            <p class="detail-copy">{{ mealPlan.detail }}</p>
+            <ul class="meal-caution-list">
+              <li v-for="caution in mealPlan.cautions" :key="caution">{{ caution }}</li>
+            </ul>
+            <button class="sheet-save" type="button" @click="emit('generatePlan')">详情</button>
+          </template>
 
-        <template v-else>
-          <p class="detail-copy">{{ selectedDiscovery?.detail || aiDetailLine }}</p>
-          <button
-            v-if="selectedDiscovery?.route === 'records'"
-            class="sheet-save"
-            type="button"
-            @click="openRecordsFromSheet"
-          >
-            查看
-          </button>
-          <button v-else class="sheet-save" type="button" @click="openAiFromSheet">更多</button>
-        </template>
-      </section>
-    </div>
+          <template v-else>
+            <p class="detail-copy">{{ selectedDiscovery?.detail || aiDetailLine }}</p>
+            <button
+              v-if="selectedDiscovery?.route === 'records'"
+              class="sheet-save"
+              type="button"
+              @click="openRecordsFromSheet"
+            >
+              查看
+            </button>
+            <button v-else class="sheet-save" type="button" @click="openAiFromSheet">更多</button>
+          </template>
+        </section>
+      </div>
+    </Transition>
 
-    <div v-if="quickRecordOpen" class="record-sheet-backdrop" @click.self="quickRecordOpen = false">
-      <section class="record-sheet" role="dialog" aria-modal="true" :aria-label="`记录${quickRecordTitle}`">
-        <header>
-          <div>
-            <p>记一笔</p>
-            <h2>{{ quickRecordTitle }}</h2>
+    <Transition name="record-sheet-inline">
+      <div v-if="quickRecordOpen" class="record-sheet-slot">
+        <section
+          ref="quickRecordSheetEl"
+          class="record-sheet"
+          role="region"
+          :aria-label="`记录${quickRecordTitle}`"
+        >
+          <header>
+            <div>
+              <p>记一笔</p>
+              <h2>{{ quickRecordTitle }}</h2>
+            </div>
+            <button type="button" @click="quickRecordOpen = false">收起</button>
+          </header>
+          <div class="sheet-options">
+            <button
+              v-for="option in quickRecordOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: option.value === quickRecordValue }"
+              @click="selectQuickRecordOption(option)"
+            >
+              <strong>{{ option.label }}</strong>
+              <span>{{ option.note }}</span>
+            </button>
           </div>
-          <button type="button" @click="quickRecordOpen = false">收起</button>
-        </header>
-        <div class="sheet-options">
-          <button
-            v-for="option in quickRecordOptions"
-            :key="option.value"
-            type="button"
-            :class="{ active: option.value === quickRecordValue }"
-            @click="selectQuickRecordOption(option)"
-          >
-            <strong>{{ option.label }}</strong>
-            <span>{{ option.note }}</span>
-          </button>
-        </div>
-        <label>
-          补充一句
-          <textarea v-model="quickRecordNote" rows="3" placeholder="例如：晚饭后精神很好"></textarea>
-        </label>
-        <button class="sheet-save" type="button" @click="saveQuickRecord">记一笔</button>
-      </section>
-    </div>
+          <label>
+            补充一句
+            <textarea v-model="quickRecordNote" rows="3" placeholder="例如：晚饭后精神很好"></textarea>
+          </label>
+          <button class="sheet-save" type="button" @click="saveQuickRecord">记一笔</button>
+        </section>
+      </div>
+    </Transition>
   </section>
 </template>
 
@@ -1260,14 +1274,13 @@ function formatDay(value?: string) {
   animation: toast-rise 0.22s ease both;
 }
 
-.record-sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
+.record-sheet-slot {
   display: grid;
   align-items: end;
-  background: rgba(42, 32, 23, 0.22);
-  backdrop-filter: blur(10px);
+  margin: 4px -16px 0;
+  padding: 0 16px calc(12px + env(safe-area-inset-bottom));
+  scroll-margin-bottom: calc(104px + env(safe-area-inset-bottom));
+  overflow: hidden;
 }
 
 .record-sheet {
@@ -1278,7 +1291,8 @@ function formatDay(value?: string) {
   padding: 18px 16px max(18px, env(safe-area-inset-bottom));
   border-radius: 26px 26px 0 0;
   background: #fffaf4;
-  box-shadow: 0 -22px 44px rgba(48, 35, 24, 0.16);
+  box-shadow: 0 -14px 34px rgba(48, 35, 24, 0.12);
+  scroll-margin-bottom: calc(104px + env(safe-area-inset-bottom));
 }
 
 .record-sheet header {
@@ -1672,10 +1686,6 @@ button:active {
   white-space: nowrap;
 }
 
-.record-sheet-backdrop {
-  overscroll-behavior: contain;
-}
-
 .record-sheet {
   gap: 13px;
   padding: 17px 16px max(18px, env(safe-area-inset-bottom));
@@ -1719,6 +1729,19 @@ button:active {
 .sheet-save {
   font-weight: 850;
   box-shadow: 0 8px 18px rgba(217, 130, 75, 0.16);
+}
+
+.record-sheet-inline-enter-active,
+.record-sheet-inline-leave-active {
+  transition:
+    opacity 220ms ease,
+    transform 260ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.record-sheet-inline-enter-from,
+.record-sheet-inline-leave-to {
+  opacity: 0;
+  transform: translateY(34px);
 }
 
 .home-page {
@@ -2123,12 +2146,15 @@ button:active {
     width: auto;
   }
 
-  .mode-desktop .record-sheet-backdrop {
-    align-items: center;
-  }
-
   .mode-desktop .record-sheet {
     border-radius: 26px;
+    scroll-margin-bottom: 24px;
+  }
+
+  .mode-desktop .record-sheet-slot {
+    margin: 0;
+    padding: 0;
+    scroll-margin-bottom: 24px;
   }
 }
 

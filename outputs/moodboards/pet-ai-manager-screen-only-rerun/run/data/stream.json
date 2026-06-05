@@ -1,0 +1,888 @@
+{
+  "meta": {
+    "title": "宠物 AI 管家：纯界面 Screen-only 补跑",
+    "subtitle": "Regenerated mobile UI references without phone frames, hands, or scene backgrounds",
+    "brief": "把上一版效果不错的手机 mockup 方向重新生成为手机屏幕里的界面本身。",
+    "audience": "猫狗主人、多宠家庭、重视健康记录和 AI 辅助决策的用户。",
+    "constraints": [
+      "只显示 app 界面本身",
+      "无手机外壳、无手持、无环境背景、无透视倾斜",
+      "竖屏移动端界面参考图",
+      "避免幼稚卡通、后台面板、恐慌医疗"
+    ]
+  },
+  "signals": {
+    "product": "宠物 AI 管家",
+    "outputType": "screen-only mobile UI references",
+    "visualLanguage": [
+      "living pet operating system",
+      "daily care ritual",
+      "growth memory archive",
+      "calm veterinary preparation",
+      "warm premium mobile UI"
+    ]
+  },
+  "items": [
+    {
+      "id": "living-pulse-home-screen",
+      "title": "Living Pulse Home Screen",
+      "caption": "首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "warm, alive, calm",
+      "motif": "living pet operating system home screen",
+      "palette": [
+        "#FFF8EF",
+        "#F6C46E",
+        "#8DB5A6",
+        "#2F3A36",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Premium pet care home screen with living biometric pulse, warm off-white surfaces, amber and sage glow, compact pet identity, daily care entry points, soft bottom navigation, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Material Screen",
+            "description": "A closer tactile read of surface, temperature, and finish around Living Pulse Home Screen",
+            "promptHint": "Rebuild Living Pulse Home Screen as a tactile material study inspired by 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。, with a visibly different crop and focal plane"
+          },
+          {
+            "label": "Dramatic Screen",
+            "description": "Richer blacks, sharper highlights, and more cinematic emphasis",
+            "promptHint": "Apply high-contrast cinematic treatment to Living Pulse Home Screen; keep 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。 recognizable but alter camera angle or staging"
+          },
+          {
+            "label": "Candid Screen",
+            "description": "More natural texture and believable lived-in detail for Living Pulse Home Screen",
+            "promptHint": "Shift Living Pulse Home Screen toward documentary realism while preserving 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。; make lighting and staging feel newly observed"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Monochrome Screen",
+            "description": "A narrower near-monochrome treatment that lets one cue around Living Pulse Home Screen stand out",
+            "promptHint": "Reduce the palette around Living Pulse Home Screen to tonal restraint plus one preserved cue from 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。"
+          },
+          {
+            "label": "Warm Screen",
+            "description": "Warmer neutrals and tactile highlights around Living Pulse Home Screen",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Living Pulse Home Screen"
+          },
+          {
+            "label": "Accent Screen",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to Living Pulse Home Screen without changing the main subject"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for Living Pulse Home Screen, keeping the most important source cue visible"
+          },
+          {
+            "label": "Screen Backstage",
+            "description": "A behind-the-scenes environment that adds process and atmosphere around Living Pulse Home Screen",
+            "promptHint": "Reframe Living Pulse Home Screen as a backstage or preparation moment; keep 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。 recognizable"
+          },
+          {
+            "label": "Screen In Use",
+            "description": "A more believable real-world context for Living Pulse Home Screen",
+            "promptHint": "Place Living Pulse Home Screen into a realistic usage context; preserve the source image's core cue: 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around Living Pulse Home Screen; preserve the source image's composition"
+          },
+          {
+            "label": "Process Cues",
+            "description": "Tools, traces, or handling details that make Living Pulse Home Screen feel actively used",
+            "promptHint": "Add restrained process cues around Living Pulse Home Screen; preserve the strongest visual idea from 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。"
+          },
+          {
+            "label": "Screen Cues",
+            "description": "Add restrained supporting objects that clarify the context of Living Pulse Home Screen",
+            "promptHint": "Add a few contextual props that reinforce 首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。 without distracting from Living Pulse Home Screen"
+          }
+        ],
+        "character": [
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Living Pulse Home Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Living Pulse Home Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Living Pulse Home Screen carry the image"
+          },
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with Living Pulse Home Screen",
+            "promptHint": "Introduce a collector or tastemaker presence around Living Pulse Home Screen while changing wardrobe, gesture, or posture"
+          }
+        ],
+        "format": [
+          {
+            "label": "Split-Depth Screen",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Living Pulse Home Screen; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Living Pulse Home Screen to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Screen",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Living Pulse Home Screen as a square frame with a changed focal balance and the core cue intact"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/living-pulse-home-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/living-pulse-home-screen.jpg",
+      "sourceImageUrl": "/generated/living-pulse-home-screen.png"
+    },
+    {
+      "id": "symptom-clue-board-screen",
+      "title": "Symptom Clue Board Screen",
+      "caption": "症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "careful, investigative, reassuring",
+      "motif": "AI symptom clues and calm reasoning timeline",
+      "palette": [
+        "#F9F6EF",
+        "#E8F2ED",
+        "#D99A5B",
+        "#39433F",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Pet health AI symptom investigation screen with layered clue cards, abstract icons, reasoning timeline, calm next-step chips, warm clinic style, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Dramatic Screen",
+            "description": "Richer blacks, sharper highlights, and more cinematic emphasis",
+            "promptHint": "Apply high-contrast cinematic treatment to Symptom Clue Board Screen; keep 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。 recognizable but alter camera angle or staging"
+          },
+          {
+            "label": "Candid Screen",
+            "description": "More natural texture and believable lived-in detail for Symptom Clue Board Screen",
+            "promptHint": "Shift Symptom Clue Board Screen toward documentary realism while preserving 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around Symptom Clue Board Screen",
+            "promptHint": "Apply a polished editorial treatment to Symptom Clue Board Screen; preserve 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。 while changing the composition enough to read as a new frame"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Warm Screen",
+            "description": "Warmer neutrals and tactile highlights around Symptom Clue Board Screen",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Symptom Clue Board Screen"
+          },
+          {
+            "label": "Accent Screen",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to Symptom Clue Board Screen without changing the main subject"
+          },
+          {
+            "label": "Unexpected Screen",
+            "description": "A more surprising secondary color relationship around Symptom Clue Board Screen",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen In Use",
+            "description": "A more believable real-world context for Symptom Clue Board Screen",
+            "promptHint": "Place Symptom Clue Board Screen into a realistic usage context; preserve the source image's core cue: 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。"
+          },
+          {
+            "label": "Screen Exterior",
+            "description": "Move Symptom Clue Board Screen into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Symptom Clue Board Screen into an exterior or entryway scene while preserving the core cue: 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。"
+          },
+          {
+            "label": "Screen Studio",
+            "description": "A cleaner controlled studio setting that keeps Symptom Clue Board Screen dominant",
+            "promptHint": "Move Symptom Clue Board Screen into a cleaner studio-hero setting while preserving 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Screen Cues",
+            "description": "Add restrained supporting objects that clarify the context of Symptom Clue Board Screen",
+            "promptHint": "Add a few contextual props that reinforce 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。 without distracting from Symptom Clue Board Screen"
+          },
+          {
+            "label": "Unexpected Screen Prop",
+            "description": "One surprising but believable object that opens a new story around Symptom Clue Board Screen",
+            "promptHint": "Add one unexpected supporting prop that extends 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。 without stealing focus from Symptom Clue Board Screen"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Symptom Clue Board Screen carries more weight",
+            "promptHint": "Remove nonessential props and keep Symptom Clue Board Screen as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Symptom Clue Board Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Symptom Clue Board Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Symptom Clue Board Screen carry the image"
+          },
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with Symptom Clue Board Screen",
+            "promptHint": "Introduce a collector or tastemaker presence around Symptom Clue Board Screen while changing wardrobe, gesture, or posture"
+          }
+        ],
+        "format": [
+          {
+            "label": "Screen Crop",
+            "description": "Closer inspection of the material, surface, or focal subject",
+            "promptHint": "Create a closer detail crop of Symptom Clue Board Screen; keep 症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。 legible"
+          },
+          {
+            "label": "Split-Depth Screen",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Symptom Clue Board Screen; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Symptom Clue Board Screen to a wide hero composition with room for layout"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/symptom-clue-board-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/symptom-clue-board-screen.jpg",
+      "sourceImageUrl": "/generated/symptom-clue-board-screen.png"
+    },
+    {
+      "id": "vet-briefing-capsule-screen",
+      "title": "Vet Briefing Capsule Screen",
+      "caption": "兽医简报舱：结构化主诉、症状变化、附件和复诊准备。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "focused, composed, trustworthy",
+      "motif": "calm veterinary briefing and export-ready summary",
+      "palette": [
+        "#FFFFFF",
+        "#EAF6F2",
+        "#6EA897",
+        "#263431",
+        "#D9A35F"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Veterinary briefing mode with pet hero, structured summary blocks, symptom timeline, attachment cards, calm confirmation action, white and blue-green clinical warmth, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Dramatic Screen",
+            "description": "Richer blacks, sharper highlights, and more cinematic emphasis",
+            "promptHint": "Apply high-contrast cinematic treatment to Vet Briefing Capsule Screen; keep 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。 recognizable but alter camera angle or staging"
+          },
+          {
+            "label": "Candid Screen",
+            "description": "More natural texture and believable lived-in detail for Vet Briefing Capsule Screen",
+            "promptHint": "Shift Vet Briefing Capsule Screen toward documentary realism while preserving 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around Vet Briefing Capsule Screen",
+            "promptHint": "Apply a polished editorial treatment to Vet Briefing Capsule Screen; preserve 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。 while changing the composition enough to read as a new frame"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Accent Screen",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to Vet Briefing Capsule Screen without changing the main subject"
+          },
+          {
+            "label": "Unexpected Screen",
+            "description": "A more surprising secondary color relationship around Vet Briefing Capsule Screen",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。"
+          },
+          {
+            "label": "Cool Screen",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Vet Briefing Capsule Screen; keep 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。 intact"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for Vet Briefing Capsule Screen, keeping the most important source cue visible"
+          },
+          {
+            "label": "Screen Backstage",
+            "description": "A behind-the-scenes environment that adds process and atmosphere around Vet Briefing Capsule Screen",
+            "promptHint": "Reframe Vet Briefing Capsule Screen as a backstage or preparation moment; keep 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。 recognizable"
+          },
+          {
+            "label": "Screen In Use",
+            "description": "A more believable real-world context for Vet Briefing Capsule Screen",
+            "promptHint": "Place Vet Briefing Capsule Screen into a realistic usage context; preserve the source image's core cue: 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around Vet Briefing Capsule Screen; preserve the source image's composition"
+          },
+          {
+            "label": "Process Cues",
+            "description": "Tools, traces, or handling details that make Vet Briefing Capsule Screen feel actively used",
+            "promptHint": "Add restrained process cues around Vet Briefing Capsule Screen; preserve the strongest visual idea from 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。"
+          },
+          {
+            "label": "Screen Cues",
+            "description": "Add restrained supporting objects that clarify the context of Vet Briefing Capsule Screen",
+            "promptHint": "Add a few contextual props that reinforce 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。 without distracting from Vet Briefing Capsule Screen"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Vet Briefing Capsule Screen",
+            "promptHint": "Add a cropped passing figure or gesture around Vet Briefing Capsule Screen; keep identity nonspecific and preserve 兽医简报舱：结构化主诉、症状变化、附件和复诊准备。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Vet Briefing Capsule Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Vet Briefing Capsule Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Vet Briefing Capsule Screen carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Vet Briefing Capsule Screen to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Screen",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Vet Briefing Capsule Screen as a square frame with a changed focal balance and the core cue intact"
+          },
+          {
+            "label": "Portrait Screen",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt Vet Briefing Capsule Screen to a portrait social crop while preserving the key visual read"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/vet-briefing-capsule-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/vet-briefing-capsule-screen.jpg",
+      "sourceImageUrl": "/generated/vet-briefing-capsule-screen.png"
+    },
+    {
+      "id": "daily-care-orbit-screen",
+      "title": "Daily Care Orbit Screen",
+      "caption": "日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "ritualistic, gentle, efficient",
+      "motif": "daily care orbit and pet avatar progress",
+      "palette": [
+        "#FFF7EC",
+        "#F2B75D",
+        "#A7C9B7",
+        "#705B43",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Daily pet care ritual screen with compact orbit path, abstract care icons, small pet avatar marker, status chips, primary record button, soft bottom navigation, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Candid Screen",
+            "description": "More natural texture and believable lived-in detail for Daily Care Orbit Screen",
+            "promptHint": "Shift Daily Care Orbit Screen toward documentary realism while preserving 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around Daily Care Orbit Screen",
+            "promptHint": "Apply a polished editorial treatment to Daily Care Orbit Screen; preserve 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Screen",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Daily Care Orbit Screen",
+            "promptHint": "Strip Daily Care Orbit Screen down to a minimal premium frame; keep 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。 legible but change the surrounding space"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Unexpected Screen",
+            "description": "A more surprising secondary color relationship around Daily Care Orbit Screen",
+            "promptHint": "Keep the subject recognizable, but introduce one unexpected supporting color that extends 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          },
+          {
+            "label": "Cool Screen",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Daily Care Orbit Screen; keep 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。 intact"
+          },
+          {
+            "label": "Monochrome Screen",
+            "description": "A narrower near-monochrome treatment that lets one cue around Daily Care Orbit Screen stand out",
+            "promptHint": "Reduce the palette around Daily Care Orbit Screen to tonal restraint plus one preserved cue from 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen In Use",
+            "description": "A more believable real-world context for Daily Care Orbit Screen",
+            "promptHint": "Place Daily Care Orbit Screen into a realistic usage context; preserve the source image's core cue: 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          },
+          {
+            "label": "Screen Exterior",
+            "description": "Move Daily Care Orbit Screen into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Daily Care Orbit Screen into an exterior or entryway scene while preserving the core cue: 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          },
+          {
+            "label": "Screen Studio",
+            "description": "A cleaner controlled studio setting that keeps Daily Care Orbit Screen dominant",
+            "promptHint": "Move Daily Care Orbit Screen into a cleaner studio-hero setting while preserving 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Screen Cues",
+            "description": "Add restrained supporting objects that clarify the context of Daily Care Orbit Screen",
+            "promptHint": "Add a few contextual props that reinforce 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。 without distracting from Daily Care Orbit Screen"
+          },
+          {
+            "label": "Unexpected Screen Prop",
+            "description": "One surprising but believable object that opens a new story around Daily Care Orbit Screen",
+            "promptHint": "Add one unexpected supporting prop that extends 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。 without stealing focus from Daily Care Orbit Screen"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Daily Care Orbit Screen carries more weight",
+            "promptHint": "Remove nonessential props and keep Daily Care Orbit Screen as the dominant read"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Daily Care Orbit Screen",
+            "promptHint": "Add a cropped passing figure or gesture around Daily Care Orbit Screen; keep identity nonspecific and preserve 日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Daily Care Orbit Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Daily Care Orbit Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Daily Care Orbit Screen carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Split-Depth Screen",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Daily Care Orbit Screen; do not make a collage or panel layout"
+          },
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Daily Care Orbit Screen to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Screen",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Daily Care Orbit Screen as a square frame with a changed focal balance and the core cue intact"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/daily-care-orbit-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/daily-care-orbit-screen.jpg",
+      "sourceImageUrl": "/generated/daily-care-orbit-screen.png"
+    },
+    {
+      "id": "memory-archive-ribbon-screen",
+      "title": "Memory Archive Ribbon Screen",
+      "caption": "成长记忆档案：不是相册，而是可回看的照护记忆丝带。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "nostalgic, clean, intimate",
+      "motif": "growth memory ribbon and health archive",
+      "palette": [
+        "#FEF7EF",
+        "#E7CDA5",
+        "#87AA9B",
+        "#4A4039",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Pet growth memory archive with elegant vertical ribbon, abstract thumbnails, health event beads, monthly care markers, warm paper-like surfaces, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around Memory Archive Ribbon Screen",
+            "promptHint": "Apply a polished editorial treatment to Memory Archive Ribbon Screen; preserve 成长记忆档案：不是相册，而是可回看的照护记忆丝带。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Screen",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Memory Archive Ribbon Screen",
+            "promptHint": "Strip Memory Archive Ribbon Screen down to a minimal premium frame; keep 成长记忆档案：不是相册，而是可回看的照护记忆丝带。 legible but change the surrounding space"
+          },
+          {
+            "label": "Motion Screen",
+            "description": "More kinetic gesture, blur, or environmental energy around Memory Archive Ribbon Screen",
+            "promptHint": "Introduce controlled motion to Memory Archive Ribbon Screen while preserving the campaign cue: 成长记忆档案：不是相册，而是可回看的照护记忆丝带。"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Cool Screen",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around Memory Archive Ribbon Screen; keep 成长记忆档案：不是相册，而是可回看的照护记忆丝带。 intact"
+          },
+          {
+            "label": "Monochrome Screen",
+            "description": "A narrower near-monochrome treatment that lets one cue around Memory Archive Ribbon Screen stand out",
+            "promptHint": "Reduce the palette around Memory Archive Ribbon Screen to tonal restraint plus one preserved cue from 成长记忆档案：不是相册，而是可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Warm Screen",
+            "description": "Warmer neutrals and tactile highlights around Memory Archive Ribbon Screen",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Memory Archive Ribbon Screen"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen Exterior",
+            "description": "Move Memory Archive Ribbon Screen into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Memory Archive Ribbon Screen into an exterior or entryway scene while preserving the core cue: 成长记忆档案：不是相册，而是可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Screen Studio",
+            "description": "A cleaner controlled studio setting that keeps Memory Archive Ribbon Screen dominant",
+            "promptHint": "Move Memory Archive Ribbon Screen into a cleaner studio-hero setting while preserving 成长记忆档案：不是相册，而是可回看的照护记忆丝带。"
+          },
+          {
+            "label": "Screen Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for Memory Archive Ribbon Screen, keeping the most important source cue visible"
+          }
+        ],
+        "props": [
+          {
+            "label": "Unexpected Screen Prop",
+            "description": "One surprising but believable object that opens a new story around Memory Archive Ribbon Screen",
+            "promptHint": "Add one unexpected supporting prop that extends 成长记忆档案：不是相册，而是可回看的照护记忆丝带。 without stealing focus from Memory Archive Ribbon Screen"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so Memory Archive Ribbon Screen carries more weight",
+            "promptHint": "Remove nonessential props and keep Memory Archive Ribbon Screen as the dominant read"
+          },
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around Memory Archive Ribbon Screen; preserve the source image's composition"
+          }
+        ],
+        "character": [
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Memory Archive Ribbon Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Memory Archive Ribbon Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Memory Archive Ribbon Screen carry the image"
+          },
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with Memory Archive Ribbon Screen",
+            "promptHint": "Introduce a collector or tastemaker presence around Memory Archive Ribbon Screen while changing wardrobe, gesture, or posture"
+          }
+        ],
+        "format": [
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt Memory Archive Ribbon Screen to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Screen",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose Memory Archive Ribbon Screen as a square frame with a changed focal balance and the core cue intact"
+          },
+          {
+            "label": "Portrait Screen",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt Memory Archive Ribbon Screen to a portrait social crop while preserving the key visual read"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/memory-archive-ribbon-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/memory-archive-ribbon-screen.jpg",
+      "sourceImageUrl": "/generated/memory-archive-ribbon-screen.png"
+    },
+    {
+      "id": "food-bowl-calibrator-screen",
+      "title": "Food Bowl Calibrator Screen",
+      "caption": "饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "tactile, practical, warm",
+      "motif": "interactive bowl gauge and feeding plan",
+      "palette": [
+        "#FFF4E4",
+        "#DFA451",
+        "#B7D3C1",
+        "#3C332B",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Feeding plan screen centered on elegant bowl-shaped portion gauge, kibble fill level, compact pet nutrition controls, treat budget chips, meal schedule cards, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Candid Screen",
+            "description": "More natural texture and believable lived-in detail for Food Bowl Calibrator Screen",
+            "promptHint": "Shift Food Bowl Calibrator Screen toward documentary realism while preserving 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。; make lighting and staging feel newly observed"
+          },
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around Food Bowl Calibrator Screen",
+            "promptHint": "Apply a polished editorial treatment to Food Bowl Calibrator Screen; preserve 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Screen",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around Food Bowl Calibrator Screen",
+            "promptHint": "Strip Food Bowl Calibrator Screen down to a minimal premium frame; keep 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 legible but change the surrounding space"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Monochrome Screen",
+            "description": "A narrower near-monochrome treatment that lets one cue around Food Bowl Calibrator Screen stand out",
+            "promptHint": "Reduce the palette around Food Bowl Calibrator Screen to tonal restraint plus one preserved cue from 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。"
+          },
+          {
+            "label": "Warm Screen",
+            "description": "Warmer neutrals and tactile highlights around Food Bowl Calibrator Screen",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of Food Bowl Calibrator Screen"
+          },
+          {
+            "label": "Accent Screen",
+            "description": "A stronger accent color against quieter supporting surfaces",
+            "promptHint": "Add a controlled accent palette to Food Bowl Calibrator Screen without changing the main subject"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen Backstage",
+            "description": "A behind-the-scenes environment that adds process and atmosphere around Food Bowl Calibrator Screen",
+            "promptHint": "Reframe Food Bowl Calibrator Screen as a backstage or preparation moment; keep 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 recognizable"
+          },
+          {
+            "label": "Screen In Use",
+            "description": "A more believable real-world context for Food Bowl Calibrator Screen",
+            "promptHint": "Place Food Bowl Calibrator Screen into a realistic usage context; preserve the source image's core cue: 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。"
+          },
+          {
+            "label": "Screen Exterior",
+            "description": "Move Food Bowl Calibrator Screen into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate Food Bowl Calibrator Screen into an exterior or entryway scene while preserving the core cue: 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。"
+          }
+        ],
+        "props": [
+          {
+            "label": "Process Cues",
+            "description": "Tools, traces, or handling details that make Food Bowl Calibrator Screen feel actively used",
+            "promptHint": "Add restrained process cues around Food Bowl Calibrator Screen; preserve the strongest visual idea from 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。"
+          },
+          {
+            "label": "Screen Cues",
+            "description": "Add restrained supporting objects that clarify the context of Food Bowl Calibrator Screen",
+            "promptHint": "Add a few contextual props that reinforce 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 without distracting from Food Bowl Calibrator Screen"
+          },
+          {
+            "label": "Unexpected Screen Prop",
+            "description": "One surprising but believable object that opens a new story around Food Bowl Calibrator Screen",
+            "promptHint": "Add one unexpected supporting prop that extends 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 without stealing focus from Food Bowl Calibrator Screen"
+          }
+        ],
+        "character": [
+          {
+            "label": "Passing Figure",
+            "description": "A partial human presence that adds scale and motion without taking over Food Bowl Calibrator Screen",
+            "promptHint": "Add a cropped passing figure or gesture around Food Bowl Calibrator Screen; keep identity nonspecific and preserve 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。"
+          },
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with Food Bowl Calibrator Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with Food Bowl Calibrator Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let Food Bowl Calibrator Screen carry the image"
+          }
+        ],
+        "format": [
+          {
+            "label": "Portrait Screen",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt Food Bowl Calibrator Screen to a portrait social crop while preserving the key visual read"
+          },
+          {
+            "label": "Screen Crop",
+            "description": "Closer inspection of the material, surface, or focal subject",
+            "promptHint": "Create a closer detail crop of Food Bowl Calibrator Screen; keep 饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。 legible"
+          },
+          {
+            "label": "Split-Depth Screen",
+            "description": "Foreground detail and background atmosphere in one composed frame",
+            "promptHint": "Create a single-frame split-depth composition for Food Bowl Calibrator Screen; do not make a collage or panel layout"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/food-bowl-calibrator-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/food-bowl-calibrator-screen.jpg",
+      "sourceImageUrl": "/generated/food-bowl-calibrator-screen.png"
+    },
+    {
+      "id": "ai-care-companion-screen",
+      "title": "AI Care Companion Screen",
+      "caption": "AI 护理聊天：消息自然变成护理卡片和下一步动作。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "attentive, intelligent, warm",
+      "motif": "adaptive AI chat and care recommendation cards",
+      "palette": [
+        "#FFF9F1",
+        "#EFB35B",
+        "#8FBCA9",
+        "#363E39",
+        "#FFFFFF"
+      ],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Immersive AI pet care chat with warm message bubbles, compact care cards, next-step chips, pet profile mini-card, soft composer bar, no readable text. Single coherent frame, one composed scene or object detail, not a collage, not a grid, not a contact sheet, not a scrapbook, not a mood board layout.",
+      "remixSuggestions": {
+        "style": [
+          {
+            "label": "Editorial Screen",
+            "description": "Cleaner light and hierarchy around AI Care Companion Screen",
+            "promptHint": "Apply a polished editorial treatment to AI Care Companion Screen; preserve AI 护理聊天：消息自然变成护理卡片和下一步动作。 while changing the composition enough to read as a new frame"
+          },
+          {
+            "label": "Minimal Screen",
+            "description": "Quieter hierarchy, more negative space, and stricter restraint around AI Care Companion Screen",
+            "promptHint": "Strip AI Care Companion Screen down to a minimal premium frame; keep AI 护理聊天：消息自然变成护理卡片和下一步动作。 legible but change the surrounding space"
+          },
+          {
+            "label": "Motion Screen",
+            "description": "More kinetic gesture, blur, or environmental energy around AI Care Companion Screen",
+            "promptHint": "Introduce controlled motion to AI Care Companion Screen while preserving the campaign cue: AI 护理聊天：消息自然变成护理卡片和下一步动作。"
+          }
+        ],
+        "palette": [
+          {
+            "label": "Cool Screen",
+            "description": "Crisper whites, cooler shadows, and restrained technical contrast",
+            "promptHint": "Use cooler minimal accents around AI Care Companion Screen; keep AI 护理聊天：消息自然变成护理卡片和下一步动作。 intact"
+          },
+          {
+            "label": "Monochrome Screen",
+            "description": "A narrower near-monochrome treatment that lets one cue around AI Care Companion Screen stand out",
+            "promptHint": "Reduce the palette around AI Care Companion Screen to tonal restraint plus one preserved cue from AI 护理聊天：消息自然变成护理卡片和下一步动作。"
+          },
+          {
+            "label": "Warm Screen",
+            "description": "Warmer neutrals and tactile highlights around AI Care Companion Screen",
+            "promptHint": "Shift the palette warmer while preserving the subject and composition of AI Care Companion Screen"
+          }
+        ],
+        "scene": [
+          {
+            "label": "Screen Exterior",
+            "description": "Move AI Care Companion Screen into an outdoor or threshold environment with a fresh spatial read",
+            "promptHint": "Relocate AI Care Companion Screen into an exterior or entryway scene while preserving the core cue: AI 护理聊天：消息自然变成护理卡片和下一步动作。"
+          },
+          {
+            "label": "Screen Studio",
+            "description": "A cleaner controlled studio setting that keeps AI Care Companion Screen dominant",
+            "promptHint": "Move AI Care Companion Screen into a cleaner studio-hero setting while preserving AI 护理聊天：消息自然变成护理卡片和下一步动作。"
+          },
+          {
+            "label": "Screen Detail",
+            "description": "A tighter scene focused on material, craft, or product detail",
+            "promptHint": "Create a close-detail scene for AI Care Companion Screen, keeping the most important source cue visible"
+          }
+        ],
+        "props": [
+          {
+            "label": "Unexpected Screen Prop",
+            "description": "One surprising but believable object that opens a new story around AI Care Companion Screen",
+            "promptHint": "Add one unexpected supporting prop that extends AI 护理聊天：消息自然变成护理卡片和下一步动作。 without stealing focus from AI Care Companion Screen"
+          },
+          {
+            "label": "Minimal Support",
+            "description": "Reduce surrounding objects so AI Care Companion Screen carries more weight",
+            "promptHint": "Remove nonessential props and keep AI Care Companion Screen as the dominant read"
+          },
+          {
+            "label": "Premium Finish",
+            "description": "Sharper materials, cleaner surfaces, and more elevated detail",
+            "promptHint": "Add premium material cues around AI Care Companion Screen; preserve the source image's composition"
+          }
+        ],
+        "character": [
+          {
+            "label": "Expert Hands",
+            "description": "More credible craft, authority, and purposeful interaction with AI Care Companion Screen",
+            "promptHint": "If a person appears, make them an expert operator interacting naturally with AI Care Companion Screen"
+          },
+          {
+            "label": "No Human",
+            "description": "Let the object, place, or composition carry the frame",
+            "promptHint": "Remove visible people and let AI Care Companion Screen carry the image"
+          },
+          {
+            "label": "Collector Persona",
+            "description": "A more intentional, taste-driven persona interacting with AI Care Companion Screen",
+            "promptHint": "Introduce a collector or tastemaker presence around AI Care Companion Screen while changing wardrobe, gesture, or posture"
+          }
+        ],
+        "format": [
+          {
+            "label": "Wide Screen",
+            "description": "Broader horizontal composition for landing-page or banner use",
+            "promptHint": "Adapt AI Care Companion Screen to a wide hero composition with room for layout"
+          },
+          {
+            "label": "Square Screen",
+            "description": "A balanced square crop for gallery or feed review",
+            "promptHint": "Recompose AI Care Companion Screen as a square frame with a changed focal balance and the core cue intact"
+          },
+          {
+            "label": "Portrait Screen",
+            "description": "Tighter vertical crop for social or story placement",
+            "promptHint": "Adapt AI Care Companion Screen to a portrait social crop while preserving the key visual read"
+          }
+        ]
+      },
+      "imageUrl": "/generated/mcp-thumbs/ai-care-companion-screen.jpg",
+      "previewImageUrl": "/generated/mcp-thumbs/ai-care-companion-screen.jpg",
+      "sourceImageUrl": "/generated/ai-care-companion-screen.png"
+    }
+  ]
+}

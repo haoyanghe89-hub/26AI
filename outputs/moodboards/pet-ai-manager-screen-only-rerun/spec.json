@@ -1,0 +1,97 @@
+{
+  "meta": {
+    "title": "宠物 AI 管家：纯界面 Screen-only 补跑",
+    "subtitle": "Regenerated mobile UI references without phone frames, hands, or scene backgrounds",
+    "brief": "把上一版效果不错的手机 mockup 方向重新生成为手机屏幕里的界面本身。",
+    "audience": "猫狗主人、多宠家庭、重视健康记录和 AI 辅助决策的用户。",
+    "constraints": [
+      "只显示 app 界面本身",
+      "无手机外壳、无手持、无环境背景、无透视倾斜",
+      "竖屏移动端界面参考图",
+      "避免幼稚卡通、后台面板、恐慌医疗"
+    ]
+  },
+  "signals": {
+    "product": "宠物 AI 管家",
+    "outputType": "screen-only mobile UI references",
+    "visualLanguage": [
+      "living pet operating system",
+      "daily care ritual",
+      "growth memory archive",
+      "calm veterinary preparation",
+      "warm premium mobile UI"
+    ]
+  },
+  "items": [
+    {
+      "id": "living-pulse-home-screen",
+      "title": "Living Pulse Home Screen",
+      "caption": "首页界面：宠物生命系统、呼吸波、今日护理入口和底部导航。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "warm, alive, calm",
+      "motif": "living pet operating system home screen",
+      "palette": ["#FFF8EF", "#F6C46E", "#8DB5A6", "#2F3A36", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Premium pet care home screen with living biometric pulse, warm off-white surfaces, amber and sage glow, compact pet identity, daily care entry points, soft bottom navigation, no readable text."
+    },
+    {
+      "id": "symptom-clue-board-screen",
+      "title": "Symptom Clue Board Screen",
+      "caption": "症状线索板：AI 把异常信息拆成线索、时间轴和下一步建议。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "careful, investigative, reassuring",
+      "motif": "AI symptom clues and calm reasoning timeline",
+      "palette": ["#F9F6EF", "#E8F2ED", "#D99A5B", "#39433F", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Pet health AI symptom investigation screen with layered clue cards, abstract icons, reasoning timeline, calm next-step chips, warm clinic style, no readable text."
+    },
+    {
+      "id": "vet-briefing-capsule-screen",
+      "title": "Vet Briefing Capsule Screen",
+      "caption": "兽医简报舱：结构化主诉、症状变化、附件和复诊准备。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "focused, composed, trustworthy",
+      "motif": "calm veterinary briefing and export-ready summary",
+      "palette": ["#FFFFFF", "#EAF6F2", "#6EA897", "#263431", "#D9A35F"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Veterinary briefing mode with pet hero, structured summary blocks, symptom timeline, attachment cards, calm confirmation action, white and blue-green clinical warmth, no readable text."
+    },
+    {
+      "id": "daily-care-orbit-screen",
+      "title": "Daily Care Orbit Screen",
+      "caption": "日常护理轨道：喂饭、喝水、便便、散步、用药形成轻仪式。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "ritualistic, gentle, efficient",
+      "motif": "daily care orbit and pet avatar progress",
+      "palette": ["#FFF7EC", "#F2B75D", "#A7C9B7", "#705B43", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Daily pet care ritual screen with compact orbit path, abstract care icons, small pet avatar marker, status chips, primary record button, soft bottom navigation, no readable text."
+    },
+    {
+      "id": "memory-archive-ribbon-screen",
+      "title": "Memory Archive Ribbon Screen",
+      "caption": "成长记忆档案：不是相册，而是可回看的照护记忆丝带。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "nostalgic, clean, intimate",
+      "motif": "growth memory ribbon and health archive",
+      "palette": ["#FEF7EF", "#E7CDA5", "#87AA9B", "#4A4039", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Pet growth memory archive with elegant vertical ribbon, abstract thumbnails, health event beads, monthly care markers, warm paper-like surfaces, no readable text."
+    },
+    {
+      "id": "food-bowl-calibrator-screen",
+      "title": "Food Bowl Calibrator Screen",
+      "caption": "饭碗校准器：用可视化饭碗刻度表达主粮和零食预算。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "tactile, practical, warm",
+      "motif": "interactive bowl gauge and feeding plan",
+      "palette": ["#FFF4E4", "#DFA451", "#B7D3C1", "#3C332B", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Feeding plan screen centered on elegant bowl-shaped portion gauge, kibble fill level, compact pet nutrition controls, treat budget chips, meal schedule cards, no readable text."
+    },
+    {
+      "id": "ai-care-companion-screen",
+      "title": "AI Care Companion Screen",
+      "caption": "AI 护理聊天：消息自然变成护理卡片和下一步动作。",
+      "source": "Regenerated screen-only image from previous moodboard direction.",
+      "tone": "attentive, intelligent, warm",
+      "motif": "adaptive AI chat and care recommendation cards",
+      "palette": ["#FFF9F1", "#EFB35B", "#8FBCA9", "#363E39", "#FFFFFF"],
+      "prompt": "Full-bleed portrait mobile app UI screenshot only, no phone frame, no device, no hand, no background. Immersive AI pet care chat with warm message bubbles, compact care cards, next-step chips, pet profile mini-card, soft composer bar, no readable text."
+    }
+  ]
+}
